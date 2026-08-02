@@ -111,6 +111,8 @@ export const AGGREGATOR_PROVIDER_IDS = new Set([
   "poixe-ai",
   "naga-ai",
   "chat-oripe",
+  "freeinference",
+  "free-ai",
 ]);
 
 export const ENTERPRISE_CLOUD_PROVIDER_IDS = new Set([
