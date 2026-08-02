@@ -40,6 +40,7 @@ interface FetchOptions {
   body?: unknown;
   redirect?: string;
   signal?: AbortSignal;
+  fingerprint?: { userAgent: string; secChUa: string; secChUaPlatform: string };
 }
 
 function normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> | undefined {

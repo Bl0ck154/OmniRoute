@@ -38,14 +38,25 @@ export interface BrowserBackedChatResult {
 }
 // ===================== MODULE PROXY =====================
 export interface BrowserPoolModule {
-  tryBackedChat(req: TryBackedChatRequest, signal?: AbortSignal): Promise<TryBackedChatResult>;
-  browserBackedChat(req: BrowserBackedChatRequest): Promise<ChatResult>;
-  getFreshCookiesWithWarmup(req: CookieRefreshRequest): Promise<CookieRefreshResult>;
-  getCachedCookies(domain: string): Promise<CookieStore | null>;
-  setCachedCookies(domain: string, cookies: CookieStore): Promise<void>;
-  clearCookieCache(domain?: string): Promise<void>;
+  browserBackedChat(req: BrowserBackedChatRequest): Promise<BrowserBackedChatResult>;
+  startBrowserWarmup(
+    poolKey: string,
+    chatPageUrl: string,
+    cookieDomain: string,
+    signal: AbortSignal | null
+  ): Promise<void>;
+  getFreshCookiesWithWarmup(
+    chatUrl: string,
+    chatPageUrl: string,
+    cookieDomain: string,
+    poolKey: string,
+    signal: AbortSignal | null
+  ): Promise<string | null>;
+  getCachedCookies(domain: string): string | null;
+  setCachedCookies(domain: string, cookieString: string, ttlMs?: number): void;
+  clearCookieCache(): void;
   shouldUseGrokBrowserBacked(): boolean;
-  setProxyResolver(fn: ProxyResolver): void;
+  setProxyResolver(fn: (providerKey: string) => Promise<unknown>): void;
 }
 let modPromise: Promise<BrowserPoolModule | null> | null = null;
 function getMod(): Promise<BrowserPoolModule | null> {
@@ -66,13 +77,13 @@ const COOKIE_POLL_TIMEOUT_MS = 5 * 1000;
 async function getCachedCookies(domain: string | undefined): Promise<string | undefined> {
   const mod = await getMod();
   if (!mod) return undefined;
-  return mod.getCachedCookies(domain);
+  return mod.getCachedCookies(domain ?? "") ?? undefined;
 }
 
 async function setCachedCookies(domain: string | undefined, cookies: string): Promise<void> {
   if (!domain) return;
   const mod = await getMod();
-  if (mod) await mod.setCachedCookies(domain, cookies);
+  if (mod) mod.setCachedCookies(domain, cookies);
 }
 
 export async function clearCookieCache(): Promise<void> {
@@ -254,7 +265,18 @@ export async function tryBackedChat(
   const mod = getMod();
 
   // Start browser warmup in parallel
-  mod.then((m) => m?.startBrowserWarmup?.().catch(() => {})).catch(() => {});
+  mod
+    .then((m) =>
+      m
+        ?.startBrowserWarmup?.(
+          req.poolKey,
+          req.chatPageUrl ?? req.chatUrl,
+          req.cookieDomain ?? "",
+          req.signal ?? null
+        )
+        .catch(() => {})
+    )
+    .catch(() => {});
 
   // Try HTTP path first
   try {
@@ -279,7 +301,13 @@ export async function tryBackedChat(
     // Get fresh cookies via browser (delegated — null check is safe)
     if (loaded) {
       try {
-        const fresh = await loaded.getFreshCookiesWithWarmup(req);
+        const fresh = await loaded.getFreshCookiesWithWarmup(
+          req.chatUrl,
+          req.chatPageUrl ?? req.chatUrl,
+          req.cookieDomain ?? "",
+          req.poolKey,
+          req.signal ?? null
+        );
         if (fresh) {
           if (req.cookieDomain) await setCachedCookies(req.cookieDomain, fresh);
           const retry = await httpBackedChat({ ...req, cookieString: fresh });
