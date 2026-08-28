@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SERVICE_USER=${SERVICE_USER:-admin}
+SERVICE_NAME=${SERVICE_NAME:-omniroute.service}
+CURRENT_LINK=${CURRENT_LINK:-/opt/omniroute-current}
+RELEASES_DIR=${RELEASES_DIR:-/opt/omniroute-releases}
+STATE_DIR=${STATE_DIR:-/var/lib/omniroute-production-update}
+DATA_DIR=${DATA_DIR:-/home/admin/.omniroute}
+PORT=${PORT:-20128}
+CANARY_PORT=${CANARY_PORT:-20228}
+# The updater runs as root. Address the target user's systemd manager directly so
+# deployments do not depend on an interactive user bus being inherited by runuser.
+SYSTEMCTL=(systemctl --user -M "${SERVICE_USER}@")
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null || die "required command missing: $1"; }
+json() { jq -er "$2" "$1"; }
+
+[[ $EUID -eq 0 ]] || die "must run as root"
+for tool in jq node npm curl sha256sum flock; do need "$tool"; done
+install -d -m 0755 "$RELEASES_DIR"
+install -d -m 0700 "$STATE_DIR"
+exec 9>"$STATE_DIR/lock"
+flock -n 9 || die "another update is already running"
+
+CLEANUP_STAGE=
+CLEANUP_PID=
+CLEANUP_TMP=
+cleanup() {
+  [[ -z $CLEANUP_PID ]] || kill "$CLEANUP_PID" 2>/dev/null || true
+  [[ -z $CLEANUP_TMP ]] || rm -rf "$CLEANUP_TMP"
+  [[ -z $CLEANUP_STAGE ]] || rm -rf "$CLEANUP_STAGE"
+}
+trap cleanup EXIT
+
+wait_http() {
+  local url=$1 expected=${2:-200}
+  for _ in {1..60}; do
+    code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)
+    [[ $code == "$expected" ]] && return 0
+    sleep 1
+  done
+  return 1
+}
+
+make_jwt() {
+  node -e 'const c=require("crypto"),s=process.argv[1],b=x=>Buffer.from(JSON.stringify(x)).toString("base64url"),h=b({alg:"HS256",typ:"JWT"}),p=b({authenticated:true,exp:Math.floor(Date.now()/1000)+300}),g=c.createHmac("sha256",s).update(h+"."+p).digest("base64url");process.stdout.write(h+"."+p+"."+g)' "$1"
+}
+
+canary() {
+  local package_root=$1 tmp pid token code
+  tmp=$(mktemp -d /tmp/omniroute-canary.XXXXXX)
+  chown "$SERVICE_USER:$SERVICE_USER" "$tmp"
+  (
+    cd "/home/$SERVICE_USER"
+    exec runuser -u "$SERVICE_USER" -- env \
+      JWT_SECRET=canary-jwt-secret-0123456789-abcdefghijklmnopqrstuvwxyz \
+      API_KEY_SECRET=canary-api-secret-0123456789-abcdefghijklmnopqrstuvwxyz \
+      INITIAL_PASSWORD=canary-only-password REQUIRE_API_KEY=true AUTH_COOKIE_SECURE=false \
+      OMNIROUTE_DISABLE_BACKGROUND_SERVICES=true DISABLE_SQLITE_AUTO_BACKUP=true \
+      NODE_ENV=production HOST=127.0.0.1 PORT="$CANARY_PORT" DATA_DIR="$tmp/data" \
+      /usr/bin/node "$package_root/bin/omniroute.mjs" --port "$CANARY_PORT" --no-open
+  ) >"$tmp/server.log" 2>&1 &
+  pid=$!
+  CLEANUP_PID=$pid
+  CLEANUP_TMP=$tmp
+  wait_http "http://127.0.0.1:$CANARY_PORT/api/auth/status" 200 || { cat "$tmp/server.log" >&2; return 1; }
+  code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$CANARY_PORT/v1/models" || true)
+  [[ $code == 401 ]] || { echo "canary API guard returned $code" >&2; return 1; }
+  token=$(make_jwt canary-jwt-secret-0123456789-abcdefghijklmnopqrstuvwxyz)
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Cookie: auth_token=$token" "http://127.0.0.1:$CANARY_PORT/dashboard" || true)
+  [[ $code == 200 ]] || { echo "canary dashboard returned $code" >&2; return 1; }
+  ! grep -Eq 'TypeError|ReferenceError|Internal Server Error' "$tmp/server.log" || { cat "$tmp/server.log" >&2; return 1; }
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  rm -rf "$tmp"
+  CLEANUP_PID=
+  CLEANUP_TMP=
+}
+
+backup_databases() {
+  local out="$STATE_DIR/database-backups/$(date -u +%Y%m%dT%H%M%SZ)"
+  install -d -m 0700 "$out"
+  if command -v sqlite3 >/dev/null; then
+    while IFS= read -r -d '' db; do
+      name=$(printf '%s' "$db" | sha256sum | cut -c1-16)
+      sqlite3 "$db" ".backup '$out/$name.sqlite'" || die "database backup failed: $db"
+      printf '%s\t%s\n' "$name.sqlite" "$db" >>"$out/index.tsv"
+    done < <(find "$DATA_DIR" -maxdepth 1 -type f \( -name '*.db' -o -name '*.sqlite' -o -name '*.sqlite3' \) -print0)
+  else
+    echo "sqlite3 unavailable; no consistent database backup created" >"$out/README"
+  fi
+  echo "$out"
+}
+
+switch_link() {
+  local target=$1
+  [[ -x "$target/bin/omniroute.mjs" ]] || die "launcher missing: $target"
+  runuser -u "$SERVICE_USER" -- test -x "$target/bin/omniroute.mjs" ||
+    die "launcher is not accessible to $SERVICE_USER: $target"
+  ln -sfn "$target" "$CURRENT_LINK.new"
+  mv -Tf "$CURRENT_LINK.new" "$CURRENT_LINK"
+  [[ $(readlink -f "$CURRENT_LINK") == "$target" ]] || die "atomic link switch failed"
+  runuser -u "$SERVICE_USER" -- test -x "$CURRENT_LINK/bin/omniroute.mjs" ||
+    die "switched launcher is not accessible to $SERVICE_USER"
+}
+
+restore_package() {
+  local previous=$1
+  switch_link "$previous"
+  "${SYSTEMCTL[@]}" restart "$SERVICE_NAME"
+  wait_http "http://127.0.0.1:$PORT/api/auth/status" 200 ||
+    die "rollback package did not recover"
+  rm -f "$STATE_DIR/pending"
+}
+
+install_release() {
+  local artifact=${1:?artifact required} manifest=${2:?manifest required}
+  [[ -f $artifact && -f $manifest ]] || die "artifact or manifest not found"
+  local schema
+  schema=$(json "$manifest" '.schemaVersion')
+  [[ $schema == 1 || $schema == 2 ]] || die "unsupported manifest"
+  [[ $(json "$manifest" '.package') == omniroute ]] || die "wrong package"
+  [[ $(json "$manifest" '.platform') == linux-x64 ]] || die "wrong platform"
+  local version revision expected actual release final stage previous db_backup
+  version=$(json "$manifest" '.version // .upstreamVersion')
+  revision=$(json "$manifest" '.customRevision // .patchRevision')
+  expected=$(json "$manifest" '.artifactSha256')
+  actual=$(sha256sum "$artifact" | awk '{print $1}')
+  [[ $actual == "$expected" ]] || die "artifact checksum mismatch"
+  if [[ $schema == 2 ]]; then
+    release="${version}-custom.${revision}"
+  else
+    release="${version}-patched.${revision}"
+  fi
+  final="$RELEASES_DIR/$release"
+  [[ ! -e $final ]] || die "release already exists: $final"
+  stage=$(mktemp -d "$RELEASES_DIR/.stage-${release}.XXXXXX")
+  CLEANUP_STAGE=$stage
+  npm install --prefix "$stage" --omit=dev --ignore-scripts=false "$artifact"
+  [[ $(node -p "require('$stage/node_modules/omniroute/package.json').version") == "$version" ]] || die "installed version mismatch"
+  chown -R "$SERVICE_USER:$SERVICE_USER" "$stage"
+  chmod 0755 "$stage"
+  runuser -u "$SERVICE_USER" -- test -x "$stage/node_modules/omniroute/bin/omniroute.mjs" ||
+    die "staged launcher is not accessible to $SERVICE_USER"
+  if [[ -x "$stage/node_modules/@esbuild/linux-x64/bin/esbuild" ]]; then
+    runuser -u "$SERVICE_USER" -- "$stage/node_modules/@esbuild/linux-x64/bin/esbuild" --version >/dev/null ||
+      die "staged esbuild is not executable by $SERVICE_USER"
+  fi
+  canary "$stage/node_modules/omniroute"
+  mv "$stage" "$final"
+  chmod 0755 "$final"
+  runuser -u "$SERVICE_USER" -- test -x "$final/node_modules/omniroute/bin/omniroute.mjs" ||
+    die "release launcher is not accessible to $SERVICE_USER"
+  if [[ -x "$final/node_modules/@esbuild/linux-x64/bin/esbuild" ]]; then
+    runuser -u "$SERVICE_USER" -- "$final/node_modules/@esbuild/linux-x64/bin/esbuild" --version >/dev/null ||
+      die "release esbuild is not executable by $SERVICE_USER"
+  fi
+  CLEANUP_STAGE=
+
+  previous=$(readlink -f "$CURRENT_LINK")
+  db_backup=$(backup_databases)
+  printf '%s\n' "$previous" >"$STATE_DIR/previous"
+  printf '%s\n' "$final/node_modules/omniroute" >"$STATE_DIR/pending"
+  switch_link "$final/node_modules/omniroute"
+  if ! "${SYSTEMCTL[@]}" restart "$SERVICE_NAME" || ! wait_http "http://127.0.0.1:$PORT/api/auth/status" 200; then
+    restore_package "$previous"
+    die "production health check failed; package rolled back (database backup: $db_backup)"
+  fi
+  code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/v1/models" || true)
+  if [[ $code != 401 ]]; then
+    restore_package "$previous"
+    die "production API guard returned $code; package rolled back"
+  fi
+  rm -f "$STATE_DIR/pending"
+  cp "$manifest" "$final/manifest.json"
+  echo "INSTALL_OK=1"
+  echo "CURRENT=$final/node_modules/omniroute"
+  echo "PREVIOUS=$previous"
+  echo "DATABASE_BACKUP=$db_backup"
+}
+
+rollback() {
+  [[ -f "$STATE_DIR/previous" ]] || die "no previous release recorded"
+  local target current
+  target=$(cat "$STATE_DIR/previous")
+  [[ -x "$target/bin/omniroute.mjs" ]] || die "previous launcher missing: $target"
+  current=$(readlink -f "$CURRENT_LINK")
+  canary "$target"
+  switch_link "$target"
+  printf '%s\n' "$current" >"$STATE_DIR/previous"
+  "${SYSTEMCTL[@]}" restart "$SERVICE_NAME"
+  wait_http "http://127.0.0.1:$PORT/api/auth/status" 200 || die "rollback target failed health check"
+  echo "ROLLBACK_OK=1"
+  echo "CURRENT=$target"
+}
+
+status() {
+  echo "CURRENT=$(readlink -f "$CURRENT_LINK" 2>/dev/null || echo missing)"
+  "${SYSTEMCTL[@]}" is-active "$SERVICE_NAME" || true
+  curl -sS -o /dev/null -w 'AUTH_STATUS_HTTP=%{http_code}\n' "http://127.0.0.1:$PORT/api/auth/status" || true
+  curl -sS -o /dev/null -w 'API_GUARD_HTTP=%{http_code}\n' "http://127.0.0.1:$PORT/v1/models" || true
+}
+
+case ${1:-} in
+  install) shift; install_release "$@" ;;
+  rollback) rollback ;;
+  status) status ;;
+  *) echo "usage: $0 {install ARTIFACT MANIFEST|rollback|status}" >&2; exit 2 ;;
+esac

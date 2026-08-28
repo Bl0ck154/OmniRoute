@@ -1,0 +1,132 @@
+name: Build custom OmniRoute release
+
+on:
+  workflow_dispatch:
+    inputs:
+      custom_revision:
+        description: Custom release revision
+        required: false
+        default: "1"
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: custom-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CUSTOM_REVISION: ${{ inputs.custom_revision }}
+      JWT_SECRET: ci-build-jwt-secret-0123456789-abcdefghijklmnopqrstuvwxyz
+      API_KEY_SECRET: ci-build-api-secret-0123456789-abcdefghijklmnopqrstuvwxyz
+      INITIAL_PASSWORD: ci-only-password
+      REQUIRE_API_KEY: "true"
+      AUTH_COOKIE_SECURE: "false"
+      OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      OMNIROUTE_BUILD_MEMORY_MB: "12288"
+      OMNIROUTE_USE_TURBOPACK: "0"
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: production
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Verify production source
+        run: |
+          test "$(git branch --show-current)" = "production"
+          test -z "$(git status --porcelain)"
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)"
+          echo "VERSION=$(node -p "require('./package.json').version")"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint custom-owned clean files
+        run: >-
+          ./node_modules/.bin/eslint
+          'open-sse/config/providers/registry/codex/index.ts'
+          'src/lib/oauth/services/codexImport.ts'
+          'open-sse/executors/codex/tools.ts'
+          'src/lib/usage/codexImageArtifactSink.ts'
+
+      - name: Test custom runtime behavior
+        run: >-
+          node --import tsx/esm
+          --import ./open-sse/utils/setupPolyfill.ts
+          --import ./tests/_setup/isolateDataDir.ts
+          --test --test-force-exit
+          tests/unit/cline-force-stream.test.ts
+          tests/unit/image-generation-handler.test.ts
+          tests/unit/codex-free-plan-image-generation.test.ts
+          tests/unit/codexBulkImport.test.ts
+          tests/unit/db-read-cache.test.ts
+          tests/unit/codex-image-artifact-sink.test.ts
+          tests/unit/gemini-web-image-account-fallback.test.ts
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Next release
+        timeout-minutes: 35
+        run: |
+          rm -rf .build dist
+          export OMNIROUTE_BUILD_SHA="$(git rev-parse --short HEAD)"
+          timeout --signal=TERM --kill-after=2m 33m npm run build
+
+      - name: Build CLI release
+        timeout-minutes: 15
+        run: |
+          export OMNIROUTE_BUILD_SHA="$(git rev-parse --short HEAD)"
+          timeout --signal=TERM --kill-after=2m 13m npm run build:cli
+          node scripts/build/write-build-sha.mjs
+
+      - name: Pack npm artifact
+        id: pack
+        run: |
+          mkdir -p artifacts
+          FILE=$(npm pack --pack-destination artifacts --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s)[0].filename))')
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+          tar -tzf "artifacts/$FILE" | grep -q '^package/dist/'
+
+      - name: Install packed artifact
+        run: npm install --prefix smoke-root --omit=dev "./artifacts/${{ steps.pack.outputs.file }}"
+
+      - name: Test packaged launcher and dashboard
+        run: node ops/packaged-smoke.mjs "$GITHUB_WORKSPACE/smoke-root/node_modules/omniroute"
+
+      - name: Create release manifest and checksum
+        run: |
+          node ops/make-production-manifest.mjs "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE/artifacts/${{ steps.pack.outputs.file }}" "$GITHUB_WORKSPACE/artifacts/manifest.json"
+          cd artifacts
+          sha256sum "${{ steps.pack.outputs.file }}" manifest.json > SHA256SUMS
+
+      - name: Preserve candidate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omniroute-${{ inputs.custom_revision }}-candidate
+          path: artifacts/*
+          retention-days: 3
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}-custom.${CUSTOM_REVISION}"
+          gh release create "$TAG" artifacts/* \
+            --title "OmniRoute ${VERSION} custom ${CUSTOM_REVISION}" \
+            --notes "Verified build from Bl0ck154/OmniRoute production at $(git rev-parse HEAD). Built and tested by GitHub Actions; never deployed automatically."
