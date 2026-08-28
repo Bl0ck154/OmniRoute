@@ -69,7 +69,7 @@ canary() {
   code=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$CANARY_PORT/v1/models" || true)
   [[ $code == 401 ]] || { echo "canary API guard returned $code" >&2; return 1; }
   token=$(make_jwt canary-jwt-secret-0123456789-abcdefghijklmnopqrstuvwxyz)
-  code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Cookie: auth_token=$token" "http://127.0.0.1:$CANARY_PORT/dashboard" || true)
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Cookie: auth_token=$token" "http://127.0.0.1:$CANARY_PORT/home" || true)
   [[ $code == 200 ]] || { echo "canary dashboard returned $code" >&2; return 1; }
   ! grep -Eq 'TypeError|ReferenceError|Internal Server Error' "$tmp/server.log" || { cat "$tmp/server.log" >&2; return 1; }
   kill "$pid" 2>/dev/null || true

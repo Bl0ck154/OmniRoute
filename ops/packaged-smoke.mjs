@@ -72,7 +72,7 @@ try {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
 
-  const response = await page.goto(`${origin}/dashboard`, {
+  const response = await page.goto(`${origin}/home`, {
     waitUntil: "domcontentloaded",
     timeout: 90_000
   });
