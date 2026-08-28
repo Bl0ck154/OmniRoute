@@ -291,6 +291,11 @@ import {
   getCallLogPipelineCaptureStreamChunks,
   getCallLogPipelineMaxSizeBytes,
 } from "@/lib/logEnv";
+import {
+  drainCodexImageArtifactStream,
+  persistCodexImageArtifacts,
+  resolveCodexImageArtifactCapture,
+} from "@/lib/usage/codexImageArtifactSink";
 import { logAuditEvent } from "@/lib/compliance";
 import { emit } from "@/lib/events/eventBus";
 import { adaptBodyForCompression } from "../services/compression/bodyAdapter.ts";
@@ -2958,6 +2963,15 @@ export async function handleChatCore({
   let onPipelineStreamError: streamFailure.PipelineStreamErrorHandler | null = null;
   let onClientDisconnectFinalize:
     ((event: { reason: string; duration: number }) => boolean) | null = null;
+  const codexImageArtifactCapture = resolveCodexImageArtifactCapture({
+    apiKeyId: apiKeyInfo?.id,
+    provider,
+    model,
+    endpoint: clientRawRequest?.endpoint,
+    requestBody: translatedBody,
+    headers: clientRawRequest?.headers,
+    correlationId,
+  });
 
   // Create stream controller for disconnect detection
   const streamController = createStreamController({
@@ -2986,7 +3000,9 @@ export async function handleChatCore({
     model,
     connectionId,
     clientResponseFormat,
-    clientAbortSignal: clientRawRequest?.signal,
+    // Scoped EtsyTrello image requests keep running after the caller times out. The
+    // private tee below remains the consumer and atomically persists the finished image.
+    clientAbortSignal: codexImageArtifactCapture ? null : clientRawRequest?.signal,
     allowCompletedToolHandoffGrace: isCodexResponsesEcho,
     clientDisconnectGracePeriodMs: STREAM_DISCONNECT_GRACE_PERIOD_MS,
   });
@@ -5535,6 +5551,26 @@ export async function handleChatCore({
     const cacheUsageLogMeta = buildCacheUsageLogMeta(streamUsage);
     const streamConnectionId = getCurrentConnectionId();
 
+    if (normalizedStreamStatus === 200 && codexImageArtifactCapture) {
+      try {
+        const artifacts = persistCodexImageArtifacts({
+          capture: codexImageArtifactCapture,
+          responseBody: clientPayload ?? streamResponseBody ?? providerPayload,
+        });
+        for (const artifact of artifacts) {
+          log?.info?.(
+            "ETSY_IMAGE_ARTIFACT",
+            `stored artifactId=${artifact.artifactId || "none"} correlationId=${artifact.correlationId} imageCallId=${artifact.imageCallId} format=${artifact.format} bytes=${artifact.sizeBytes} sha256=${artifact.sha256}`
+          );
+        }
+      } catch (error) {
+        log?.error?.(
+          "ETSY_IMAGE_ARTIFACT",
+          `store failed correlationId=${codexImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+
     if (normalizedStreamStatus === 200) {
       void maybeSyncClaudeExtraUsageState({
         provider,
@@ -5875,6 +5911,18 @@ export async function handleChatCore({
     responseHeaders,
   });
 
+  let clientStream = finalStream;
+  if (codexImageArtifactCapture) {
+    const [downstreamStream, artifactStream] = finalStream.tee();
+    clientStream = downstreamStream;
+    void drainCodexImageArtifactStream(artifactStream).catch((error) => {
+      log?.error?.(
+        "ETSY_IMAGE_ARTIFACT",
+        `drain failed correlationId=${codexImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+  }
+
   // ── Gamification event (fire-and-forget) ──
   await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
 
@@ -5891,7 +5939,7 @@ export async function handleChatCore({
 
   return {
     success: true,
-    response: new Response(finalStream, {
+    response: new Response(clientStream, {
       headers: responseHeaders,
     }),
   };
