@@ -1544,11 +1544,6 @@
       "count": 1
     }
   },
-  "src/lib/api/proxyRegistryRouteHandlers.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/cli-helper/config-generator/claude.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -1589,16 +1584,6 @@
       "count": 2
     }
   },
-  "src/lib/cloudSync.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/combos/builderOptions.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/combos/controlCenter.ts": {
     "no-restricted-syntax": {
       "count": 1
@@ -1606,11 +1591,6 @@
   },
   "src/lib/compliance/index.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/container.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -1626,9 +1606,6 @@
   },
   "src/lib/credentialHealth/scheduler.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -1752,21 +1729,6 @@
       "count": 1
     }
   },
-  "src/lib/evals/runtime.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/freeProxyProviders/scheduler.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/freeProxyProviders/syncCycle.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/guardrails/promptInjection.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
@@ -1777,23 +1739,8 @@
       "count": 1
     }
   },
-  "src/lib/idempotencyLayer.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/images/imageRouteModel.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/jobRegistry/index.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/localHealthCheck.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -1807,18 +1754,8 @@
       "count": 1
     }
   },
-  "src/lib/memory/embedding/index.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/memory/genericBackend.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/memory/reindex.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -1830,16 +1767,6 @@
   "src/lib/memory/sqliteBackend.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 2
-    }
-  },
-  "src/lib/memory/store.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/memory/vectorStore.ts": {
-    "no-restricted-imports": {
-      "count": 1
     }
   },
   "src/lib/middleware/registry.ts": {
@@ -1854,9 +1781,6 @@
   },
   "src/lib/monitoring/providerHealthAutopilot.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-restricted-imports": {
       "count": 1
     },
     "no-restricted-syntax": {
@@ -1918,31 +1842,8 @@
       "count": 3
     }
   },
-  "src/lib/oauth/utils/agyAuthImport.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/oauth/utils/claudeAuthFile.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/oauth/utils/claudeAuthImport.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/oauth/utils/codexAuthFile.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/oauth/utils/codexAuthImport.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -1971,11 +1872,6 @@
       "count": 2
     }
   },
-  "src/lib/providerModels/managedAvailableModels.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/providers/validation.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -1996,44 +1892,18 @@
       "count": 1
     }
   },
-  "src/lib/proxyHealth/scheduler.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/quota/planResolver.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/quota/quotaAdapters.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/quota/quotaCombos.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/quota/quotaKey.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
   "src/lib/quota/redisQuotaStore.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    },
-    "no-restricted-imports": {
-      "count": 1
     }
   },
   "src/lib/quota/sqliteQuotaStore.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    },
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -2044,11 +1914,6 @@
   },
   "src/lib/services/ServiceSupervisor.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/services/quotaAutoPing.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -2092,11 +1957,6 @@
       "count": 1
     }
   },
-  "src/lib/sync/bundle.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
   "src/lib/tailscaleTunnel.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
@@ -2104,16 +1964,6 @@
   },
   "src/lib/telegram/initData.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/tokenHealthCheck.ts": {
-    "no-restricted-imports": {
-      "count": 1
-    }
-  },
-  "src/lib/tokenHealthCheckCopilot.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -2129,11 +1979,6 @@
   },
   "src/lib/usage/callLogs.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/usage/codexResetCredits.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
@@ -2177,11 +2022,6 @@
   },
   "src/lib/warmupScheduler.ts": {
     "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/lib/ws/handshake.ts": {
-    "no-restricted-imports": {
       "count": 1
     }
   },
