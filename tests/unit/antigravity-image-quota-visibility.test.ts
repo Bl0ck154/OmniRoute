@@ -110,7 +110,11 @@ test("Provider Limits surfaces gemini-3.1-flash-image quota but hides unrelated 
   );
 
   assert.ok(result && "quotas" in result, "should return quotas");
-  const quotas = (result as any).quotas as Record<string, any>;
+  const quotas = (
+    result as {
+      quotas: Record<string, { remainingPercentage?: number; quotaSource?: string }>;
+    }
+  ).quotas;
 
   assert.ok(quotas["gemini-3.1-flash-image"], "image quota should be visible");
   assert.equal(quotas["gemini-3.1-flash-image"].remainingPercentage, 25);
