@@ -409,7 +409,8 @@ async function postHandler(request: Request, _context?: unknown) {
       parsed.provider,
       null,
       allowedConnections,
-      resolvedModel
+      resolvedModel,
+      { bypassQuotaPolicy: true }
     );
     if (!credentials) {
       return errorResponse(
@@ -438,7 +439,10 @@ async function postHandler(request: Request, _context?: unknown) {
           null,
           allowedConnections,
           requestedModel,
-          { excludeConnectionIds: Array.from(excludedConnectionIds) }
+          {
+            excludeConnectionIds: Array.from(excludedConnectionIds),
+            bypassQuotaPolicy: true,
+          }
         ),
       execute: async (attemptCredentials) => {
         const connectionId =

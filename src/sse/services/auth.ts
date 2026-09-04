@@ -1824,16 +1824,23 @@ export async function getProviderCredentials(
     }
 
     // Quota-aware: partition accounts with and without quota for the requested scope.
-    const withQuota: typeof policyEligibleConnections = [];
+    // An explicit bypass must cover both the configured quota policy above and this
+    // cached exhaustion partition. Callers such as hosted image_generation use an
+    // independent upstream quota and must be allowed to make the real provider call.
+    const withQuota: typeof policyEligibleConnections = bypassQuotaPolicy
+      ? [...policyEligibleConnections]
+      : [];
     const exhaustedQuota: typeof policyEligibleConnections = [];
-    for (const c of policyEligibleConnections) {
-      const exhausted = isQuotaExhaustedForRequest(c.id, provider, requestedModel);
-      const existing = quotaResults.get(c.id);
-      if (existing) existing.exhausted = exhausted;
-      if (!exhausted) {
-        withQuota.push(c);
-      } else {
-        exhaustedQuota.push(c);
+    if (!bypassQuotaPolicy) {
+      for (const c of policyEligibleConnections) {
+        const exhausted = isQuotaExhaustedForRequest(c.id, provider, requestedModel);
+        const existing = quotaResults.get(c.id);
+        if (existing) existing.exhausted = exhausted;
+        if (!exhausted) {
+          withQuota.push(c);
+        } else {
+          exhaustedQuota.push(c);
+        }
       }
     }
 

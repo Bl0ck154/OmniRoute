@@ -12,6 +12,8 @@ const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const settingsDb = await import("../../src/lib/db/settings.ts");
+const quotaSnapshotsDb = await import("../../src/lib/db/quotaSnapshots.ts");
+const quotaCache = await import("../../src/domain/quotaCache.ts");
 const imageRoute = await import("../../src/app/api/v1/images/generations/route.ts");
 const providerImageRoute =
   await import("../../src/app/api/v1/providers/[provider]/images/generations/route.ts");
@@ -541,6 +543,64 @@ test("v1 Codex image edit rotates on insufficient_quota and stays inside the API
     "Bearer codex-image-quota-empty",
     "Bearer codex-image-quota-healthy",
   ]);
+});
+
+test("v1 Codex image edit does not gate image-capable accounts on cached text quota", async () => {
+  const imageCapable = await seedConnection("codex", {
+    apiKey: "codex-text-quota-empty-image-capable",
+    priority: 1,
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  assert.ok(imageCapable.id);
+
+  const resetAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (const windowKey of ["session", "weekly"]) {
+    quotaSnapshotsDb.saveQuotaSnapshot({
+      provider: "codex",
+      connection_id: String(imageCapable.id),
+      window_key: windowKey,
+      remaining_percentage: 0,
+      is_exhausted: 1,
+      next_reset_at: resetAt,
+      window_duration_ms: null,
+      raw_data: JSON.stringify({ source: "text-quota-test" }),
+    });
+  }
+  quotaCache.__clearForTests();
+
+  const authorizationHeaders: string[] = [];
+  globalThis.fetch = async (_url, options: RequestInit = {}) => {
+    const authorization = new Headers(options.headers).get("authorization") ?? "";
+    authorizationHeaders.push(authorization);
+    assert.equal(authorization, "Bearer codex-text-quota-empty-image-capable");
+    const event = {
+      type: "response.output_item.done",
+      item: {
+        type: "image_generation_call",
+        id: "ig_edit_text_quota_bypassed",
+        status: "completed",
+        result: "aW1hZ2UtcXVvdGEtc2VwYXJhdGU=",
+      },
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  };
+
+  const editForm = createCodexEditForm("use the hosted image quota");
+  editForm.set("response_format", "b64_json");
+  const response = await imageEditRoute.POST(
+    new Request("http://localhost/api/v1/images/edits", {
+      method: "POST",
+      body: editForm,
+    })
+  );
+  const body = (await response.json()) as ImageResponseBody;
+
+  assert.equal(response.status, 200);
+  assert.equal(body.data[0].b64_json, "aW1hZ2UtcXVvdGEtc2VwYXJhdGU=");
+  assert.deepEqual(authorizationHeaders, ["Bearer codex-text-quota-empty-image-capable"]);
 });
 
 test("v1 image edit POST rejects excessive or malformed Codex reference sets", async () => {
