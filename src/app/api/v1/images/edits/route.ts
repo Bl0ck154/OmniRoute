@@ -14,6 +14,7 @@ import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
+import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
 import {
   parseImageModel,
   getImageProvider,
@@ -32,7 +33,6 @@ import {
 import { isMicrosoftDesignerWebProviderRetiredError } from "@/shared/constants/designerWebRetirement";
 import { resolveProxyForConnection } from "@/lib/localDb";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
-import { isCodexFreePlan } from "@omniroute/open-sse/executors/codex/tools.ts";
 import {
   getBodySizeLimit,
   readRequestBodyWithLimit,
@@ -405,7 +405,7 @@ async function postHandler(request: Request, _context?: unknown) {
       return errorResponse(HTTP_STATUS.BAD_REQUEST, imageValidationError);
     }
 
-    const credentials = await getProviderCredentialsWithQuotaPreflight(
+    let credentials = await getProviderCredentialsWithQuotaPreflight(
       parsed.provider,
       null,
       allowedConnections,
@@ -425,51 +425,62 @@ async function postHandler(request: Request, _context?: unknown) {
         credentials.retryAfterHuman
       );
     }
-    const credentialDetails = credentials as {
-      connectionId?: unknown;
-      providerSpecificData?: unknown;
-    };
-    if (isCodexFreePlan(credentialDetails.providerSpecificData)) {
-      return errorResponse(
-        HTTP_STATUS.BAD_REQUEST,
-        "Codex image editing requires a paid ChatGPT/Codex plan"
-      );
-    }
 
-    const connectionId =
-      typeof credentialDetails.connectionId === "string" ? credentialDetails.connectionId : null;
-    let proxyInfo = null;
-    if (connectionId) {
-      try {
-        proxyInfo = await resolveProxyForConnection(connectionId);
-      } catch {
-        log.debug("PROXY", `Failed to resolve proxy for image provider: ${parsed.provider}`);
-      }
-    }
+    const execution = await executeImageWithCredentialFallback({
+      provider: parsed.provider,
+      requestedModel: resolvedModel,
+      credentials,
+      // The generic helper has no API-key context. Keep every sibling retry inside
+      // this key's allowlist instead of broadening access after the first failure.
+      selectNextCredentials: (provider, requestedModel, excludedConnectionIds) =>
+        getProviderCredentialsWithQuotaPreflight(
+          provider,
+          null,
+          allowedConnections,
+          requestedModel,
+          { excludeConnectionIds: Array.from(excludedConnectionIds) }
+        ),
+      execute: async (attemptCredentials) => {
+        const connectionId =
+          typeof attemptCredentials?.connectionId === "string"
+            ? attemptCredentials.connectionId
+            : null;
+        let proxyInfo = null;
+        if (connectionId) {
+          try {
+            proxyInfo = await resolveProxyForConnection(connectionId);
+          } catch {
+            log.debug("PROXY", `Failed to resolve proxy for image provider: ${parsed.provider}`);
+          }
+        }
 
-    const editImage = () =>
-      handleCodexImageEdit({
-        provider: parsed.provider,
-        model: parsed.model,
-        providerConfig,
-        body: {
-          prompt,
-          size: size ?? undefined,
-          response_format: responseFormat ?? undefined,
-        },
-        referenceImages: images,
-        credentials,
-        log,
-        signal: request.signal,
-      });
+        const editImage = () =>
+          handleCodexImageEdit({
+            provider: parsed.provider,
+            model: parsed.model,
+            providerConfig,
+            body: {
+              prompt,
+              size: size ?? undefined,
+              response_format: responseFormat ?? undefined,
+            },
+            referenceImages: images,
+            credentials: attemptCredentials,
+            log,
+            signal: request.signal,
+          });
 
-    const result = await (connectionId
-      ? runWithProxyContext(proxyInfo?.proxy || null, editImage).catch(() => ({
-          success: false as const,
-          status: HTTP_STATUS.SERVICE_UNAVAILABLE,
-          error: "Image edit proxy error",
-        }))
-      : editImage());
+        return connectionId
+          ? runWithProxyContext(proxyInfo?.proxy || null, editImage).catch(() => ({
+              success: false as const,
+              status: HTTP_STATUS.SERVICE_UNAVAILABLE,
+              error: "Image edit proxy error",
+            }))
+          : editImage();
+      },
+    });
+    credentials = execution.credentials;
+    const result = execution.result;
 
     if (result.success === true) {
       await clearRecoveredProviderState(credentials);
