@@ -2114,6 +2114,57 @@ test("handleImageGeneration (codex) marks hosted image quota 403 as retryable", 
   }
 });
 
+test("handleImageGeneration (codex) marks ChatGPT usage_limit_reached 429 as retryable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          type: "usage_limit_reached",
+          message: "The usage limit has been reached",
+          plan_type: "plus",
+          resets_at: 1788952420,
+        },
+      }),
+      { status: 429, headers: { "content-type": "application/json" } }
+    );
+
+  try {
+    const result = await handleImageGeneration({
+      body: { model: "codex/gpt-5.6-sol", prompt: "kitten" },
+      credentials: { accessToken: "codex-token" },
+      log: null,
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.status, 429);
+    assert.equal(result.retryable, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("handleImageGeneration (codex) does not mark an ordinary 429 as retryable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: { type: "rate_limit_error", message: "Too many requests" } }), {
+      status: 429,
+      headers: { "content-type": "application/json" },
+    });
+
+  try {
+    const result = await handleImageGeneration({
+      body: { model: "codex/gpt-5.6-sol", prompt: "kitten" },
+      credentials: { accessToken: "codex-token" },
+      log: null,
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.status, 429);
+    assert.equal(result.retryable, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("handleImageGeneration (codex) does not mark an ordinary 400 as retryable", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
