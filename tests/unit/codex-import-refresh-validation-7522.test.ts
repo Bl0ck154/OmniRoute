@@ -67,6 +67,11 @@ const BASE_RECORD = {
   email: "operator@example.com",
 };
 
+function jwtWithExpiry(exp: number): string {
+  const payload = Buffer.from(JSON.stringify({ exp })).toString("base64url");
+  return `e30.${payload}.signature`;
+}
+
 test("import: rejects a record whose refresh_token is already invalidated upstream (#7522)", async () => {
   await withMockedFetch(
     (async () =>
@@ -111,6 +116,38 @@ test("import: rejects a record whose refresh_token was already consumed (refresh
       const rows = await providersDb.getProviderConnections({ provider: "codex" });
       const created = rows.find((r) => r.email === "reused@example.com");
       assert.equal(created, undefined);
+    }
+  );
+});
+
+test("import: accepts a new stable account while its access token is still usable", async () => {
+  await withMockedFetch(
+    (async () =>
+      jsonResponse({ error: { code: "refresh_token_reused" } }, 400)) as unknown as typeof fetch,
+    async () => {
+      const record = {
+        ...BASE_RECORD,
+        access_token: jwtWithExpiry(Math.floor(Date.now() / 1000) + 3600),
+        email: "usable-access@example.com",
+        account_id: "usable-access-account-2026-09-04",
+      };
+      const { status, body } = await postImport({ accounts: record });
+
+      assert.equal(status, 200);
+      assert.equal(body.success, true);
+      assert.equal(body.imported, 1);
+      assert.equal(body.failed, 0);
+      assert.equal(body.results[0].ok, true);
+
+      const rows = await providersDb.getProviderConnections({ provider: "codex" });
+      const created = rows.find(
+        (row) =>
+          (row.providerSpecificData as Record<string, unknown> | undefined)?.chatgptAccountId ===
+          record.account_id
+      );
+      assert.ok(created, "usable access token should be imported for immediate routing");
+      assert.equal(created?.accessToken, record.access_token);
+      assert.equal(created?.refreshToken, record.refresh_token);
     }
   );
 });
