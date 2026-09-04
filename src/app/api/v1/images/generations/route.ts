@@ -253,14 +253,18 @@ async function postHandler(request, context) {
     );
   }
 
-  // Get credentials — skip for local providers (authType: "none")
+  // Get credentials — skip for local providers (authType: "none").
+  // ChatGPT/Codex hosted image_generation has image-specific usage limits, so
+  // cached Codex text quota must not suppress an otherwise eligible image account.
+  const imageCredentialOptions = provider === "codex" ? { bypassQuotaPolicy: true } : {};
   let credentials = null;
   if (providerConfig && providerConfig.authType !== "none") {
     credentials = await getProviderCredentialsWithQuotaPreflight(
       provider,
       null,
       null,
-      requestedModel
+      requestedModel,
+      imageCredentialOptions
     );
     if (!credentials) {
       return errorResponse(
@@ -281,7 +285,8 @@ async function postHandler(request, context) {
       provider,
       null,
       syncedEndpointRoute?.connectionIds ?? null,
-      requestedModel
+      requestedModel,
+      imageCredentialOptions
     );
     if (!credentials) {
       return errorResponse(
@@ -305,7 +310,8 @@ async function postHandler(request, context) {
       provider,
       null,
       null,
-      requestedModel
+      requestedModel,
+      imageCredentialOptions
     );
     if (localCredentials && !isAllRateLimitedCredentials(localCredentials)) {
       credentials = localCredentials;

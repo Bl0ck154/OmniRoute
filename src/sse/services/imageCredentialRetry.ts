@@ -81,6 +81,7 @@ async function defaultSelectNextCredentials(
 ) {
   return getProviderCredentialsWithQuotaPreflight(provider, null, null, requestedModel, {
     excludeConnectionIds: Array.from(excludedConnectionIds),
+    ...(provider === "codex" ? { bypassQuotaPolicy: true } : {}),
   });
 }
 
