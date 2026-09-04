@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   normalizeCodexImportRecord,
   flattenCodexImportPayload,
+  decodeJwtExp,
   type CodexImportPayload,
 } from "@/lib/oauth/services/codexImport";
 import {
@@ -28,6 +29,7 @@ const EXPIRED_SESSION_MESSAGE =
   "(Esta sessão do Codex expirou — rode `codex login` novamente e reimporte.)";
 
 type RefreshValidation = "valid" | "invalid" | "inconclusive";
+const MIN_USABLE_ACCESS_TOKEN_LIFETIME_SECONDS = 60;
 
 /**
  * Validate a normalized Codex import record's refresh_token against OpenAI's
@@ -75,6 +77,13 @@ async function validateCodexRefreshToken(payload: {
   // refreshCodexToken) is inconclusive — fall through and import the
   // originally-supplied tokens rather than blocking on a network hiccup.
   return "inconclusive";
+}
+
+function hasUsableAccessToken(payload: CodexImportPayload): boolean {
+  const expiresAt = decodeJwtExp(payload.accessToken);
+  return (
+    expiresAt !== null && expiresAt > Date.now() / 1000 + MIN_USABLE_ACCESS_TOKEN_LIFETIME_SECONDS
+  );
 }
 
 type ExistingCodexConnection = {
@@ -208,7 +217,7 @@ export async function POST(request: Request) {
         existing.refreshToken === norm.payload.refreshToken;
       const validation = sameRefreshToken ? "valid" : await validateCodexRefreshToken(norm.payload);
 
-      if (validation === "invalid" && !existing) {
+      if (validation === "invalid" && !existing && !hasUsableAccessToken(norm.payload)) {
         failed += 1;
         results.push({ index: i, ok: false, error: EXPIRED_SESSION_MESSAGE });
         continue;
