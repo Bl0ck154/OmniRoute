@@ -1294,7 +1294,7 @@ export function getDbInstance(): SqliteDatabase {
       VALUES ('001', 'initial_schema');
     `);
 
-    runMigrations(db, { isNewDb });
+    runMigrations(db, { isNewDb, databaseExistedBeforeInitialization });
     // Fresh installs need the same post-migration index guarantee as upgraded
     // databases, including recovery from an interrupted migration 127 attempt.
     ensureUsageHistoryAccountIndex(db);
