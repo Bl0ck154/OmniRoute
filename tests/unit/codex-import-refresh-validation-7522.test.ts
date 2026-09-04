@@ -165,6 +165,91 @@ test("import: a transient network error validating the refresh_token does not bl
   );
 });
 
+test("import: repeated stable account preserves rotated server credentials", async () => {
+  const accountId = "stable-repeat-account-2026-09-04";
+  let refreshCalls = 0;
+  await withMockedFetch(
+    (async () => {
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        return jsonResponse({
+          access_token: "server-rotated-access-token",
+          refresh_token: "server-rotated-refresh-token",
+          expires_in: 3600,
+        });
+      }
+      return jsonResponse({ error: { code: "refresh_token_reused" } }, 400);
+    }) as unknown as typeof fetch,
+    async () => {
+      const record = {
+        ...BASE_RECORD,
+        email: "repeat@example.com",
+        account_id: accountId,
+        priority: 40,
+      };
+      const first = await postImport({ accounts: record });
+      const second = await postImport({
+        accounts: { ...record, priority: 90, chatgpt_plan_type: "free" },
+      });
+
+      assert.equal(first.body.success, true);
+      assert.equal(second.body.success, true);
+      assert.equal(second.body.imported, 1);
+      assert.equal(second.body.failed, 0);
+      assert.equal(second.body.results[0].unchanged, true);
+      assert.equal(refreshCalls, 2);
+
+      const rows = await providersDb.getProviderConnections({ provider: "codex" });
+      const matching = rows.filter(
+        (row) =>
+          (row.providerSpecificData as Record<string, unknown> | undefined)?.chatgptAccountId ===
+          accountId
+      );
+      assert.equal(matching.length, 1, "repeat import must not create a duplicate connection");
+      assert.equal(matching[0]?.refreshToken, "server-rotated-refresh-token");
+      assert.equal(matching[0]?.accessToken, "server-rotated-access-token");
+      assert.equal(
+        (matching[0]?.providerSpecificData as Record<string, unknown> | undefined)?.chatgptPlanType,
+        "free",
+        "metadata still syncs on an idempotent retry"
+      );
+    }
+  );
+});
+
+test("import: identical stored refresh_token skips a destructive validation exchange", async () => {
+  const accountId = "stable-identical-account-2026-09-04";
+  let refreshCalls = 0;
+  await withMockedFetch(
+    (async () => {
+      refreshCalls += 1;
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch,
+    async () => {
+      const record = {
+        ...BASE_RECORD,
+        email: "identical@example.com",
+        account_id: accountId,
+      };
+      const first = await postImport({ accounts: record });
+      const second = await postImport({ accounts: record });
+
+      assert.equal(first.body.success, true);
+      assert.equal(second.body.success, true);
+      assert.equal(second.body.failed, 0);
+      assert.equal(refreshCalls, 1, "the repeated token must not be consumed again");
+
+      const rows = await providersDb.getProviderConnections({ provider: "codex" });
+      const matching = rows.filter(
+        (row) =>
+          (row.providerSpecificData as Record<string, unknown> | undefined)?.chatgptAccountId ===
+          accountId
+      );
+      assert.equal(matching.length, 1);
+    }
+  );
+});
+
 test("import: error responses never leak a stack trace", async () => {
   await withMockedFetch(
     (async () =>

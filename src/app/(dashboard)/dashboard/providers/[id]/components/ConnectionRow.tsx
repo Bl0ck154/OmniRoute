@@ -529,9 +529,10 @@ export default function ConnectionRow({
 
   return (
     <div
-      className={`group flex items-center justify-between p-3 rounded-lg hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${connection.isActive === false ? "opacity-60" : ""}`}
+      className={`group p-3 rounded-lg hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${connection.isActive === false ? "opacity-60" : ""}`}
     >
-      <div className="flex items-center gap-3 flex-1 min-w-0">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
         {onToggleSelect && (
           <input
             type="checkbox"
@@ -849,7 +850,7 @@ export default function ConnectionRow({
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         <Button
           size="sm"
           variant="ghost"
@@ -971,6 +972,7 @@ export default function ConnectionRow({
             <span className="material-symbols-outlined text-[18px]">delete</span>
           </button>
         </div>
+      </div>
       </div>
       {isCodex && connection.codexAccountPool ? (
         <CodexAccountDetails pool={connection.codexAccountPool} />
