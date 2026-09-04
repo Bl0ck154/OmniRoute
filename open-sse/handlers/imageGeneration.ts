@@ -260,14 +260,16 @@ function sanitizeImageProviderError(errorText: string): unknown {
 }
 
 // Some ChatGPT accounts can run Codex but cannot serve a specific image request.
-// Two upstream shapes are account-specific and therefore safe to retry on a sibling
-// Codex account: the historical model-access 400 (#8307) and the hosted
-// image_generation quota 403 (`error.code = insufficient_quota`). Keep generic
-// 400/403 responses terminal so malformed prompts and policy failures are not rotated.
+// These upstream shapes are account-specific and therefore safe to retry on a sibling
+// Codex account: the historical model-access 400 (#8307), hosted image quota 403
+// (`error.code = insufficient_quota`), and ChatGPT subscription limit 429
+// (`error.type = usage_limit_reached`). Keep generic 400/403/429 responses terminal so
+// malformed prompts, policy failures, and ordinary rate limits are not blindly rotated.
 function isCodexChatGptModelAccessError(status: number, errorText: string, model: string): boolean {
   const parsed = parseJsonOrNull(errorText);
   let detail: string | null = null;
   let code: string | null = null;
+  let type: string | null = null;
   if (typeof parsed === "string") {
     detail = parsed;
   } else if (parsed && typeof parsed === "object") {
@@ -275,14 +277,17 @@ function isCodexChatGptModelAccessError(status: number, errorText: string, model
     if (typeof obj.detail === "string") detail = obj.detail;
     else if (typeof obj.message === "string") detail = obj.message;
     if (typeof obj.code === "string") code = obj.code;
+    if (typeof obj.type === "string") type = obj.type;
     if (obj.error && typeof obj.error === "object") {
       const nested = obj.error as Record<string, unknown>;
       if (!detail && typeof nested.message === "string") detail = nested.message;
       if (typeof nested.code === "string") code = nested.code;
+      if (typeof nested.type === "string") type = nested.type;
     }
   }
 
   if (status === 403 && code?.trim().toLowerCase() === "insufficient_quota") return true;
+  if (status === 429 && type?.trim().toLowerCase() === "usage_limit_reached") return true;
   if (status !== 400) return false;
   return (
     detail === `The '${model}' model is not supported when using Codex with a ChatGPT account.`
