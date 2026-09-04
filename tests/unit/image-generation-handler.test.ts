@@ -2086,6 +2086,34 @@ test("handleImageGeneration (codex) marks the ChatGPT-account model-access 400 a
   }
 });
 
+test("handleImageGeneration (codex) marks hosted image quota 403 as retryable", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "Image generation quota exhausted for this account",
+          type: "permission_error",
+          code: "insufficient_quota",
+        },
+      }),
+      { status: 403, headers: { "content-type": "application/json" } }
+    );
+
+  try {
+    const result = await handleImageGeneration({
+      body: { model: "codex/gpt-5.6-sol", prompt: "kitten" },
+      credentials: { accessToken: "codex-token" },
+      log: null,
+    });
+    assert.equal(result.success, false);
+    assert.equal(result.status, 403);
+    assert.equal(result.retryable, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("handleImageGeneration (codex) does not mark an ordinary 400 as retryable", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>

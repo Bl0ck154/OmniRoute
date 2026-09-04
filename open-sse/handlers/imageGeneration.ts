@@ -259,26 +259,31 @@ function sanitizeImageProviderError(errorText: string): unknown {
   return sanitizeErrorMessage(errorText);
 }
 
-// #8307 — some ChatGPT accounts can run Codex but lack entitlement for the specific
-// requested image model. Upstream signals this as a 400 with an exact, stable message
-// (not a generic "invalid request"). Classify it so the caller can mark the failure
-// `retryable: true`, which routes it through the same sibling-account fallback that
-// already handles 401s (executeImageWithCredentialFallback, src/sse/services/imageCredentialRetry.ts).
+// Some ChatGPT accounts can run Codex but cannot serve a specific image request.
+// Two upstream shapes are account-specific and therefore safe to retry on a sibling
+// Codex account: the historical model-access 400 (#8307) and the hosted
+// image_generation quota 403 (`error.code = insufficient_quota`). Keep generic
+// 400/403 responses terminal so malformed prompts and policy failures are not rotated.
 function isCodexChatGptModelAccessError(status: number, errorText: string, model: string): boolean {
-  if (status !== 400) return false;
   const parsed = parseJsonOrNull(errorText);
   let detail: string | null = null;
+  let code: string | null = null;
   if (typeof parsed === "string") {
     detail = parsed;
   } else if (parsed && typeof parsed === "object") {
     const obj = parsed as Record<string, unknown>;
     if (typeof obj.detail === "string") detail = obj.detail;
     else if (typeof obj.message === "string") detail = obj.message;
-    else if (obj.error && typeof obj.error === "object") {
-      const nested = (obj.error as Record<string, unknown>).message;
-      if (typeof nested === "string") detail = nested;
+    if (typeof obj.code === "string") code = obj.code;
+    if (obj.error && typeof obj.error === "object") {
+      const nested = obj.error as Record<string, unknown>;
+      if (!detail && typeof nested.message === "string") detail = nested.message;
+      if (typeof nested.code === "string") code = nested.code;
     }
   }
+
+  if (status === 403 && code?.trim().toLowerCase() === "insufficient_quota") return true;
+  if (status !== 400) return false;
   return (
     detail === `The '${model}' model is not supported when using Codex with a ChatGPT account.`
   );

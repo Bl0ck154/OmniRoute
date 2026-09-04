@@ -466,6 +466,83 @@ test("v1 image edit POST routes built-in Codex references through native Respons
   assert.equal(captured.body.input[0].content.length, 3);
 });
 
+test("v1 Codex image edit rotates on insufficient_quota and stays inside the API-key allowlist", async () => {
+  const disallowed = await seedConnection("codex", {
+    apiKey: "codex-disallowed-token",
+    priority: 1,
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  const exhausted = await seedConnection("codex", {
+    apiKey: "codex-image-quota-empty",
+    priority: 2,
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  const healthy = await seedConnection("codex", {
+    apiKey: "codex-image-quota-healthy",
+    priority: 3,
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  assert.ok(disallowed.id);
+  assert.ok(exhausted.id);
+  assert.ok(healthy.id);
+
+  const createdKey = await apiKeysDb.createApiKey("Codex image edit pool", "codex-image-edit-pool");
+  await apiKeysDb.updateApiKeyPermissions(createdKey.id, {
+    allowedConnections: [String(exhausted.id), String(healthy.id)],
+  });
+
+  const authorizationHeaders: string[] = [];
+  globalThis.fetch = async (_url, options: RequestInit = {}) => {
+    const authorization = new Headers(options.headers).get("authorization") ?? "";
+    authorizationHeaders.push(authorization);
+    assert.notEqual(authorization, "Bearer codex-disallowed-token");
+    if (authorization === "Bearer codex-image-quota-empty") {
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "Image generation quota exhausted for this account",
+            type: "permission_error",
+            code: "insufficient_quota",
+          },
+        }),
+        { status: 403, headers: { "content-type": "application/json" } }
+      );
+    }
+    assert.equal(authorization, "Bearer codex-image-quota-healthy");
+    const event = {
+      type: "response.output_item.done",
+      item: {
+        type: "image_generation_call",
+        id: "ig_edit_rotated",
+        status: "completed",
+        result: "cm90YXRlZC1lZGl0",
+      },
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  };
+
+  const editForm = createCodexEditForm("combine these references");
+  editForm.set("response_format", "b64_json");
+  const response = await imageEditRoute.POST(
+    new Request("http://localhost/api/v1/images/edits", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${createdKey.key}` },
+      body: editForm,
+    })
+  );
+  const body = (await response.json()) as ImageResponseBody;
+
+  assert.equal(response.status, 200);
+  assert.equal(body.data[0].b64_json, "cm90YXRlZC1lZGl0");
+  assert.deepEqual(authorizationHeaders, [
+    "Bearer codex-image-quota-empty",
+    "Bearer codex-image-quota-healthy",
+  ]);
+});
+
 test("v1 image edit POST rejects excessive or malformed Codex reference sets", async () => {
   await seedConnection("codex", { apiKey: "codex-oauth-token" });
   globalThis.fetch = async () => {
@@ -572,25 +649,50 @@ test("v1 image edit POST rejects unsupported Codex models and MIME mismatches", 
   assert.match(mimeMismatchBody.error.message, /does not match declared MIME/i);
 });
 
-test("v1 image edit POST rejects Codex free-plan accounts before upstream", async () => {
+test("v1 image edit POST skips a Codex free-plan account and rotates to a paid sibling", async () => {
   await seedConnection("codex", {
     apiKey: "codex-free-token",
+    priority: 1,
     providerSpecificData: { workspacePlanType: "free" },
   });
-  globalThis.fetch = async () => {
-    throw new Error("Free-plan Codex accounts must not reach image_generation upstream");
+  await seedConnection("codex", {
+    apiKey: "codex-paid-token",
+    priority: 2,
+    providerSpecificData: { workspacePlanType: "plus" },
+  });
+  const authorizationHeaders: string[] = [];
+  globalThis.fetch = async (_url, options: RequestInit = {}) => {
+    const authorization = new Headers(options.headers).get("authorization") ?? "";
+    authorizationHeaders.push(authorization);
+    assert.equal(authorization, "Bearer codex-paid-token");
+    const event = {
+      type: "response.output_item.done",
+      item: {
+        type: "image_generation_call",
+        id: "ig_paid",
+        status: "completed",
+        result: "cGFpZA==",
+      },
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
   };
 
+  const editForm = createCodexEditForm("edit this");
+  editForm.set("response_format", "b64_json");
   const response = await imageEditRoute.POST(
     new Request("http://localhost/api/v1/images/edits", {
       method: "POST",
-      body: createCodexEditForm("edit this"),
+      body: editForm,
     })
   );
-  const body = (await response.json()) as ErrorResponseBody;
+  const body = (await response.json()) as ImageResponseBody;
 
-  assert.equal(response.status, 400);
-  assert.match(body.error.message, /paid ChatGPT\/Codex plan/i);
+  assert.equal(response.status, 200);
+  assert.equal(body.data[0].b64_json, "cGFpZA==");
+  assert.deepEqual(authorizationHeaders, ["Bearer codex-paid-token"]);
 });
 
 test("v1 image edit POST executes Codex through the configured connection proxy", async () => {
