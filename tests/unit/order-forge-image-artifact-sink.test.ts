@@ -5,17 +5,13 @@ import path from "node:path";
 import test, { afterEach } from "node:test";
 
 import {
-  cleanupCodexImageArtifacts,
-  drainCodexImageArtifactStream,
-  persistCodexImageArtifacts,
-  resolveCodexImageArtifactCapture,
-} from "../../src/lib/usage/codexImageArtifactSink";
+  cleanupOrderForgeImageArtifacts,
+  drainOrderForgeImageArtifactStream,
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+} from "../../src/lib/usage/orderForgeImageArtifactSink";
 
-const ENV_KEYS = [
-  "OMNIROUTE_ETSY_IMAGE_ARTIFACT_SINK",
-  "OMNIROUTE_ETSY_IMAGE_ARTIFACT_API_KEY_ID",
-  "OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR",
-] as const;
+const ENV_KEYS = ["OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR"] as const;
 const previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 const tempDirs: string[] = [];
 
@@ -37,15 +33,13 @@ function tempDir(): string {
 }
 
 function enableSink(baseDir = tempDir()): string {
-  process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_SINK = "1";
-  process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_API_KEY_ID = "etsy-key-id";
   process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR = baseDir;
   return baseDir;
 }
 
 function eligible(overrides: Record<string, unknown> = {}) {
-  return resolveCodexImageArtifactCapture({
-    apiKeyId: "etsy-key-id",
+  return resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: ["image_artifact_retention"],
     provider: "codex",
     model: "gpt-5.6-terra-medium",
     endpoint: "/api/v1/responses",
@@ -56,24 +50,29 @@ function eligible(overrides: Record<string, unknown> = {}) {
   });
 }
 
-test("artifact capture is disabled unless every EtsyTrello scope matches", () => {
+test("artifact capture depends only on the Order Forge principal and stable artifact id", () => {
   enableSink();
   assert.deepEqual(eligible(), {
     artifactId: "card-123:composition-1:variant-2",
     correlationId: "corr-123",
   });
-  assert.equal(eligible({ apiKeyId: "other" }), null);
-  assert.equal(eligible({ provider: "antigravity" }), null);
-  assert.equal(eligible({ model: "gpt-5.6-terra-low" }), null);
-  assert.equal(eligible({ endpoint: "/api/v1/chat/completions" }), null);
-  assert.equal(eligible({ requestBody: { tools: [{ type: "web_search" }] } }), null);
-  assert.deepEqual(eligible({ headers: new Headers({ "X-EtsyTrello-Artifact-Id": "../bad" }) }), {
-    artifactId: null,
-    correlationId: "corr-123",
-  });
+  assert.equal(eligible({ apiKeyScopes: [] }), null);
+  assert.equal(eligible({ apiKeyScopes: ["manage"] }), null);
+  assert.deepEqual(
+    eligible({
+      provider: "future-provider",
+      model: "brand-new-model",
+      endpoint: "/v42/future/image/path",
+      requestBody: { completely: "different" },
+    }),
+    {
+      artifactId: "card-123:composition-1:variant-2",
+      correlationId: "corr-123",
+    }
+  );
+  assert.equal(eligible({ headers: new Headers({ "X-EtsyTrello-Artifact-Id": "../bad" }) }), null);
+  assert.equal(eligible({ headers: new Headers() }), null);
 
-  delete process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_SINK;
-  assert.equal(eligible(), null);
 });
 
 test("validated image output is written atomically with metadata but no payload or prompt", () => {
@@ -83,7 +82,7 @@ test("validated image output is written atomically with metadata but no payload 
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
   const encoded = png.toString("base64");
 
-  const stored = persistCodexImageArtifacts({
+  const stored = persistOrderForgeImageArtifacts({
     capture,
     baseDir,
     now: Date.UTC(2026, 7, 9, 18, 0, 0),
@@ -118,11 +117,41 @@ test("validated image output is written atomically with metadata but no payload 
   );
 });
 
+test("OpenAI-style image payloads are retained without provider or route knowledge", () => {
+  const baseDir = enableSink();
+  const capture = eligible({ provider: "future-provider", model: "future-model", endpoint: "/future" });
+  assert.ok(capture);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
+  const encoded = png.toString("base64");
+  const stored = persistOrderForgeImageArtifacts({
+    capture,
+    baseDir,
+    responseBody: { created: 123, data: [{ b64_json: encoded }] },
+  });
+  assert.equal(stored.length, 1);
+  assert.deepEqual(fs.readFileSync(stored[0].path), png);
+  assert.equal(stored[0].artifactId, "card-123:composition-1:variant-2");
+});
+
+test("data-URL image payloads are retained too", () => {
+  const baseDir = enableSink();
+  const capture = eligible();
+  assert.ok(capture);
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 3, 2, 1]);
+  const stored = persistOrderForgeImageArtifacts({
+    capture,
+    baseDir,
+    responseBody: { data: [{ url: `data:image/png;base64,${png.toString("base64")}` }] },
+  });
+  assert.equal(stored.length, 1);
+  assert.deepEqual(fs.readFileSync(stored[0].path), png);
+});
+
 test("invalid base64, unsupported bytes, and oversized declarations are not stored", () => {
   const baseDir = enableSink();
   const capture = eligible();
   assert.ok(capture);
-  const result = persistCodexImageArtifacts({
+  const result = persistOrderForgeImageArtifacts({
     capture,
     baseDir,
     responseBody: {
@@ -149,7 +178,7 @@ test("private tee drain finishes after the downstream branch is cancelled", asyn
     },
   });
   const [downstream, privateBranch] = source.tee();
-  const drained = drainCodexImageArtifactStream(privateBranch);
+  const drained = drainOrderForgeImageArtifactStream(privateBranch);
   await downstream.cancel("client timeout");
   await drained;
   assert.equal(sent, 4);
@@ -169,7 +198,7 @@ test("cleanup enforces retention and total byte cap by deleting oldest attempts"
   fs.utimesSync(path.join(firstDir, "x.png"), new Date(8_000), new Date(8_000));
   fs.utimesSync(path.join(secondDir, "x.png"), new Date(9_000), new Date(9_000));
 
-  const result = cleanupCodexImageArtifacts({
+  const result = cleanupOrderForgeImageArtifacts({
     baseDir,
     now: 10_000,
     retentionMs: 5_000,

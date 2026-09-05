@@ -4,11 +4,8 @@ import path from "node:path";
 
 import { resolveDataDir } from "../dataPaths";
 
-const ENABLED_ENV = "OMNIROUTE_ETSY_IMAGE_ARTIFACT_SINK";
-const API_KEY_ID_ENV = "OMNIROUTE_ETSY_IMAGE_ARTIFACT_API_KEY_ID";
 const ARTIFACT_DIR_ENV = "OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR";
-const EXPECTED_MODEL = "gpt-5.6-terra-medium";
-const EXPECTED_PROVIDER = "codex";
+export const ORDER_FORGE_IMAGE_ARTIFACT_SCOPE = "image_artifact_retention";
 const ARTIFACT_ID_HEADER = "x-etsytrello-artifact-id";
 const ARTIFACT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_ID_PATTERN = /[^A-Za-z0-9._-]+/g;
@@ -27,13 +24,13 @@ type HeaderSource =
   | null
   | undefined;
 
-export type CodexImageArtifactCapture = {
-  artifactId: string | null;
+export type OrderForgeImageArtifactCapture = {
+  artifactId: string;
   correlationId: string;
 };
 
-export type StoredCodexImageArtifact = {
-  artifactId: string | null;
+export type StoredOrderForgeImageArtifact = {
+  artifactId: string;
   correlationId: string;
   imageCallId: string;
   responseId: string;
@@ -44,17 +41,13 @@ export type StoredCodexImageArtifact = {
 };
 
 type CaptureEligibilityInput = {
-  apiKeyId?: string | null;
-  provider?: string | null;
-  model?: string | null;
-  endpoint?: string | null;
-  requestBody?: unknown;
+  apiKeyScopes?: readonly string[] | null;
   headers?: HeaderSource;
   correlationId?: string | null;
 };
 
 type PersistInput = {
-  capture: CodexImageArtifactCapture;
+  capture: OrderForgeImageArtifactCapture;
   responseBody: unknown;
   baseDir?: string;
   now?: number;
@@ -67,11 +60,6 @@ type CleanupOptions = {
   maxStoreBytes?: number;
 };
 
-function isEnabled(): boolean {
-  const value = String(process.env[ENABLED_ENV] || "").trim().toLowerCase();
-  return value === "1" || value === "true" || value === "yes" || value === "on";
-}
-
 function getHeader(headers: HeaderSource, name: string): string | null {
   if (!headers) return null;
   if (typeof (headers as { get?: unknown }).get === "function") {
@@ -82,36 +70,6 @@ function getHeader(headers: HeaderSource, name: string): string | null {
     if (key.toLowerCase() === name && typeof value === "string") return value;
   }
   return null;
-}
-
-function hasImageGenerationTool(body: unknown): boolean {
-  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
-  const tools = (body as Record<string, unknown>).tools;
-  return (
-    Array.isArray(tools) &&
-    tools.some(
-      (tool) =>
-        tool &&
-        typeof tool === "object" &&
-        !Array.isArray(tool) &&
-        (tool as Record<string, unknown>).type === "image_generation"
-    )
-  );
-}
-
-function normalizeModel(model: string | null | undefined): string {
-  return String(model || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^codex\//, "");
-}
-
-function isResponsesEndpoint(endpoint: string | null | undefined): boolean {
-  const normalized = String(endpoint || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\/+$/, "");
-  return normalized === "responses" || normalized.endsWith("/responses");
 }
 
 function normalizeArtifactId(headers: HeaderSource): string | null {
@@ -129,19 +87,17 @@ function resolveArtifactDir(): string {
   return configured || path.join(resolveDataDir(), "etsytrello-image-artifacts");
 }
 
-export function resolveCodexImageArtifactCapture(
+export function resolveOrderForgeImageArtifactCapture(
   input: CaptureEligibilityInput
-): CodexImageArtifactCapture | null {
-  if (!isEnabled()) return null;
-  const expectedApiKeyId = String(process.env[API_KEY_ID_ENV] || "").trim();
-  if (!expectedApiKeyId || input.apiKeyId !== expectedApiKeyId) return null;
-  if (String(input.provider || "").trim().toLowerCase() !== EXPECTED_PROVIDER) return null;
-  if (normalizeModel(input.model) !== EXPECTED_MODEL) return null;
-  if (!isResponsesEndpoint(input.endpoint)) return null;
-  if (!hasImageGenerationTool(input.requestBody)) return null;
+): OrderForgeImageArtifactCapture | null {
+  // Provider/model/route agnostic by design. Retention is a capability granted
+  // to an API principal, not a hard-coded model/provider/endpoint or key id.
+  if (!input.apiKeyScopes?.includes(ORDER_FORGE_IMAGE_ARTIFACT_SCOPE)) return null;
+  const artifactId = normalizeArtifactId(input.headers);
+  if (!artifactId) return null;
 
   return {
-    artifactId: normalizeArtifactId(input.headers),
+    artifactId,
     correlationId: safeSegment(
       String(input.correlationId || crypto.randomUUID()),
       crypto.randomUUID()
@@ -232,7 +188,7 @@ function listAttemptDirectories(baseDir: string): Array<{
   return attempts;
 }
 
-export function cleanupCodexImageArtifacts(options: CleanupOptions = {}): {
+export function cleanupOrderForgeImageArtifacts(options: CleanupOptions = {}): {
   deletedAttempts: number;
   remainingBytes: number;
 } {
@@ -272,16 +228,37 @@ export function cleanupCodexImageArtifacts(options: CleanupOptions = {}): {
 function maybeCleanup(baseDir: string, now: number): void {
   if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
   lastCleanupAt = now;
-  cleanupCodexImageArtifacts({ baseDir, now });
+  cleanupOrderForgeImageArtifacts({ baseDir, now });
 }
 
-export function persistCodexImageArtifacts(input: PersistInput): StoredCodexImageArtifact[] {
+export function persistOrderForgeImageArtifacts(input: PersistInput): StoredOrderForgeImageArtifact[] {
   const response =
     input.responseBody && typeof input.responseBody === "object" && !Array.isArray(input.responseBody)
       ? (input.responseBody as Record<string, unknown>)
       : null;
-  const output = response?.output;
-  if (!Array.isArray(output)) return [];
+  const responseOutput = response?.output;
+  const imageData = response?.data;
+  const output = Array.isArray(responseOutput)
+    ? responseOutput
+    : Array.isArray(imageData)
+      ? imageData.map((item, index) => {
+          const record =
+            item && typeof item === "object" && !Array.isArray(item)
+              ? (item as Record<string, unknown>)
+              : {};
+          const dataUrl = typeof record.url === "string" ? record.url : "";
+          const dataUrlMatch = dataUrl.match(/^data:image\/(?:png|jpeg|webp);base64,(.+)$/i);
+          return {
+            id: "image-" + String(index + 1),
+            type: "image_generation_call",
+            result:
+              typeof record.b64_json === "string"
+                ? record.b64_json
+                : dataUrlMatch?.[1] || "",
+          };
+        })
+      : [];
+  if (output.length === 0) return [];
 
   const now = input.now ?? Date.now();
   const baseDir = input.baseDir || resolveArtifactDir();
@@ -297,8 +274,12 @@ export function persistCodexImageArtifacts(input: PersistInput): StoredCodexImag
   fs.chmodSync(path.join(baseDir, dateDir), 0o700);
   fs.chmodSync(attemptDir, 0o700);
 
-  const responseId = safeSegment(String(response?.id || ""), "unknown-response");
-  const stored: StoredCodexImageArtifact[] = [];
+  const created = Number(response?.created || 0);
+  const responseId = safeSegment(
+    String(response?.id || (created > 0 ? "image-response:" + String(created) : "")),
+    "unknown-response"
+  );
+  const stored: StoredOrderForgeImageArtifact[] = [];
 
   try {
     for (const item of output) {
@@ -353,7 +334,7 @@ export function persistCodexImageArtifacts(input: PersistInput): StoredCodexImag
   }
 }
 
-export async function drainCodexImageArtifactStream(
+export async function drainOrderForgeImageArtifactStream(
   stream: ReadableStream<Uint8Array>
 ): Promise<void> {
   const reader = stream.getReader();

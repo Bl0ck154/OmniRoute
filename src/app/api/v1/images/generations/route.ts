@@ -41,9 +41,15 @@ import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { runWithCallLogApiKeyContext } from "@/lib/usage/callLogApiKeyContext";
 import {
   attachCodexImageQuotaHeaders,
+  mergeFreshCodexImageQuotaBaseline,
   type CodexImageQuotaTelemetryShape,
 } from "@/lib/images/codexImageQuotaTelemetry";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
+import { fetchFreshCodexQuota } from "@omniroute/open-sse/services/codexQuotaFetcher.ts";
+import {
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 import {
   assertCommonChatGptWebModelAvailable,
@@ -148,6 +154,11 @@ async function postHandler(request, context) {
   // Enforce API key policies (model restrictions + budget limits)
   const policy = await enforceApiKeyPolicy(request, body.model);
   if (policy.rejection) return policy.rejection;
+
+  const orderForgeImageArtifactCapture = resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: policy.apiKeyInfo?.scopes,
+    headers: request.headers,
+  });
 
   const modelPrefix = body.model.includes("/")
     ? body.model.slice(0, body.model.indexOf("/"))
@@ -327,8 +338,20 @@ async function postHandler(request, context) {
     requestedModel,
     credentials,
     execute: async (attemptCredentials) => {
+      const connectionId =
+        typeof attemptCredentials?.connectionId === "string"
+          ? attemptCredentials.connectionId
+          : null;
+      const freshQuotaBefore =
+        provider === "codex" && connectionId
+          ? await fetchFreshCodexQuota(connectionId, {
+              ...(attemptCredentials as Record<string, unknown>),
+              requestedModel,
+            })
+          : null;
+      const freshQuotaObservedAt = freshQuotaBefore ? new Date().toISOString() : null;
       let proxyInfo = null;
-      if (attemptCredentials?.connectionId) {
+      if (connectionId) {
         try {
           proxyInfo = await resolveProxyForConnection(attemptCredentials.connectionId);
         } catch {
@@ -336,8 +359,8 @@ async function postHandler(request, context) {
         }
       }
 
-      const generateImage = () =>
-        runWithCallLogApiKeyContext(
+      const generateImage = async () => {
+        const imageResult = await runWithCallLogApiKeyContext(
           {
             apiKeyId: policy.apiKeyInfo?.id ?? null,
             apiKeyName: policy.apiKeyInfo?.name ?? null,
@@ -348,7 +371,7 @@ async function postHandler(request, context) {
               credentials: attemptCredentials,
               log,
               ...(isCustomModel && { resolvedProvider: provider }),
-              signal: request.signal,
+              signal: orderForgeImageArtifactCapture ? null : request.signal,
               clientHeaders: publicBaseUrlHeaders(request.headers),
               // Trusted "loopback"|"lan"|"remote" verdict stamped by the authz
               // pipeline from the real TCP peer (never the spoofable Host
@@ -358,8 +381,27 @@ async function postHandler(request, context) {
               peerLocality: request.headers.get(AUTHZ_HEADER_PEER_LOCALITY),
             })
         );
+        if (
+          imageResult.success &&
+          provider === "codex" &&
+          freshQuotaBefore
+        ) {
+          const currentTelemetry = (imageResult as {
+            telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape };
+          }).telemetry;
+          (imageResult as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry = {
+            codexQuota: mergeFreshCodexImageQuotaBaseline(currentTelemetry?.codexQuota, {
+              connectionId,
+              fiveHourPercentUsed: freshQuotaBefore.window5h.percentUsed,
+              fiveHourResetAt: freshQuotaBefore.window5h.resetAt,
+              observedAt: freshQuotaObservedAt,
+            }),
+          };
+        }
+        return imageResult;
+      };
 
-      return attemptCredentials?.connectionId
+      return connectionId
         ? runWithProxyContext(proxyInfo?.proxy || null, generateImage).catch((err: any) => ({
             success: false,
             status: err.statusCode || 500,
@@ -372,6 +414,21 @@ async function postHandler(request, context) {
   const result = execution.result;
 
   if (result.success) {
+    if (orderForgeImageArtifactCapture) {
+      try {
+        persistOrderForgeImageArtifacts({
+          capture: orderForgeImageArtifactCapture,
+          responseBody: (result as { data: unknown }).data,
+        });
+      } catch (error) {
+        log.error(
+          "ETSY_IMAGE_ARTIFACT",
+          `store failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
     await clearRecoveredProviderState(credentials);
     const n = Math.max(
       Number(body.n) || 1,

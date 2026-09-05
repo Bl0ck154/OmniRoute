@@ -286,10 +286,10 @@ import {
   getCallLogPipelineMaxSizeBytes,
 } from "@/lib/logEnv";
 import {
-  drainCodexImageArtifactStream,
-  persistCodexImageArtifacts,
-  resolveCodexImageArtifactCapture,
-} from "@/lib/usage/codexImageArtifactSink";
+  drainOrderForgeImageArtifactStream,
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 import { logAuditEvent } from "@/lib/compliance";
 import { emit } from "@/lib/events/eventBus";
 import { adaptBodyForCompression } from "../services/compression/bodyAdapter.ts";
@@ -3046,12 +3046,8 @@ export async function handleChatCore({
   let onPipelineStreamError: streamFailure.PipelineStreamErrorHandler | null = null;
   let onClientDisconnectFinalize:
     ((event: { reason: string; duration: number }) => boolean) | null = null;
-  const codexImageArtifactCapture = resolveCodexImageArtifactCapture({
-    apiKeyId: apiKeyInfo?.id,
-    provider,
-    model,
-    endpoint: clientRawRequest?.endpoint,
-    requestBody: translatedBody,
+  const orderForgeImageArtifactCapture = resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: apiKeyInfo?.scopes,
     headers: clientRawRequest?.headers,
     correlationId,
   });
@@ -3085,7 +3081,7 @@ export async function handleChatCore({
     clientResponseFormat,
     // Scoped EtsyTrello image requests keep running after the caller times out. The
     // private tee below remains the consumer and atomically persists the finished image.
-    clientAbortSignal: codexImageArtifactCapture ? null : clientRawRequest?.signal,
+    clientAbortSignal: orderForgeImageArtifactCapture ? null : clientRawRequest?.signal,
     allowCompletedToolHandoffGrace: isCodexResponsesEcho,
     clientDisconnectGracePeriodMs: STREAM_DISCONNECT_GRACE_PERIOD_MS,
   });
@@ -6050,10 +6046,10 @@ export async function handleChatCore({
     const cacheUsageLogMeta = buildCacheUsageLogMeta(streamUsage);
     const streamConnectionId = getCurrentConnectionId();
 
-    if (normalizedStreamStatus === 200 && codexImageArtifactCapture) {
+    if (normalizedStreamStatus === 200 && orderForgeImageArtifactCapture) {
       try {
-        const artifacts = persistCodexImageArtifacts({
-          capture: codexImageArtifactCapture,
+        const artifacts = persistOrderForgeImageArtifacts({
+          capture: orderForgeImageArtifactCapture,
           responseBody: clientPayload ?? streamResponseBody ?? providerPayload,
         });
         for (const artifact of artifacts) {
@@ -6065,7 +6061,7 @@ export async function handleChatCore({
       } catch (error) {
         log?.error?.(
           "ETSY_IMAGE_ARTIFACT",
-          `store failed correlationId=${codexImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+          `store failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -6405,6 +6401,7 @@ export async function handleChatCore({
     );
   }
 
+<<<<<<< HEAD
     const finalStream = assembleStreamingPipeline({
       providerResponse,
       transformStream,
@@ -6419,6 +6416,28 @@ export async function handleChatCore({
       // that same patience for their first REAL content, not just their first
       // lifecycle frame. See pipeWithDisconnect's own doc comment.
       contentStallTimeoutMs: streamReadinessPolicy.timeoutMs,
+=======
+  const finalStream = assembleStreamingPipeline({
+    providerResponse,
+    transformStream,
+    streamController,
+    createPiiTransform,
+    clientRawRequestHeaders: clientRawRequest?.headers,
+    clientResponseFormat,
+    echoModel,
+    responseHeaders,
+  });
+
+  let clientStream = finalStream;
+  if (orderForgeImageArtifactCapture) {
+    const [downstreamStream, artifactStream] = finalStream.tee();
+    clientStream = downstreamStream;
+    void drainOrderForgeImageArtifactStream(artifactStream).catch((error) => {
+      log?.error?.(
+        "ETSY_IMAGE_ARTIFACT",
+        `drain failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+>>>>>>> a2e246eca (Harden image quota telemetry and artifact retention)
     });
     let clientStream = finalStream;
     if (codexImageArtifactCapture) {
