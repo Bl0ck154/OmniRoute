@@ -496,6 +496,148 @@ test("v1 image edit POST routes built-in Codex references through native Respons
   assert.equal(captured.body.input[0].content.length, 3);
 });
 
+test("Codex image generation reports a fresh 5h baseline without requiring artifact-retention scope", async () => {
+  const connection = await seedConnection("codex", {
+    authType: "oauth",
+    accessToken: "codex-fresh-generation-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  const createdKey = await apiKeysDb.createApiKey("Regular image client", "regular-image-client");
+  await apiKeysDb.updateApiKeyPermissions(createdKey.id, {
+    allowedConnections: [String(connection.id)],
+  });
+
+  let imageSignal: AbortSignal | null | undefined;
+  globalThis.fetch = async (url, options: RequestInit = {}) => {
+    if (String(url).includes("/backend-api/wham/usage")) {
+      return new Response(
+        JSON.stringify({
+          rate_limit: {
+            primary_window: { used_percent: 30, reset_after_seconds: 3600 },
+            secondary_window: { used_percent: 40, reset_after_seconds: 86400 },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    imageSignal = options.signal;
+    const encoded = Buffer.from(VALID_PNG_BYTES).toString("base64");
+    const event = {
+      type: "response.output_item.done",
+      item: { type: "image_generation_call", id: "ig_fresh", status: "completed", result: encoded },
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "x-codex-5h-usage": "31.5",
+        "x-codex-5h-limit": "100",
+      },
+    });
+  };
+
+  const response = await imageRoute.POST(
+    new Request("http://localhost/api/v1/images/generations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${createdKey.key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "codex/gpt-5.6-sol",
+        prompt: "generate one fresh image",
+        response_format: "b64_json",
+      }),
+    })
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "70");
+  assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "68.5");
+  assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "1.5");
+  assert.ok(
+    imageSignal instanceof AbortSignal,
+    `expected ordinary request AbortSignal, got ${String(imageSignal)} (${Object.prototype.toString.call(imageSignal)})`
+  );
+});
+
+test("Order Forge image edit uses a fresh 5h baseline and durably retains the successful artifact", async () => {
+  const connection = await seedConnection("codex", {
+    authType: "oauth",
+    accessToken: "codex-retention-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  const createdKey = await apiKeysDb.createApiKey("Order Forge retention", "order-forge-retention");
+  await apiKeysDb.updateApiKeyPermissions(createdKey.id, {
+    allowedConnections: [String(connection.id)],
+    scopes: ["image_artifact_retention"],
+  });
+  const artifactDir = path.join(TEST_DATA_DIR, "retained-images");
+  const oldDir = process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR;
+  process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR = artifactDir;
+
+  let imageSignal: AbortSignal | null | undefined = undefined;
+  try {
+    globalThis.fetch = async (url, options: RequestInit = {}) => {
+      if (String(url).includes("/backend-api/wham/usage")) {
+        return new Response(
+          JSON.stringify({
+            rate_limit: {
+              primary_window: { used_percent: 11, reset_after_seconds: 3600 },
+              secondary_window: { used_percent: 20, reset_after_seconds: 86400 },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      imageSignal = options.signal;
+      const encoded = Buffer.from(VALID_PNG_BYTES).toString("base64");
+      const event = {
+        type: "response.output_item.done",
+        item: { type: "image_generation_call", id: "ig_retained", status: "completed", result: encoded },
+      };
+      return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "x-codex-5h-usage": "12.25",
+          "x-codex-5h-limit": "100",
+        },
+      });
+    };
+
+    const formData = createCodexEditForm("retain this generated image");
+    formData.set("response_format", "b64_json");
+    const response = await imageEditRoute.POST(
+      new Request("http://localhost/api/v1/images/edits", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createdKey.key}`,
+          "X-EtsyTrello-Artifact-Id": "person-composite:card:test:c1:v1",
+        },
+        body: formData,
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "89");
+    assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "87.75");
+    assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "1.25");
+    assert.equal(imageSignal, null);
+
+    const metadataFiles = fs
+      .readdirSync(artifactDir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name === "metadata.json");
+    assert.equal(metadataFiles.length, 1);
+    const metadataPath = path.join(metadataFiles[0].parentPath, metadataFiles[0].name);
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));
+    assert.equal(metadata.artifactId, "person-composite:card:test:c1:v1");
+    assert.equal(metadata.images.length, 1);
+  } finally {
+    if (oldDir === undefined) delete process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR;
+    else process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR = oldDir;
+  }
+});
+
 test("v1 Codex image edit rotates on insufficient_quota and stays inside the API-key allowlist", async () => {
   const disallowed = await seedConnection("codex", {
     apiKey: "codex-disallowed-token",

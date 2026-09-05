@@ -61,7 +61,7 @@ jobs:
           'open-sse/config/providers/registry/codex/index.ts'
           'src/lib/oauth/services/codexImport.ts'
           'open-sse/executors/codex/tools.ts'
-          'src/lib/usage/codexImageArtifactSink.ts'
+          'src/lib/usage/orderForgeImageArtifactSink.ts'
 
       - name: Test custom runtime behavior
         run: >-
@@ -74,7 +74,7 @@ jobs:
           tests/unit/codex-free-plan-image-generation.test.ts
           tests/unit/codexBulkImport.test.ts
           tests/unit/db-read-cache.test.ts
-          tests/unit/codex-image-artifact-sink.test.ts
+          tests/unit/order-forge-image-artifact-sink.test.ts
           tests/unit/gemini-web-image-account-fallback.test.ts
 
       - name: Install Chromium
