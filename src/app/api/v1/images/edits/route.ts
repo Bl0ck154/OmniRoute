@@ -44,7 +44,16 @@ import {
   isCommonChatGptWebRetirementError,
 } from "@/shared/constants/chatgptWebRetirement";
 import { z } from "zod";
-import { attachCodexImageQuotaHeaders } from "@/lib/images/codexImageQuotaTelemetry";
+import {
+  attachCodexImageQuotaHeaders,
+  mergeFreshCodexImageQuotaBaseline,
+} from "@/lib/images/codexImageQuotaTelemetry";
+import {
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+  type OrderForgeImageArtifactCapture,
+} from "@/lib/usage/orderForgeImageArtifactSink";
+import { fetchFreshCodexQuota } from "@omniroute/open-sse/services/codexQuotaFetcher.ts";
 
 // JSON edit body (Open WebUI / OpenAI-style). All fields optional — the prompt
 // and resolvable image are enforced after extraction in POST — but the top-level
@@ -175,6 +184,29 @@ async function readEditInput(request: Request): Promise<EditInput | null> {
   return null;
 }
 
+function persistOrderForgeImageResponse(
+  capture: OrderForgeImageArtifactCapture | null,
+  responseBody: unknown
+): void {
+  if (!capture) return;
+  try {
+    const artifacts = persistOrderForgeImageArtifacts({ capture, responseBody });
+    for (const artifact of artifacts) {
+      log.info(
+        "ETSY_IMAGE_ARTIFACT",
+        `stored artifactId=${artifact.artifactId} correlationId=${artifact.correlationId} imageCallId=${artifact.imageCallId} format=${artifact.format} bytes=${artifact.sizeBytes} sha256=${artifact.sha256}`
+      );
+    }
+  } catch (error) {
+    log.error(
+      "ETSY_IMAGE_ARTIFACT",
+      `store failed correlationId=${capture.correlationId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
 function jsonResponse(data: unknown, status = 200, headers?: Headers): Response {
   const responseHeaders = headers ?? new Headers();
   responseHeaders.set("Content-Type", "application/json");
@@ -228,6 +260,7 @@ async function handleAdobeFireflyEditRequest(params: {
   images: Array<{ bytes: Buffer; mime: string }>;
   imageBytes: Buffer | null;
   imageMime: string | null;
+  artifactCapture: OrderForgeImageArtifactCapture | null;
 }): Promise<Response> {
   const {
     parsed,
@@ -240,6 +273,7 @@ async function handleAdobeFireflyEditRequest(params: {
     images,
     imageBytes,
     imageMime,
+    artifactCapture,
   } = params;
 
   const credentials = await getProviderCredentialsWithQuotaPreflight(
@@ -288,6 +322,7 @@ async function handleAdobeFireflyEditRequest(params: {
   });
 
   if ((result as { success?: boolean }).success) {
+    persistOrderForgeImageResponse(artifactCapture, (result as { data?: unknown }).data);
     await clearRecoveredProviderState(credentials);
     return jsonResponse((result as { data?: unknown }).data);
   }
@@ -377,6 +412,10 @@ async function postHandler(request: Request, _context?: unknown) {
 
   const parsed = parseImageModel(resolvedModel);
   const providerConfig = parsed.provider ? getImageProvider(parsed.provider) : null;
+  const orderForgeImageArtifactCapture = resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: policy.apiKeyInfo?.scopes,
+    headers: request.headers,
+  });
   // Firefly nano/gpt-image accept multiple reference blobs; other non-Codex stay at 1.
   const maxRefsForProvider =
     providerConfig?.format === "adobe-firefly-image"
@@ -452,6 +491,13 @@ async function postHandler(request: Request, _context?: unknown) {
           typeof attemptCredentials?.connectionId === "string"
             ? attemptCredentials.connectionId
             : null;
+        const freshQuotaBefore = connectionId
+          ? await fetchFreshCodexQuota(connectionId, {
+              ...(attemptCredentials as Record<string, unknown>),
+              requestedModel: resolvedModel,
+            })
+          : null;
+        const freshQuotaObservedAt = freshQuotaBefore ? new Date().toISOString() : null;
         let proxyInfo = null;
         if (connectionId) {
           try {
@@ -461,8 +507,8 @@ async function postHandler(request: Request, _context?: unknown) {
           }
         }
 
-        const editImage = () =>
-          handleCodexImageEdit({
+        const editImage = async () => {
+          const imageResult = await handleCodexImageEdit({
             provider: parsed.provider,
             model: parsed.model,
             providerConfig,
@@ -474,8 +520,25 @@ async function postHandler(request: Request, _context?: unknown) {
             referenceImages: images,
             credentials: attemptCredentials,
             log,
-            signal: request.signal,
+            // A tagged Order Forge request is paid work: let it finish and enter the
+            // private artifact sink even if the downstream HTTP client times out.
+            signal: orderForgeImageArtifactCapture ? null : request.signal,
           });
+          if (imageResult.success && freshQuotaBefore) {
+            imageResult.telemetry = {
+              codexQuota: mergeFreshCodexImageQuotaBaseline(
+                imageResult.telemetry?.codexQuota,
+                {
+                  connectionId,
+                  fiveHourPercentUsed: freshQuotaBefore.window5h.percentUsed,
+                  fiveHourResetAt: freshQuotaBefore.window5h.resetAt,
+                  observedAt: freshQuotaObservedAt,
+                }
+              ),
+            };
+          }
+          return imageResult;
+        };
 
         return connectionId
           ? runWithProxyContext(proxyInfo?.proxy || null, editImage).catch(() => ({
@@ -490,6 +553,7 @@ async function postHandler(request: Request, _context?: unknown) {
     const result = execution.result;
 
     if (result.success === true) {
+      persistOrderForgeImageResponse(orderForgeImageArtifactCapture, result.data);
       await clearRecoveredProviderState(credentials);
       const headers = new Headers();
       attachCodexImageQuotaHeaders(headers, result.telemetry?.codexQuota);
@@ -539,6 +603,7 @@ async function postHandler(request: Request, _context?: unknown) {
     });
 
     if (result.success) {
+      persistOrderForgeImageResponse(orderForgeImageArtifactCapture, result.data);
       await clearRecoveredProviderState(credentials);
       return jsonResponse(result.data);
     }
@@ -561,6 +626,7 @@ async function postHandler(request: Request, _context?: unknown) {
       images,
       imageBytes,
       imageMime,
+      artifactCapture: orderForgeImageArtifactCapture,
     });
   }
 
@@ -604,6 +670,7 @@ async function postHandler(request: Request, _context?: unknown) {
     });
 
     if (result.success) {
+      persistOrderForgeImageResponse(orderForgeImageArtifactCapture, result.data);
       await clearRecoveredProviderState(credentials);
       return jsonResponse(result.data);
     }
@@ -669,6 +736,7 @@ async function postHandler(request: Request, _context?: unknown) {
   });
 
   if (result.success) {
+    persistOrderForgeImageResponse(orderForgeImageArtifactCapture, (result as any).data);
     await clearRecoveredProviderState(credentials);
     return jsonResponse((result as any).data);
   }

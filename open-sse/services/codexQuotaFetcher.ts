@@ -274,6 +274,15 @@ export async function fetchCodexQuota(
   }
 }
 
+/** Force one uncached usage read for telemetry that must describe the moment before a request. */
+export async function fetchFreshCodexQuota(
+  connectionId: string,
+  connection?: Record<string, unknown>
+): Promise<CodexDualWindowQuota | null> {
+  deleteQuotaCacheForConnection(connectionId);
+  return fetchCodexQuota(connectionId, connection);
+}
+
 // ─── Response Parser ─────────────────────────────────────────────────────────
 
 function toNumber(value: unknown, fallback = 0): number {

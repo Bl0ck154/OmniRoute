@@ -6,6 +6,48 @@ export interface CodexImageQuotaTelemetryShape {
   observedAt?: string | null;
 }
 
+
+export type FreshCodexImageQuotaBaseline = {
+  connectionId?: string | null;
+  fiveHourPercentUsed: number;
+  fiveHourResetAt?: string | null;
+  observedAt?: string | null;
+};
+
+/**
+ * Replace a cached/persisted "before" value with a quota snapshot fetched
+ * immediately before the image request. If the 5h window rolled over while
+ * the image was generating, suppress the cross-window before/delta instead of
+ * presenting a misleading consumption number.
+ */
+export function mergeFreshCodexImageQuotaBaseline(
+  telemetry: CodexImageQuotaTelemetryShape | null | undefined,
+  baseline: FreshCodexImageQuotaBaseline
+): CodexImageQuotaTelemetryShape {
+  const current = telemetry ?? {};
+  const beforeReset =
+    typeof baseline.fiveHourResetAt === "string" && baseline.fiveHourResetAt.trim()
+      ? baseline.fiveHourResetAt.trim()
+      : null;
+  const afterReset =
+    typeof current.fiveHourResetAt === "string" && current.fiveHourResetAt.trim()
+      ? current.fiveHourResetAt.trim()
+      : null;
+  const sameWindow = !(beforeReset && afterReset && beforeReset !== afterReset);
+  const usedFraction = Number(baseline.fiveHourPercentUsed);
+  const beforeRemaining = Number.isFinite(usedFraction)
+    ? Math.max(0, Math.min(100, 100 - usedFraction * 100))
+    : null;
+
+  return {
+    ...current,
+    connectionId: baseline.connectionId ?? current.connectionId ?? null,
+    fiveHourBeforeRemainingPercent: sameWindow ? beforeRemaining : null,
+    fiveHourResetAt: afterReset ?? beforeReset,
+    observedAt: current.observedAt ?? baseline.observedAt ?? null,
+  };
+}
+
 export const CODEX_IMAGE_QUOTA_HEADERS = {
   connectionId: "X-OmniRoute-Codex-Connection-Id",
   beforeRemaining: "X-OmniRoute-Codex-5H-Before-Remaining",
@@ -16,6 +58,7 @@ export const CODEX_IMAGE_QUOTA_HEADERS = {
 } as const;
 
 function percent(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   return Math.max(0, Math.min(100, parsed));
