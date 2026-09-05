@@ -14,6 +14,8 @@ import { getAntigravityEnvelopeUserAgent } from "../services/antigravityIdentity
 import { kieExecutor } from "../executors/kie.ts";
 import { mapImageSize } from "../translator/image/sizeMapper.ts";
 import { getCodexClientVersion, getCodexUserAgent } from "../config/codexClient.ts";
+import { getCodexModelScope, parseCodexQuotaHeaders } from "../executors/codex.ts";
+import { persistCodexChildQuotaResponse } from "../services/codexAccount/index.ts";
 import { isCodexFreePlan } from "../executors/codex/tools.ts";
 import { saveCallLog } from "@/lib/usageDb";
 import { sleep } from "../utils/sleep.ts";
@@ -2412,6 +2414,91 @@ export function extractImageGenerationCalls(
   return results;
 }
 
+export interface CodexImageQuotaTelemetry {
+  connectionId: string | null;
+  fiveHourBeforeRemainingPercent: number | null;
+  fiveHourAfterRemainingPercent: number | null;
+  fiveHourResetAt: string | null;
+  observedAt: string | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function codexRemainingPercent(usage: unknown, limit: unknown): number | null {
+  const used = Number(usage);
+  const total = Number(limit);
+  if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0) return null;
+  return Math.max(0, Math.min(100, ((total - used) / total) * 100));
+}
+
+function readPersistedCodexFiveHourQuota(
+  credentials: unknown,
+  model: string
+): { remainingPercent: number | null; resetAt: string | null; observedAt: string | null } {
+  const credential = asRecord(credentials);
+  const providerSpecificData = asRecord(credential.providerSpecificData);
+  const scope = getCodexModelScope(model);
+  const byScope = asRecord(providerSpecificData.codexQuotaStateByScope);
+  let quota = asRecord(byScope[scope]);
+  if (Object.keys(quota).length === 0) {
+    const legacy = asRecord(providerSpecificData.codexQuotaState);
+    if (legacy.scope === scope) quota = legacy;
+  }
+  return {
+    remainingPercent: codexRemainingPercent(quota.usage5h, quota.limit5h),
+    resetAt: typeof quota.resetAt5h === "string" ? quota.resetAt5h : null,
+    observedAt: typeof quota.observedAt === "string" ? quota.observedAt : null,
+  };
+}
+
+function responseHeadersRecord(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key.toLowerCase()] = value;
+  });
+  return result;
+}
+
+async function observeCodexImageQuota(
+  credentials: unknown,
+  model: string,
+  response: Response
+): Promise<{ remainingPercent: number | null; resetAt: string | null; observedAt: string | null }> {
+  const headers = responseHeadersRecord(response.headers);
+  const quota = parseCodexQuotaHeaders(headers);
+  const credential = asRecord(credentials);
+  const connectionId =
+    typeof credential.connectionId === "string" && credential.connectionId.trim()
+      ? credential.connectionId.trim()
+      : null;
+  let observedAt: string | null = null;
+  if (connectionId && quota) {
+    try {
+      const persisted = await persistCodexChildQuotaResponse({
+        connectionId,
+        model,
+        headers,
+        status: response.status,
+      });
+      if (persisted && credentials && typeof credentials === "object") {
+        (credentials as Record<string, unknown>).providerSpecificData = persisted.providerSpecificData;
+      }
+      observedAt = new Date().toISOString();
+    } catch {
+      // Quota telemetry must never turn a successful image into a failed request.
+    }
+  }
+  return {
+    remainingPercent: quota ? codexRemainingPercent(quota.usage5h, quota.limit5h) : null,
+    resetAt: quota?.resetAt5h ?? null,
+    observedAt,
+  };
+}
+
 // The image_generation hosted tool accepts { "auto" | "low" | "medium" | "high" }
 // for `quality`. Legacy image clients often send "standard" / "hd". Map those values
 // so OpenWebUI's quality dropdown doesn't silently get rejected upstream.
@@ -2551,6 +2638,8 @@ async function handleCodexImageGeneration({
     headers["session_id"] = workspaceId;
   }
 
+  const quotaBefore = readPersistedCodexFiveHourQuota(credentials, model);
+
   if (log) {
     const promptSummary =
       referenceImages.length > 0 ? `${prompt.length} chars` : `"${prompt.slice(0, 60)}..."`;
@@ -2582,6 +2671,8 @@ async function handleCodexImageGeneration({
         },
       };
     }
+
+    const quotaAfter = await observeCodexImageQuota(credentials, model, response);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -2623,7 +2714,7 @@ async function handleCodexImageGeneration({
       };
     }
 
-    return { ok: true as const, items };
+    return { ok: true as const, items, quotaAfter };
   };
 
   const imageResults = await Promise.all(
@@ -2649,6 +2740,37 @@ async function handleCodexImageGeneration({
       }))
     : collected;
 
+  let quotaAfter: {
+    remainingPercent: number | null;
+    resetAt: string | null;
+    observedAt: string | null;
+  } | null = null;
+  for (const row of imageResults) {
+    if (!row.ok || row.quotaAfter.remainingPercent === null) continue;
+    if (
+      quotaAfter === null ||
+      quotaAfter.remainingPercent === null ||
+      row.quotaAfter.remainingPercent < quotaAfter.remainingPercent
+    ) {
+      quotaAfter = row.quotaAfter;
+    }
+  }
+  const credentialRecord = asRecord(credentials);
+  const connectionId =
+    typeof credentialRecord.connectionId === "string" && credentialRecord.connectionId.trim()
+      ? credentialRecord.connectionId.trim()
+      : null;
+  const quotaTelemetry: CodexImageQuotaTelemetry | null =
+    quotaBefore.remainingPercent !== null || quotaAfter?.remainingPercent !== null
+      ? {
+          connectionId,
+          fiveHourBeforeRemainingPercent: quotaBefore.remainingPercent,
+          fiveHourAfterRemainingPercent: quotaAfter?.remainingPercent ?? null,
+          fiveHourResetAt: quotaAfter?.resetAt ?? quotaBefore.resetAt,
+          observedAt: quotaAfter?.observedAt ?? quotaBefore.observedAt,
+        }
+      : null;
+
   return saveImageSuccessResult({
     provider,
     model,
@@ -2656,12 +2778,17 @@ async function handleCodexImageGeneration({
     requestBody: requestBodyForLog,
     responseBody: { images_count: data.length },
     images: data,
+    telemetry: quotaTelemetry ? { codexQuota: quotaTelemetry } : null,
     path: logPath,
   });
 }
 
 type CodexImageEditResult =
-  | { success: true; data: { created: number; data: Array<Record<string, unknown>> } }
+  | {
+      success: true;
+      data: { created: number; data: Array<Record<string, unknown>> };
+      telemetry?: { codexQuota?: CodexImageQuotaTelemetry };
+    }
   | { success: false; status: number; error: unknown };
 
 /**
@@ -2714,6 +2841,7 @@ export function saveImageSuccessResult({
   responseBody = null,
   created = null,
   images,
+  telemetry = null,
   path = "/v1/images/generations",
 }) {
   saveCallLog({
@@ -2733,6 +2861,7 @@ export function saveImageSuccessResult({
       created: created || Math.floor(Date.now() / 1000),
       data: images,
     },
+    ...(telemetry ? { telemetry } : {}),
   };
 }
 

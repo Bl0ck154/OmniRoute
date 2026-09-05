@@ -44,6 +44,7 @@ import {
   isCommonChatGptWebRetirementError,
 } from "@/shared/constants/chatgptWebRetirement";
 import { z } from "zod";
+import { attachCodexImageQuotaHeaders } from "@/lib/images/codexImageQuotaTelemetry";
 
 // JSON edit body (Open WebUI / OpenAI-style). All fields optional — the prompt
 // and resolvable image are enforced after extraction in POST — but the top-level
@@ -174,10 +175,12 @@ async function readEditInput(request: Request): Promise<EditInput | null> {
   return null;
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
+function jsonResponse(data: unknown, status = 200, headers?: Headers): Response {
+  const responseHeaders = headers ?? new Headers();
+  responseHeaders.set("Content-Type", "application/json");
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: responseHeaders,
   });
 }
 
@@ -488,7 +491,9 @@ async function postHandler(request: Request, _context?: unknown) {
 
     if (result.success === true) {
       await clearRecoveredProviderState(credentials);
-      return jsonResponse(result.data);
+      const headers = new Headers();
+      attachCodexImageQuotaHeaders(headers, result.telemetry?.codexQuota);
+      return jsonResponse(result.data, 200, headers);
     }
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
