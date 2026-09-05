@@ -39,6 +39,10 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { runWithCallLogApiKeyContext } from "@/lib/usage/callLogApiKeyContext";
+import {
+  attachCodexImageQuotaHeaders,
+  type CodexImageQuotaTelemetryShape,
+} from "@/lib/images/codexImageQuotaTelemetry";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
 import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 import {
@@ -382,6 +386,10 @@ async function postHandler(request, context) {
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
     });
+    attachCodexImageQuotaHeaders(
+      headers,
+      (result as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry?.codexQuota
+    );
     return new Response(JSON.stringify((result as { data: unknown }).data), {
       status: 200,
       headers,
