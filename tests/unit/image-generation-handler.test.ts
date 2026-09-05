@@ -1808,7 +1808,12 @@ test("handleImageGeneration routes codex image requests through /responses with 
     ]);
     return new Response(sse, {
       status: 200,
-      headers: { "content-type": "text/event-stream" },
+      headers: {
+        "content-type": "text/event-stream",
+        "x-codex-5h-usage": "12",
+        "x-codex-5h-limit": "100",
+        "x-codex-5h-reset-at": "2026-09-05T16:00:00.000Z",
+      },
     });
   };
 
@@ -1821,7 +1826,18 @@ test("handleImageGeneration routes codex image requests through /responses with 
       },
       credentials: {
         accessToken: "codex-token",
-        providerSpecificData: { workspaceId: "acct-123" },
+        connectionId: "conn-image-test",
+        providerSpecificData: {
+          workspaceId: "acct-123",
+          codexQuotaStateByScope: {
+            codex: {
+              usage5h: 10,
+              limit5h: 100,
+              resetAt5h: "2026-09-05T16:00:00.000Z",
+              observedAt: "2026-09-05T15:00:00.000Z",
+            },
+          },
+        },
       },
       log: null,
     });
@@ -1838,6 +1854,13 @@ test("handleImageGeneration routes codex image requests through /responses with 
     assert.equal(captured.body.input[0].content[0].text, "Draw a happy red kitten");
     assert.equal(result.data.data[0].b64_json, "a2l0dGVu");
     assert.equal(result.data.data[0].revised_prompt, "happy red kitten");
+    assert.equal(result.telemetry?.codexQuota?.connectionId, "conn-image-test");
+    assert.equal(result.telemetry?.codexQuota?.fiveHourBeforeRemainingPercent, 90);
+    assert.equal(result.telemetry?.codexQuota?.fiveHourAfterRemainingPercent, 88);
+    assert.equal(
+      result.telemetry?.codexQuota?.fiveHourResetAt,
+      "2026-09-05T16:00:00.000Z"
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

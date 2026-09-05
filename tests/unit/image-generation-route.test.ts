@@ -394,7 +394,19 @@ test("v1 image edit POST guards multipart prompts after parsing", async () => {
 });
 
 test("v1 image edit POST routes built-in Codex references through native Responses edit", async () => {
-  await seedConnection("codex", { apiKey: "codex-oauth-token" });
+  const codexConnection = await seedConnection("codex", {
+    apiKey: "codex-oauth-token",
+    providerSpecificData: {
+      codexQuotaStateByScope: {
+        codex: {
+          usage5h: 20,
+          limit5h: 100,
+          resetAt5h: "2026-09-05T16:00:00.000Z",
+          observedAt: "2026-09-05T15:00:00.000Z",
+        },
+      },
+    },
+  });
 
   let captured: CapturedRequest | null = null;
   globalThis.fetch = async (url, options: RequestInit = {}) => {
@@ -416,7 +428,12 @@ test("v1 image edit POST routes built-in Codex references through native Respons
     };
     return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
       status: 200,
-      headers: { "content-type": "text/event-stream" },
+      headers: {
+        "content-type": "text/event-stream",
+        "x-codex-5h-usage": "23.5",
+        "x-codex-5h-limit": "100",
+        "x-codex-5h-reset-at": "2026-09-05T16:00:00.000Z",
+      },
     });
   };
 
@@ -441,6 +458,17 @@ test("v1 image edit POST routes built-in Codex references through native Respons
 
   assert.equal(response.status, 200);
   assert.equal(body.data[0].b64_json, "ZWRpdGVkLWltYWdl");
+  assert.equal(
+    response.headers.get("x-omniroute-codex-connection-id"),
+    String(codexConnection.id)
+  );
+  assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "80");
+  assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "76.5");
+  assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "3.5");
+  assert.equal(
+    response.headers.get("x-omniroute-codex-5h-reset-at"),
+    "2026-09-05T16:00:00.000Z"
+  );
   assert.ok(captured);
   assert.equal(captured.url, "https://chatgpt.com/backend-api/codex/responses");
   assert.equal(captured.headers.Authorization, "Bearer codex-oauth-token");
