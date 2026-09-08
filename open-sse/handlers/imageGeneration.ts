@@ -56,8 +56,10 @@ import { handleLeonardoImageGeneration } from "./imageGeneration/providers/leona
 import { handleMagnificImageGeneration } from "./imageGeneration/providers/magnific.ts";
 import { handleNvidiaNimImageGeneration } from "./imageGeneration/providers/nvidiaNim.ts";
 import { handleSegmindImageGeneration } from "./imageGeneration/providers/segmind.ts";
+import { handleUcImageGeneration } from "./imageGeneration/providers/ucImage.ts";
 import { handleCursorAgentImageGeneration } from "./imageGeneration/providers/cursorAgentImage.ts";
 import { handleMinimaxImageGeneration } from "./imageGeneration/providers/minimax.ts";
+import { handleMaxaiImageGeneration } from "./imageGeneration/providers/maxaiImage.ts";
 import { handleAdobeFireflyImageGeneration } from "./imageGeneration/providers/adobeFirefly.ts";
 import { handleAlibabaImageGeneration } from "./imageGeneration/providers/alibabaImage.ts";
 import { handleAiHordeImageGeneration } from "./imageGeneration/providers/aihorde.ts";
@@ -122,20 +124,21 @@ interface KieImageOptions {
 //     ideogram/v3-reframe has no dedicated docs.kie.ai page as of this sweep
 //     (its 3 siblings above are all direct id matches, so it is assumed
 //     correct by pattern, not independently confirmed).
-// Two catalog entries remain UNRESOLVED after this sweep and are
-// deliberately left untouched pending a follow-up (see #11296 discussion):
+// One catalog entry remains UNRESOLVED after this sweep and is deliberately
+// left untouched pending a follow-up (see #11296 discussion):
 //   - z-image/4.0-text-to-image and z-image/4.5-text-to-image: the only
 //     documented Z-Image Market page (docs.kie.ai/market/z-image/z-image)
 //     shows a single fixed `model` enum value `"z-image"` with no
 //     version-specific id or "version" input field found — unclear whether
 //     both catalog ids should collapse to the same upstream call.
-//   - flux/kontext: no `docs.kie.ai/market/flux2/kontext` (or similar)
-//     Market page exists; Flux Kontext is documented under the separate
-//     `/flux-kontext-api/*` docs tree with its own endpoint
-//     (`POST /api/v1/flux/kontext/generate`, models `flux-kontext-pro`/
-//     `flux-kontext-max`), not the Market `createTask` flow this map feeds.
-//     This entry may be miscatalogued as `isMarket: true` and need a
-//     dedicated reroute rather than an id rewrite.
+// flux/kontext is RESOLVED (#11296): it is catalogued with `isMarket: true`
+// but has no `docs.kie.ai/market/flux2/kontext` (or similar) Market page —
+// Flux Kontext is documented under the separate `/flux-kontext-api/*` docs
+// tree with its own endpoint (`POST /api/v1/flux/kontext/generate`, poll
+// `GET /api/v1/flux/kontext/record-info`, models `flux-kontext-pro`/
+// `flux-kontext-max`), not the Market `createTask` flow this map feeds. It is
+// NOT in KIE_MARKET_UPSTREAM_MODEL_IDS below on purpose — handleKieImageGeneration
+// reroutes it to the dedicated endpoint instead of rewriting its id.
 export const KIE_MARKET_UPSTREAM_MODEL_IDS: ReadonlyMap<string, string> = new Map([
   ["google-imagen/nano-banana", "google/nano-banana"],
   ["google-imagen/nano-banana-2", "nano-banana-2"],
@@ -627,6 +630,28 @@ export async function handleImageGeneration({
     });
   }
 
+  if (providerConfig.format === "maxai-image") {
+    return handleMaxaiImageGeneration({
+      model,
+      provider,
+      body,
+      credentials,
+      log,
+      signal,
+    });
+  }
+
+  if (providerConfig.format === "uc-image") {
+    return handleUcImageGeneration({
+      model,
+      provider,
+      body,
+      credentials,
+      log,
+      signal,
+    });
+  }
+
   if (providerConfig.format === "adobe-firefly-image") {
     return handleAdobeFireflyImageGeneration({
       model,
@@ -837,13 +862,29 @@ async function handleKieImageGeneration({
   // Check if model is a Market model (unified API)
   const fullRegistry = getImageProvider(provider);
   const modelEntry = fullRegistry?.models?.find((m) => m.id === model);
-  const isMarket = modelEntry?.isMarket || model.includes("/");
+  // #11296 — flux/kontext is catalogued with `isMarket: true`, but KIE does not
+  // expose it through the Market catalog at all: it lives under a dedicated API
+  // tree (POST /api/v1/flux/kontext/generate, poll .../flux/kontext/record-info)
+  // that rejects the Market createTask flow with "model name not supported". Route
+  // it there instead of treating it as a Market entry (see KIE_MARKET_UPSTREAM_MODEL_IDS
+  // comment above for the same finding).
+  const isFluxKontext = model === "flux/kontext";
+  const isMarket = !isFluxKontext && (modelEntry?.isMarket || model.includes("/"));
 
   const { imageUrl } = extractImageInputs(body);
   let baseUrl = "";
   let payload: Record<string, unknown> = {};
 
-  if (isMarket) {
+  if (isFluxKontext) {
+    // Dedicated Flux Kontext API endpoint (not part of the Market catalog).
+    baseUrl = `${providerConfig.baseUrl.replace(/\/$/, "")}/api/v1/flux/kontext/generate`;
+    payload = {
+      prompt,
+      aspectRatio: mapImageSize(size),
+      model: "flux-kontext-pro",
+      ...(imageUrl ? { inputImage: imageUrl } : {}),
+    };
+  } else if (isMarket) {
     // Unified Market API endpoint
     baseUrl = `${providerConfig.baseUrl.replace(/\/$/, "")}/api/v1/jobs/createTask`;
     const input: Record<string, unknown> = {
@@ -875,13 +916,18 @@ async function handleKieImageGeneration({
     const promptPreview = String(body.prompt ?? "").slice(0, 60);
     log.info(
       "IMAGE",
-      `${provider}/${model} (${isMarket ? "market" : "direct"}) | prompt: "${promptPreview}..."`
+      `${provider}/${model} (${isFluxKontext ? "flux-kontext" : isMarket ? "market" : "direct"}) | prompt: "${promptPreview}..."`
     );
   }
 
   try {
-    const endpoint = isMarket ? "/api/v1/jobs/createTask" : new URL(baseUrl).pathname;
-    const createBaseUrl = isMarket ? providerConfig.baseUrl : baseUrl.replace(endpoint, "");
+    const endpoint = isFluxKontext
+      ? "/api/v1/flux/kontext/generate"
+      : isMarket
+        ? "/api/v1/jobs/createTask"
+        : new URL(baseUrl).pathname;
+    const createBaseUrl =
+      isFluxKontext || isMarket ? providerConfig.baseUrl : baseUrl.replace(endpoint, "");
     const createData = await kieExecutor.createTask({
       baseUrl: createBaseUrl,
       token,
@@ -910,11 +956,13 @@ async function handleKieImageGeneration({
     }
 
     // Use statusUrl from providerConfig if available, fallback to dynamic derivation
-    const statusUrl = isMarket
-      ? `${providerConfig.baseUrl.replace(/\/$/, "")}/api/v1/jobs/recordInfo`
-      : providerConfig.statusUrl && !providerConfig.statusUrl.includes("jobs/recordInfo")
-        ? providerConfig.statusUrl
-        : baseUrl.replace(/\/generate$/, "/record-info");
+    const statusUrl = isFluxKontext
+      ? `${providerConfig.baseUrl.replace(/\/$/, "")}/api/v1/flux/kontext/record-info`
+      : isMarket
+        ? `${providerConfig.baseUrl.replace(/\/$/, "")}/api/v1/jobs/recordInfo`
+        : providerConfig.statusUrl && !providerConfig.statusUrl.includes("jobs/recordInfo")
+          ? providerConfig.statusUrl
+          : baseUrl.replace(/\/generate$/, "/record-info");
 
     const { data: recordData, state } = await kieExecutor.pollTask({
       statusUrl,
@@ -2733,7 +2781,11 @@ async function handleCodexImageGeneration({
     }
   }
 
-  const wantsUrl = body.response_format !== "b64_json";
+  // OpenAI returns b64_json for the gpt-image-* family and reserves `url` for
+  // fetchable HTTPS links, so clients that omit response_format (Codex CLI's
+  // built-in image_gen among them) expect the bytes in b64_json. Only emit the
+  // data: URI when the caller explicitly asks for `url` (#12268).
+  const wantsUrl = body.response_format === "url";
   const data = wantsUrl
     ? collected.map((item) => ({
         url: `data:image/png;base64,${item.b64_json}`,

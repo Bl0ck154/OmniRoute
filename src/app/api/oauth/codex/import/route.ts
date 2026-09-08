@@ -4,6 +4,7 @@ import {
   normalizeCodexImportRecord,
   flattenCodexImportPayload,
   decodeJwtExp,
+  preserveExistingCodexConnectionState,
   type CodexImportPayload,
 } from "@/lib/oauth/services/codexImport";
 import {
@@ -135,7 +136,6 @@ async function updateExistingCodexImportMetadata(
     email: payload.email,
     providerSpecificData: { ...oldProviderSpecificData, ...newProviderSpecificData },
   };
-  if (payload.priority !== undefined) update.priority = payload.priority;
   const connection = await updateProviderConnection(id, update);
   if (!connection) throw new Error("Existing Codex connection disappeared during import");
   return connection;
@@ -235,7 +235,14 @@ export async function POST(request: Request) {
         (validation === "invalid" || validation === "inconclusive");
       const conn = preserveExistingCredentials
         ? await updateExistingCodexImportMetadata(existing, norm.payload)
-        : await createProviderConnection(norm.payload as Record<string, unknown>);
+        : await createProviderConnection(
+            preserveExistingCodexConnectionState(
+              norm.payload,
+              (await getProviderConnections({ provider: "codex", authType: "oauth" })) as Array<
+                Record<string, unknown>
+              >
+            ) as Record<string, unknown>
+          );
       imported += 1;
       results.push({
         index: i,
