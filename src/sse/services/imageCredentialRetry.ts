@@ -18,6 +18,7 @@ interface ImageGenerationResult {
   // so providers that never set it keep the original 401-only fallback
   // behavior unchanged.
   retryable?: boolean;
+  submissionState?: "ambiguous" | "definitive-failure";
 }
 
 interface ImageCredentialRetryOptions {

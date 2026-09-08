@@ -21,7 +21,11 @@ const providerChatRoute =
   await import("../../src/app/api/v1/providers/[provider]/chat/completions/route.ts");
 const imageEditRoute = await import("../../src/app/api/v1/images/edits/route.ts");
 const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
+<<<<<<< HEAD
 const { setPinnedFetchTestOverride } = await import("../../src/shared/network/remoteImageFetch.ts");
+=======
+const proxyHealth = await import("../../src/lib/proxyHealth.ts");
+>>>>>>> d6a571428 (Preserve paid image artifacts across gateway ambiguity)
 
 const originalFetch = globalThis.fetch;
 
@@ -466,17 +470,11 @@ test("v1 image edit POST routes built-in Codex references through native Respons
 
   assert.equal(response.status, 200);
   assert.equal(body.data[0].b64_json, "ZWRpdGVkLWltYWdl");
-  assert.equal(
-    response.headers.get("x-omniroute-codex-connection-id"),
-    String(codexConnection.id)
-  );
+  assert.equal(response.headers.get("x-omniroute-codex-connection-id"), String(codexConnection.id));
   assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "80");
   assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "76.5");
   assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "3.5");
-  assert.equal(
-    response.headers.get("x-omniroute-codex-5h-reset-at"),
-    "2026-09-05T16:00:00.000Z"
-  );
+  assert.equal(response.headers.get("x-omniroute-codex-5h-reset-at"), "2026-09-05T16:00:00.000Z");
   assert.ok(captured);
   assert.equal(captured.url, "https://chatgpt.com/backend-api/codex/responses");
   assert.equal(captured.headers.Authorization, "Bearer codex-oauth-token");
@@ -610,7 +608,12 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
       const encoded = Buffer.from(VALID_PNG_BYTES).toString("base64");
       const event = {
         type: "response.output_item.done",
-        item: { type: "image_generation_call", id: "ig_retained", status: "completed", result: encoded },
+        item: {
+          type: "image_generation_call",
+          id: "ig_retained",
+          status: "completed",
+          result: encoded,
+        },
       };
       return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
         status: 200,
@@ -654,7 +657,154 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
   }
 });
 
+<<<<<<< HEAD
 >>>>>>> a2e246eca (Harden image quota telemetry and artifact retention)
+=======
+test("Order Forge image edit persists a delayed success after proxy fast-fail returns 503", async () => {
+  const connection = await seedConnection("codex", {
+    authType: "oauth",
+    accessToken: "codex-delayed-retention-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  await settingsDb.setProxyForLevel("key", String(connection.id), {
+    type: "http",
+    host: "127.0.0.1",
+    port: 1,
+  });
+  const createdKey = await apiKeysDb.createApiKey(
+    "Order Forge delayed retention",
+    "order-forge-delayed-retention"
+  );
+  await apiKeysDb.updateApiKeyPermissions(createdKey.id, {
+    allowedConnections: [String(connection.id)],
+    scopes: ["image_artifact_retention"],
+  });
+  const artifactDir = path.join(TEST_DATA_DIR, "retained-images-after-fast-fail");
+  const oldDir = process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR;
+  process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR = artifactDir;
+  proxyHealth.__setProxyHealthTcpCheckForTesting(async () => false);
+
+  let resolveProviderResponse: ((response: Response) => void) | null = null;
+  const providerResponse = new Promise<Response>((resolve) => {
+    resolveProviderResponse = resolve;
+  });
+  try {
+    globalThis.fetch = async (url) => {
+      if (String(url).includes("/backend-api/wham/usage")) {
+        return new Response(
+          JSON.stringify({
+            rate_limit: {
+              primary_window: { used_percent: 11, reset_after_seconds: 3600 },
+              secondary_window: { used_percent: 20, reset_after_seconds: 86400 },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return providerResponse;
+    };
+
+    const formData = createCodexEditForm("retain the delayed generated image");
+    formData.set("response_format", "b64_json");
+    const response = await imageEditRoute.POST(
+      new Request("http://localhost/api/v1/images/edits", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createdKey.key}`,
+          "X-EtsyTrello-Artifact-Id": "person-composite:card:delayed:c1:v1",
+        },
+        body: formData,
+      })
+    );
+    assert.equal(response.status, 503);
+
+    const encoded = Buffer.from(VALID_PNG_BYTES).toString("base64");
+    const event = {
+      type: "response.output_item.done",
+      item: {
+        type: "image_generation_call",
+        id: "ig_delayed_retained",
+        status: "completed",
+        result: encoded,
+      },
+    };
+    resolveProviderResponse?.(
+      new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      })
+    );
+
+    let metadataFiles: string[] = [];
+    for (let attempt = 0; attempt < 50 && metadataFiles.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (!fs.existsSync(artifactDir)) continue;
+      metadataFiles = fs
+        .readdirSync(artifactDir, { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name === "metadata.json")
+        .map((entry) => path.join(entry.parentPath, entry.name));
+    }
+    assert.equal(metadataFiles.length, 1);
+    const metadata = JSON.parse(fs.readFileSync(metadataFiles[0], "utf8"));
+    assert.equal(metadata.artifactId, "person-composite:card:delayed:c1:v1");
+  } finally {
+    proxyHealth.__setProxyHealthTcpCheckForTesting(null);
+    if (oldDir === undefined) delete process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR;
+    else process.env.OMNIROUTE_ETSY_IMAGE_ARTIFACT_DIR = oldDir;
+  }
+});
+
+test("Order Forge image edit marks an upstream 503 as a definitive failure", async () => {
+  const connection = await seedConnection("codex", {
+    authType: "oauth",
+    accessToken: "codex-definitive-failure-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
+  const createdKey = await apiKeysDb.createApiKey(
+    "Order Forge definitive failure",
+    "order-forge-definitive-failure"
+  );
+  await apiKeysDb.updateApiKeyPermissions(createdKey.id, {
+    allowedConnections: [String(connection.id)],
+    scopes: ["image_artifact_retention"],
+  });
+
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/backend-api/wham/usage")) {
+      return new Response(
+        JSON.stringify({
+          rate_limit: {
+            primary_window: { used_percent: 11, reset_after_seconds: 3600 },
+            secondary_window: { used_percent: 20, reset_after_seconds: 86400 },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    return new Response(JSON.stringify({ error: { message: "temporary upstream outage" } }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const formData = createCodexEditForm("edit after an upstream outage");
+  formData.set("response_format", "b64_json");
+  const response = await imageEditRoute.POST(
+    new Request("http://localhost/api/v1/images/edits", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${createdKey.key}`,
+        "X-EtsyTrello-Artifact-Id": "person-composite:card:definitive:c1:v1",
+      },
+      body: formData,
+    })
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get("x-omniroute-image-submission-state"), "definitive-failure");
+});
+
+>>>>>>> d6a571428 (Preserve paid image artifacts across gateway ambiguity)
 test("v1 Codex image edit rotates on insufficient_quota and stays inside the API-key allowlist", async () => {
   const disallowed = await seedConnection("codex", {
     apiKey: "codex-disallowed-token",
