@@ -2918,6 +2918,21 @@ export function saveImageSuccessResult({
   };
 }
 
+function stringifyImageErrorForLog(error: unknown): string {
+  if (typeof error === "string") return error.slice(0, 500);
+  try {
+    const serialized = JSON.stringify(error ?? {});
+    if (typeof serialized === "string") return serialized.slice(0, 500);
+  } catch {
+    // Fall through to String(), which also handles most non-JSON primitives.
+  }
+  try {
+    return String(error).slice(0, 500);
+  } catch {
+    return "Image provider error";
+  }
+}
+
 export function saveImageErrorResult({
   provider,
   model,
@@ -2950,7 +2965,7 @@ export function saveImageErrorResult({
     model: `${provider}/${model}`,
     provider,
     duration: Date.now() - startTime,
-    error: typeof error === "string" ? error.slice(0, 500) : String(error).slice(0, 500),
+    error: stringifyImageErrorForLog(error),
     requestBody,
   }).catch(() => {});
 

@@ -225,14 +225,12 @@ export async function POST(request: Request) {
 
       // A server-side refresh rotates Codex refresh tokens. CodexSwitcher can
       // therefore keep an older token after OmniRoute has already persisted the
-      // rotated one. Re-importing that stable account is a successful metadata
-      // sync, not a reason to overwrite the working server credentials or report
-      // the account as failed. The same conservative path is used when validation
-      // is inconclusive and the incoming token differs from the stored token.
+      // rotated one. When upstream definitively says that differing incoming token
+      // is invalid, keep the server's working credentials and sync metadata only.
+      // A transient/inconclusive validation must still allow a normal re-import so
+      // genuinely fresh credentials and expiry timestamps can replace stale ones.
       const preserveExistingCredentials =
-        existing !== null &&
-        !sameRefreshToken &&
-        (validation === "invalid" || validation === "inconclusive");
+        existing !== null && !sameRefreshToken && validation === "invalid";
       const conn = preserveExistingCredentials
         ? await updateExistingCodexImportMetadata(existing, norm.payload)
         : await createProviderConnection(
