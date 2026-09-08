@@ -4,6 +4,7 @@ import {
   normalizeCodexImportRecord,
   flattenCodexImportPayload,
   decodeJwtExp,
+  preserveExistingCodexConnectionState,
   type CodexImportPayload,
 } from "@/lib/oauth/services/codexImport";
 import {
@@ -135,7 +136,6 @@ async function updateExistingCodexImportMetadata(
     email: payload.email,
     providerSpecificData: { ...oldProviderSpecificData, ...newProviderSpecificData },
   };
-  if (payload.priority !== undefined) update.priority = payload.priority;
   const connection = await updateProviderConnection(id, update);
   if (!connection) throw new Error("Existing Codex connection disappeared during import");
   return connection;
@@ -225,17 +225,22 @@ export async function POST(request: Request) {
 
       // A server-side refresh rotates Codex refresh tokens. CodexSwitcher can
       // therefore keep an older token after OmniRoute has already persisted the
-      // rotated one. Re-importing that stable account is a successful metadata
-      // sync, not a reason to overwrite the working server credentials or report
-      // the account as failed. The same conservative path is used when validation
-      // is inconclusive and the incoming token differs from the stored token.
+      // rotated one. When upstream definitively says that differing incoming token
+      // is invalid, keep the server's working credentials and sync metadata only.
+      // A transient/inconclusive validation must still allow a normal re-import so
+      // genuinely fresh credentials and expiry timestamps can replace stale ones.
       const preserveExistingCredentials =
-        existing !== null &&
-        !sameRefreshToken &&
-        (validation === "invalid" || validation === "inconclusive");
+        existing !== null && !sameRefreshToken && validation === "invalid";
       const conn = preserveExistingCredentials
         ? await updateExistingCodexImportMetadata(existing, norm.payload)
-        : await createProviderConnection(norm.payload as Record<string, unknown>);
+        : await createProviderConnection(
+            preserveExistingCodexConnectionState(
+              norm.payload,
+              (await getProviderConnections({ provider: "codex", authType: "oauth" })) as Array<
+                Record<string, unknown>
+              >
+            ) as Record<string, unknown>
+          );
       imported += 1;
       results.push({
         index: i,
