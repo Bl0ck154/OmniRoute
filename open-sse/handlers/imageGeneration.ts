@@ -2486,7 +2486,8 @@ async function observeCodexImageQuota(
         status: response.status,
       });
       if (persisted && credentials && typeof credentials === "object") {
-        (credentials as Record<string, unknown>).providerSpecificData = persisted.providerSpecificData;
+        (credentials as Record<string, unknown>).providerSpecificData =
+          persisted.providerSpecificData;
       }
       observedAt = new Date().toISOString();
     } catch {
@@ -2669,6 +2670,7 @@ async function handleCodexImageGeneration({
           error: `Image provider error: ${message}`,
           requestBody: requestBodyForLog,
           path: logPath,
+          submissionState: "ambiguous" as const,
         },
       };
     }
@@ -2693,11 +2695,31 @@ async function handleCodexImageGeneration({
           requestBody: requestBodyForLog,
           path: logPath,
           ...(retryable ? { retryable: true } : {}),
+          submissionState: "definitive-failure" as const,
         },
       };
     }
 
-    const rawSSE = await response.text();
+    let rawSSE: string;
+    try {
+      rawSSE = await response.text();
+    } catch (error) {
+      const message = sanitizeErrorMessage(error);
+      if (log) log.error("IMAGE", `${provider} response read error: ${message}`);
+      return {
+        ok: false as const,
+        error: {
+          provider,
+          model,
+          status: 502,
+          startTime,
+          error: `Image provider response interrupted: ${message}`,
+          requestBody: requestBodyForLog,
+          path: logPath,
+          submissionState: "ambiguous" as const,
+        },
+      };
+    }
     const items = extractImageGenerationCalls(rawSSE);
     if (items.length === 0) {
       return {
@@ -2711,6 +2733,7 @@ async function handleCodexImageGeneration({
             "Codex completed without producing an image_generation_call — the model may have declined the tool",
           requestBody: requestBodyForLog,
           path: logPath,
+          submissionState: "definitive-failure" as const,
         },
       };
     }
@@ -2784,13 +2807,20 @@ async function handleCodexImageGeneration({
   });
 }
 
+type CodexImageSubmissionState = "ambiguous" | "definitive-failure";
+
 type CodexImageEditResult =
   | {
       success: true;
       data: { created: number; data: Array<Record<string, unknown>> };
       telemetry?: { codexQuota?: CodexImageQuotaTelemetry };
     }
-  | { success: false; status: number; error: unknown };
+  | {
+      success: false;
+      status: number;
+      error: unknown;
+      submissionState?: CodexImageSubmissionState;
+    };
 
 /**
  * Run a stateless Codex reference-image edit through the native Responses hosted tool.
@@ -2881,6 +2911,7 @@ export function saveImageErrorResult({
   // status isn't a plain 401. Defaults to unset (existing 401-only behavior
   // for every other provider is unchanged).
   retryable = undefined,
+  submissionState = undefined,
 }: {
   provider: string;
   model: string;
@@ -2890,6 +2921,7 @@ export function saveImageErrorResult({
   requestBody?: unknown;
   path?: string;
   retryable?: boolean;
+  submissionState?: CodexImageSubmissionState;
 }) {
   saveCallLog({
     method: "POST",
@@ -2907,6 +2939,7 @@ export function saveImageErrorResult({
     status,
     error,
     ...(retryable !== undefined ? { retryable } : {}),
+    ...(submissionState ? { submissionState } : {}),
   };
 }
 

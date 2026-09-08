@@ -507,7 +507,9 @@ async function postHandler(request: Request, _context?: unknown) {
           }
         }
 
+        let providerAttemptStarted = false;
         const editImage = async () => {
+          providerAttemptStarted = true;
           const imageResult = await handleCodexImageEdit({
             provider: parsed.provider,
             model: parsed.model,
@@ -526,16 +528,20 @@ async function postHandler(request: Request, _context?: unknown) {
           });
           if (imageResult.success && freshQuotaBefore) {
             imageResult.telemetry = {
-              codexQuota: mergeFreshCodexImageQuotaBaseline(
-                imageResult.telemetry?.codexQuota,
-                {
-                  connectionId,
-                  fiveHourPercentUsed: freshQuotaBefore.window5h.percentUsed,
-                  fiveHourResetAt: freshQuotaBefore.window5h.resetAt,
-                  observedAt: freshQuotaObservedAt,
-                }
-              ),
+              codexQuota: mergeFreshCodexImageQuotaBaseline(imageResult.telemetry?.codexQuota, {
+                connectionId,
+                fiveHourPercentUsed: freshQuotaBefore.window5h.percentUsed,
+                fiveHourResetAt: freshQuotaBefore.window5h.resetAt,
+                observedAt: freshQuotaObservedAt,
+              }),
             };
+          }
+          // Persist inside the actual provider attempt. runWithProxyContext may
+          // fast-fail the HTTP route while this tagged paid request deliberately
+          // continues in the background; persisting only after the wrapper returns
+          // would silently discard a later successful image.
+          if (imageResult.success) {
+            persistOrderForgeImageResponse(orderForgeImageArtifactCapture, imageResult.data);
           }
           return imageResult;
         };
@@ -545,6 +551,12 @@ async function postHandler(request: Request, _context?: unknown) {
               success: false as const,
               status: HTTP_STATUS.SERVICE_UNAVAILABLE,
               error: "Image edit proxy error",
+              // A pre-dispatch proxy failure is safe to retry. Once the provider
+              // attempt starts, the wrapper may still win its fast-fail race while
+              // the paid request continues and must therefore be reconciled.
+              submissionState: providerAttemptStarted
+                ? ("ambiguous" as const)
+                : ("definitive-failure" as const),
             }))
           : editImage();
       },
@@ -553,15 +565,21 @@ async function postHandler(request: Request, _context?: unknown) {
     const result = execution.result;
 
     if (result.success === true) {
-      persistOrderForgeImageResponse(orderForgeImageArtifactCapture, result.data);
       await clearRecoveredProviderState(credentials);
       const headers = new Headers();
       attachCodexImageQuotaHeaders(headers, result.telemetry?.codexQuota);
+      headers.set("X-OmniRoute-Image-Submission-State", "completed");
       return jsonResponse(result.data, 200, headers);
     }
+    const failureHeaders = new Headers();
+    failureHeaders.set(
+      "X-OmniRoute-Image-Submission-State",
+      result.submissionState || "definitive-failure"
+    );
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
-      result.status
+      result.status,
+      failureHeaders
     );
   }
 
