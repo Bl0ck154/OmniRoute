@@ -88,6 +88,7 @@ interface CreateApiKeyOptions {
   allowedModels?: string[];
   allowedCombos?: string[];
   allowedConnections?: string[];
+  preferredConnections?: string[];
   expiresAt?: string | null;
 }
 
@@ -102,6 +103,7 @@ interface ApiKeyMetadata {
   blockedModels: string[];
   allowedCombos: string[];
   allowedConnections: string[];
+  preferredConnections: string[];
   allowedQuotas: string[];
   noLog: boolean;
   autoResolve: boolean;
@@ -149,6 +151,8 @@ interface ApiKeyRow extends JsonRecord {
   allowedCombos?: unknown;
   allowed_connections?: unknown;
   allowedConnections?: unknown;
+  preferred_connections?: unknown;
+  preferredConnections?: unknown;
   allowed_quotas?: unknown;
   allowedQuotas?: unknown;
   no_log?: unknown;
@@ -211,6 +215,7 @@ interface ApiKeyView extends JsonRecord {
   blockedModels: string[];
   allowedCombos: string[];
   allowedConnections: string[];
+  preferredConnections: string[];
   allowedQuotas: string[];
   noLog: boolean;
   autoResolve: boolean;
@@ -460,10 +465,10 @@ function getPreparedStatements(db: ApiKeysDbLike): ApiKeysStatements {
       "SELECT id, expires_at, revoked_at, is_active, is_banned FROM api_keys WHERE key = ? OR key_hash = ?"
     );
     _stmtGetKeyMetadata = db.prepare<ApiKeyRow>(
-      "SELECT id, name, machine_id, model_access_mode, allowed_models, blocked_models, allowed_combos, allowed_connections, allowed_quotas, no_log, auto_resolve, is_active, access_schedule, max_requests_per_day, max_requests_per_minute, throttle_delay_ms, max_sessions, revoked_at, expires_at, ip_allowlist, scopes, rate_limits, is_banned, key_hash, allowed_endpoints, stream_default_mode, cache_default_mode, disable_non_public_models, allow_usage_command, usage_limit_enabled, daily_usage_limit_usd, weekly_usage_limit_usd, chaos_mode_enabled, compression_enabled, allow_auto_combos, catalog_scope, proxy_id FROM api_keys WHERE key = ? OR key_hash = ?"
+      "SELECT id, name, machine_id, model_access_mode, allowed_models, blocked_models, allowed_combos, allowed_connections, preferred_connections, allowed_quotas, no_log, auto_resolve, is_active, access_schedule, max_requests_per_day, max_requests_per_minute, throttle_delay_ms, max_sessions, revoked_at, expires_at, ip_allowlist, scopes, rate_limits, is_banned, key_hash, allowed_endpoints, stream_default_mode, cache_default_mode, disable_non_public_models, allow_usage_command, usage_limit_enabled, daily_usage_limit_usd, weekly_usage_limit_usd, chaos_mode_enabled, compression_enabled, allow_auto_combos, catalog_scope, proxy_id FROM api_keys WHERE key = ? OR key_hash = ?"
     );
     _stmtInsertKey = db.prepare(
-      "INSERT INTO api_keys (id, name, key, machine_id, model_access_mode, allowed_models, allowed_combos, allowed_connections, no_log, created_at, key_prefix, key_hash, scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO api_keys (id, name, key, machine_id, model_access_mode, allowed_models, allowed_combos, allowed_connections, preferred_connections, no_log, created_at, key_prefix, key_hash, scopes, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     _stmtDeleteKey = db.prepare("DELETE FROM api_keys WHERE id = ?");
   }
@@ -509,6 +514,7 @@ export async function getApiKeys(limit?: number, offset?: number) {
     camelRow.blockedModels = parseAllowedModels(camelRow.blockedModels);
     camelRow.allowedCombos = parseAllowedCombos(camelRow.allowedCombos);
     camelRow.allowedConnections = parseAllowedConnections(camelRow.allowedConnections);
+    camelRow.preferredConnections = parseAllowedConnections(camelRow.preferredConnections);
     camelRow.allowedQuotas = parseAllowedQuotas((camelRow as JsonRecord).allowedQuotas);
     camelRow.noLog = parseNoLog(camelRow.noLog);
     camelRow.autoResolve = parseAutoResolve(camelRow.autoResolve);
@@ -648,6 +654,7 @@ export async function getApiKeyById(id: string) {
   camelRow.blockedModels = parseAllowedModels(camelRow.blockedModels);
   camelRow.allowedCombos = parseAllowedCombos(camelRow.allowedCombos);
   camelRow.allowedConnections = parseAllowedConnections(camelRow.allowedConnections);
+  camelRow.preferredConnections = parseAllowedConnections(camelRow.preferredConnections);
   camelRow.allowedQuotas = parseAllowedQuotas((camelRow as JsonRecord).allowedQuotas);
   camelRow.noLog = parseNoLog(camelRow.noLog);
   camelRow.autoResolve = parseAutoResolve(camelRow.autoResolve);
@@ -696,6 +703,7 @@ export async function createApiKey(
     throw new Error("machineId is required");
   }
   const allowedConnections = options.allowedConnections ?? [];
+  const preferredConnections = options.preferredConnections ?? [];
   const modelAccess = normalizeApiKeyPermissionsUpdate({
     modelAccessMode: options.modelAccessMode,
     allowedModels: options.allowedModels,
@@ -720,6 +728,7 @@ export async function createApiKey(
     allowedModels,
     allowedCombos,
     allowedConnections,
+    preferredConnections,
     noLog: false,
     allowUsageCommand: false,
     createdAt: now,
@@ -737,6 +746,7 @@ export async function createApiKey(
     JSON.stringify(apiKey.allowedModels),
     JSON.stringify(apiKey.allowedCombos),
     JSON.stringify(allowedConnections),
+    JSON.stringify(preferredConnections),
     0,
     apiKey.createdAt,
     apiKey.key.slice(0, 12),
@@ -797,6 +807,7 @@ export async function updateApiKeyPermissions(
     normalized.blockedModels !== undefined ||
     normalized.allowedCombos !== undefined ||
     normalized.allowedConnections !== undefined ||
+    normalized.preferredConnections !== undefined ||
     normalized.allowedQuotas !== undefined ||
     normalized.disableNonPublicModels !== undefined ||
     normalized.allowAutoCombos !== undefined ||
@@ -809,6 +820,7 @@ export async function updateApiKeyPermissions(
     normalized.blockedModels === undefined &&
     normalized.allowedCombos === undefined &&
     normalized.allowedConnections === undefined &&
+    normalized.preferredConnections === undefined &&
     (normalized as Record<string, unknown>).allowedQuotas === undefined &&
     normalized.noLog === undefined &&
     normalized.autoResolve === undefined &&
@@ -846,6 +858,7 @@ export async function updateApiKeyPermissions(
     blockedModels?: string;
     allowedCombos?: string;
     allowedConnections?: string;
+    preferredConnections?: string;
     allowedQuotas?: string;
     noLog?: number;
     autoResolve?: number;
@@ -903,6 +916,12 @@ export async function updateApiKeyPermissions(
     // Empty array means all connections are allowed
     updates.push("allowed_connections = @allowedConnections");
     params.allowedConnections = JSON.stringify(normalized.allowedConnections || []);
+  }
+
+  if (normalized.preferredConnections !== undefined) {
+    // Ordered preference only; it never grants access and only ranks eligible connections.
+    updates.push("preferred_connections = @preferredConnections");
+    params.preferredConnections = JSON.stringify(normalized.preferredConnections || []);
   }
 
   const allowedQuotasUpdate = (normalized as Record<string, unknown>).allowedQuotas;
@@ -1403,6 +1422,7 @@ export async function getApiKeyMetadata(
       blockedModels: [],
       allowedCombos: [ALL_COMBOS_ACCESS_RULE],
       allowedConnections: [],
+      preferredConnections: [],
       allowedQuotas: [],
       noLog: false,
       autoResolve: true,
@@ -1474,6 +1494,9 @@ export async function getApiKeyMetadata(
     allowedCombos: parseAllowedCombos(record.allowed_combos ?? record.allowedCombos),
     allowedConnections: parseAllowedConnections(
       record.allowed_connections ?? record.allowedConnections
+    ),
+    preferredConnections: parseAllowedConnections(
+      record.preferred_connections ?? record.preferredConnections,
     ),
     allowedQuotas: parseAllowedQuotas(
       (record as JsonRecord).allowed_quotas ?? (record as JsonRecord).allowedQuotas

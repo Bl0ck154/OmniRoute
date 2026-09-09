@@ -73,6 +73,7 @@ export async function PATCH(request, { params }) {
       blockedModels,
       allowedCombos,
       allowedConnections,
+      preferredConnections,
       noLog,
       autoResolve,
       isActive,
@@ -108,6 +109,7 @@ export async function PATCH(request, { params }) {
     } else if (allowedConnections !== undefined) {
       payload.allowedConnections = allowedConnections;
     }
+    if (preferredConnections !== undefined) payload.preferredConnections = preferredConnections;
     if (noLog !== undefined) payload.noLog = noLog;
     if (autoResolve !== undefined) payload.autoResolve = autoResolve;
     if (isActive !== undefined) payload.isActive = isActive;
@@ -148,6 +150,7 @@ export async function PATCH(request, { params }) {
       ...(blockedModels !== undefined && { blockedModels }),
       ...(allowedCombos !== undefined && { allowedCombos }),
       ...(allowedConnections !== undefined && { allowedConnections }),
+      ...(preferredConnections !== undefined && { preferredConnections }),
       ...(noLog !== undefined && { noLog }),
       ...(autoResolve !== undefined && { autoResolve }),
       ...(isActive !== undefined && { isActive }),

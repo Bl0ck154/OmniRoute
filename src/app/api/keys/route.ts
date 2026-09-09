@@ -77,6 +77,7 @@ export async function POST(request) {
       noLog,
       scopes,
       allowedConnections,
+      preferredConnections,
       allowUsageCommand,
       usageLimitEnabled,
       dailyUsageLimitUsd,
@@ -93,6 +94,7 @@ export async function POST(request) {
       allowedModels,
       allowedCombos,
       allowedConnections,
+      preferredConnections,
       expiresAt,
     });
     if (
