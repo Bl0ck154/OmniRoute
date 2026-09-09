@@ -74,6 +74,7 @@ export async function POST(request) {
       noLog,
       scopes,
       allowedConnections,
+      preferredConnections,
       allowUsageCommand,
       usageLimitEnabled,
       dailyUsageLimitUsd,
@@ -84,7 +85,7 @@ export async function POST(request) {
     // Always get machineId from server
     const machineId = await getConsistentMachineId();
     const normalizedScopes = normalizeSelfServiceScopesForCreate(scopes);
-    const apiKey = await createApiKey(name, machineId, normalizedScopes, { allowedConnections });
+    const apiKey = await createApiKey(name, machineId, normalizedScopes, { allowedConnections, preferredConnections });
     if (
       noLog === true ||
       allowUsageCommand === true ||
