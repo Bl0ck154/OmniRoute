@@ -85,7 +85,10 @@ export async function POST(request) {
     // Always get machineId from server
     const machineId = await getConsistentMachineId();
     const normalizedScopes = normalizeSelfServiceScopesForCreate(scopes);
-    const apiKey = await createApiKey(name, machineId, normalizedScopes, { allowedConnections, preferredConnections });
+    const apiKey = await createApiKey(name, machineId, normalizedScopes, {
+      allowedConnections,
+      preferredConnections,
+    });
     if (
       noLog === true ||
       allowUsageCommand === true ||
@@ -121,6 +124,7 @@ export async function POST(request) {
         id: apiKey.id,
         machineId: apiKey.machineId,
         allowedConnections: apiKey.allowedConnections,
+        preferredConnections: apiKey.preferredConnections,
         noLog: noLog === true,
         allowUsageCommand: allowUsageCommand === true,
         usageLimitEnabled: usageLimitEnabled === true,
