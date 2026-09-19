@@ -245,6 +245,43 @@ describe("ResourcePressureRuntime stale-while-revalidate cache", () => {
     runtime.dispose();
   });
 
+  it("refreshes stale pressure from getObservation so early admission cannot pin critical forever", async () => {
+    let now = 0;
+    let calls = 0;
+    const runtime = createResourcePressureRuntime({
+      nowMs: () => now,
+      staleAfterMs: 10,
+      maxStaleMs: 100,
+      immediateHeapUsedMb: () => 100,
+      sample: async () => {
+        calls += 1;
+        return calls === 1 ? signals(now, 950) : signals(now, 100);
+      },
+      thresholds: {
+        sustainedSamplesCritical: 1,
+        sustainedSamplesRecovery: 1,
+        heapAbsoluteThresholdMb: null,
+      },
+    });
+
+    runtime.check();
+    await settleRefresh(runtime);
+    assert.equal(runtime.getObservation().state.severity, "critical");
+    assert.equal(calls, 1);
+
+    now = 11;
+    assert.equal(
+      runtime.getObservation().state.severity,
+      "critical",
+      "the stale cached state is returned for the current admission decision"
+    );
+    await settleRefresh(runtime);
+
+    assert.equal(calls, 2, "getObservation schedules a stale refresh even if chatCore never runs");
+    assert.equal(runtime.getObservation().state.severity, "normal");
+    runtime.dispose();
+  });
+
   it("default scheduler unrefs Immediate; injected schedulers stay caller-owned", async () => {
     // Injected schedule is never wrapped: the runtime must not call unref on it.
     let scheduled = 0;

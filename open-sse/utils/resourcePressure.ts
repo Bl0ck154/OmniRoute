@@ -196,7 +196,16 @@ export function createResourcePressureRuntime(
         ? buildCriticalGuard(state.reason)
         : null;
     },
-    getObservation: () => ({ signals: lastSignals, state }),
+    getObservation: () => {
+      // Admission reads the cached pressure state before chatCore runs. If that
+      // cached state is already critical, the request is rejected early and
+      // chatCore never reaches check(), which used to be the only place that
+      // scheduled another sample. Refresh stale observations here as well so a
+      // recovered process cannot remain pinned in critical forever.
+      const now = nowMs();
+      if (now >= nextRefreshAtMs) scheduleRefresh();
+      return { signals: lastSignals, state };
+    },
     whenRefreshSettled: async () => {
       if (scheduled) await new Promise<void>((resolve) => setImmediate(resolve));
       if (inFlight) await inFlight;
