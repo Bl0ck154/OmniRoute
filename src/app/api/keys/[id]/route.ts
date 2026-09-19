@@ -87,6 +87,8 @@ export async function PATCH(request, { params }) {
       allowedEndpoints,
       streamDefaultMode,
       compressionEnabled,
+      allowAutoCombos,
+      catalogScope,
       cacheDefaultMode,
       disableNonPublicModels,
       allowUsageCommand,
@@ -121,6 +123,8 @@ export async function PATCH(request, { params }) {
     if (allowedEndpoints !== undefined) payload.allowedEndpoints = allowedEndpoints;
     if (streamDefaultMode !== undefined) payload.streamDefaultMode = streamDefaultMode;
     if (compressionEnabled !== undefined) payload.compressionEnabled = compressionEnabled;
+    if (allowAutoCombos !== undefined) payload.allowAutoCombos = allowAutoCombos;
+    if (catalogScope !== undefined) payload.catalogScope = catalogScope;
     if (cacheDefaultMode !== undefined) payload.cacheDefaultMode = cacheDefaultMode;
     if (disableNonPublicModels !== undefined)
       payload.disableNonPublicModels = disableNonPublicModels;
