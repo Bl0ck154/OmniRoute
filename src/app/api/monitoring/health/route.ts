@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProviderConnections, getCachedSettings } from "@/lib/localDb";
+import { getWalMaintenanceState } from "@/lib/db/walMaintenance";
 import { buildHealthPayload } from "@/lib/monitoring/observability";
 import { readRunningBuildSha } from "@/lib/monitoring/buildSha";
 import { APP_CONFIG } from "@/shared/constants/config";
@@ -185,6 +186,7 @@ export async function GET(request: Request) {
             null
           )
         : null;
+    const walMaintenance = readHealthValue("wal maintenance", () => getWalMaintenanceState(), null);
 
     const payload = buildHealthPayload({
       appVersion: APP_CONFIG.version,
@@ -214,6 +216,7 @@ export async function GET(request: Request) {
       credentialHealth,
       adaptiveAdmission,
       chatAdmission,
+      walMaintenance,
     });
 
     healthPayloadCache = { payload, expiresAt: Date.now() + HEALTH_PAYLOAD_TTL_MS };
