@@ -13,9 +13,8 @@
  *      `provider_connections.rate_limited_until` via
  *      `setConnectionRateLimitUntil` (best-effort, never crashes the request).
  *   2. `resetAccountState` with a DB id clears that column.
- *   3. The localDb re-exports `markConnectionRateLimitedUntil` and
- *      `clearConnectionRateLimit` for direct use by other consumers
- *      (e.g. provider-specific executors).
+ *   3. Direct DB helpers `markConnectionRateLimitedUntil` and
+ *      `clearConnectionRateLimit` remain available from db/providers.
  *
  * These tests mirror the harness from `antigravity-429-quota-cooldown.test.ts`
  * so they share the same DATA_DIR sandbox and DB reset pattern.
@@ -40,7 +39,7 @@ import {
 import {
   markConnectionRateLimitedUntil,
   clearConnectionRateLimit,
-} from "../../src/lib/localDb.ts";
+} from "../../src/lib/db/providers.ts";
 
 test.after(() => {
   core.resetDbInstance();

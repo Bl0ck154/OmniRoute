@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getProviderConnections, getCachedSettings } from "@/lib/localDb";
+import { getProviderConnections } from "@/lib/db/providers";
+import { getCachedSettings } from "@/lib/db/readCache";
 import { getWalMaintenanceState } from "@/lib/db/walMaintenance";
 import { buildHealthPayload } from "@/lib/monitoring/observability";
 import { readRunningBuildSha } from "@/lib/monitoring/buildSha";

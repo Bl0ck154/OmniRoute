@@ -1432,7 +1432,7 @@ export async function handleChatCore({
       };
       if ((isCombo && comboName) || routingComboId) {
         try {
-          const { getComboByName } = await import("../../src/lib/localDb");
+          const { getComboByName } = await import("@/lib/db/combos");
           let comboConfig = await getComboByName(comboName);
           if (!comboConfig && comboName?.startsWith("combo/")) {
             comboConfig = await getComboByName(comboName.substring(6));
@@ -1923,7 +1923,7 @@ export async function handleChatCore({
     if (isCombo && comboName) {
       log?.info?.("CONTEXT", `Attempting to resolve combo limits for comboName=${comboName}`);
       try {
-        const { getComboByName } = await import("../../src/lib/localDb");
+        const { getComboByName } = await import("@/lib/db/combos");
         const { resolveComboTargets } = await import("../services/combo.ts");
         let comboConfig = await getComboByName(comboName);
         if (!comboConfig && comboName.startsWith("combo/")) {
@@ -4304,13 +4304,14 @@ export async function handleChatCore({
               let quotaCooldownMs = kimiRateLimitResetAt
                 ? Math.max(new Date(kimiRateLimitResetAt).getTime() - Date.now(), 0)
                 : retryAfterMs || COOLDOWN_MS.rateLimit;
-              const deferAntigravityQuotaStateToCaller =
-                shouldDeferAntigravityQuotaStateToCaller(
-                  provider,
-                  typeof onStreamFailure === "function"
-                );
-              const isAntigravityQuotaFamily =
-                shouldDeferAntigravityQuotaStateToCaller(provider, true);
+              const deferAntigravityQuotaStateToCaller = shouldDeferAntigravityQuotaStateToCaller(
+                provider,
+                typeof onStreamFailure === "function"
+              );
+              const isAntigravityQuotaFamily = shouldDeferAntigravityQuotaStateToCaller(
+                provider,
+                true
+              );
               let coreOwnedAntigravityLockout: {
                 cooldownMs: number;
                 failureCount: number;
