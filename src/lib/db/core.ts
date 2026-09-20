@@ -40,6 +40,14 @@ import { invalidateDbCache } from "./readCache";
 import { rowToCamel } from "./caseMapping";
 import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
 import { parseModelAccessMode } from "./apiKeys/modelAccessMode";
+import {
+  startWalMaintenance,
+  stopWalMaintenance,
+  getWalMaintenanceState,
+  runCheckpointNow,
+  logCheckpointOutcome,
+  type WalCheckpointMode,
+} from "./walMaintenance";
 // Re-exported so existing call sites that pull these helpers off the core module keep working.
 export { toSnakeCase, toCamelCase, objToSnake, rowToCamel, cleanNulls } from "./caseMapping";
 import {
@@ -54,7 +62,6 @@ import {
 
 type SqliteDatabase = SqliteAdapter;
 type JsonRecord = Record<string, unknown>;
-type CheckpointMode = "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE";
 type DatabaseOptimizationSettings = DatabaseSettings["optimization"];
 type PreservedTableSnapshot = {
   table: string;
@@ -541,12 +548,6 @@ function setDb(db: SqliteDatabase | null): void {
   }
 }
 
-function checkpointDb(db: SqliteDatabase, mode: CheckpointMode = "TRUNCATE"): boolean {
-  if (isCloud || isBuildPhase || !SQLITE_FILE) return false;
-  db.pragma(`wal_checkpoint(${mode})`);
-  return true;
-}
-
 function summarizePreservedTables(tables: PreservedTableSnapshot[]): string {
   if (tables.length === 0) return "none";
   return tables.map((table) => `${table.table}(${table.rowCount})`).join(", ");
@@ -974,51 +975,6 @@ function startDbHealthCheckScheduler(db: SqliteDatabase) {
   dbHealthCheckTimer.unref?.();
 }
 
-let walTruncateTimer: NodeJS.Timeout | null = null;
-
-function getWalTruncateIntervalMs(): number {
-  const rawValue = process.env.OMNIROUTE_WAL_TRUNCATE_INTERVAL_MS;
-  if (typeof rawValue === "string" && rawValue.trim().length > 0) {
-    const parsed = Number(rawValue);
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return parsed;
-    }
-  }
-  return 6 * 60 * 60 * 1000;
-}
-
-function clearWalTruncateScheduler() {
-  if (walTruncateTimer) {
-    clearInterval(walTruncateTimer);
-    walTruncateTimer = null;
-  }
-}
-
-// Auto-checkpoint moves WAL pages back into the main DB file but never shrinks the WAL
-// file itself; only wal_checkpoint(TRUNCATE) does, and a long-running server never closes its DB.
-function startWalTruncateScheduler(db: SqliteDatabase) {
-  clearWalTruncateScheduler();
-  if (isCloud || isBuildPhase || isAutomatedTestProcess()) return;
-
-  const intervalMs = getWalTruncateIntervalMs();
-  if (intervalMs <= 0) return;
-
-  walTruncateTimer = setInterval(() => {
-    try {
-      if (!db.open) return;
-      // TRUNCATE waits for readers; under concurrent write load it can no-op without
-      // shrinking the file. That is expected — it retries on the next tick.
-      if (checkpointDb(db, "TRUNCATE")) {
-        console.log("[DB] Periodic SQLite WAL checkpoint completed (TRUNCATE).");
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn("[DB] Periodic WAL truncate failed:", message);
-    }
-  }, intervalMs);
-  walTruncateTimer.unref?.();
-}
-
 export function runManagedDbHealthCheck(options?: { autoRepair?: boolean }) {
   const db = getDbInstance();
   return runDbHealthCheck(db, {
@@ -1397,7 +1353,7 @@ export function getDbInstance(): SqliteDatabase {
   }
 
   startDbHealthCheckScheduler(db);
-  startWalTruncateScheduler(db);
+  startWalMaintenance(db, SQLITE_FILE);
   // Log the resolved absolute DATA_DIR + SQLITE_FILE once at init so a
   // multi-replica / Docker volume-topology mismatch (each replica opening a
   // different on-disk DB → "phantom"/missing combos & connections) is
@@ -1423,9 +1379,10 @@ export function pingDb(): boolean {
   }
 }
 
-export function closeDbInstance(options?: { checkpointMode?: CheckpointMode | null }): boolean {
+export function closeDbInstance(options?: { checkpointMode?: WalCheckpointMode | null }): boolean {
   clearDbHealthCheckScheduler();
-  clearWalTruncateScheduler();
+  const streakBefore = getWalMaintenanceState().busyStreak;
+  stopWalMaintenance();
   const db = getDb();
   if (!db) return false;
 
@@ -1434,9 +1391,12 @@ export function closeDbInstance(options?: { checkpointMode?: CheckpointMode | nu
   try {
     if (checkpointMode) {
       try {
-        if (checkpointDb(db, checkpointMode)) {
-          console.log(`[DB] SQLite WAL checkpoint completed (${checkpointMode}).`);
-        }
+        const outcome = runCheckpointNow(db, checkpointMode, {
+          sqliteFile: SQLITE_FILE,
+          isCloud,
+          isBuildPhase,
+        });
+        logCheckpointOutcome(outcome, checkpointMode, streakBefore);
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         console.warn(`[DB] WAL checkpoint failed during close (${checkpointMode}):`, message);
