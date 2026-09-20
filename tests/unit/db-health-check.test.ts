@@ -204,7 +204,7 @@ test("runDbHealthCheck repairs broken combo payloads, combo refs and stale conne
 
   const result = healthCheckDb.runDbHealthCheck(db, {
     autoRepair: true,
-    createBackupBeforeRepair: () => false,
+    createBackupBeforeRepair: () => true,
   });
   const invalidCombo = JSON.parse(
     (db.prepare("SELECT data FROM combos WHERE id = ?").get("combo-invalid") as any).data
@@ -271,16 +271,27 @@ test("runDbHealthCheck diagnosis does not request backups for combo-only issues"
   assert.equal(backupAttempts, 0);
 });
 
-test("getDbInstance can auto-repair persisted broken rows when startup repair is forced", async () => {
+test("getDbInstance keeps serving when forced startup repair cannot create its test-mode backup", async () => {
   let db = core.getDbInstance();
   insertBrokenRows(db);
   core.resetDbInstance();
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
 
   const previousForce = process.env.OMNIROUTE_FORCE_DB_HEALTHCHECK;
   process.env.OMNIROUTE_FORCE_DB_HEALTHCHECK = "1";
   try {
     db = core.getDbInstance();
+    assert.ok(
+      warnings.some((warning) => warning.includes("Startup health-check failed")),
+      "backup-gated startup repair must log the failure instead of aborting DB initialization"
+    );
   } finally {
+    console.warn = originalWarn;
     if (previousForce === undefined) {
       delete process.env.OMNIROUTE_FORCE_DB_HEALTHCHECK;
     } else {
@@ -288,19 +299,21 @@ test("getDbInstance can auto-repair persisted broken rows when startup repair is
     }
   }
 
-  assert.equal((db.prepare("SELECT COUNT(*) AS count FROM quota_snapshots").get() as any).count, 0);
-  assert.equal((db.prepare("SELECT COUNT(*) AS count FROM domain_budgets").get() as any).count, 0);
+  // Test-mode managed backups deliberately return false. The safer repair gate must
+  // therefore leave every broken row untouched while still allowing startup to finish.
+  assert.equal((db.prepare("SELECT COUNT(*) AS count FROM quota_snapshots").get() as any).count, 2);
+  assert.equal((db.prepare("SELECT COUNT(*) AS count FROM domain_budgets").get() as any).count, 1);
   assert.equal(
     (db.prepare("SELECT COUNT(*) AS count FROM domain_cost_history").get() as any).count,
-    0
+    1
   );
   assert.equal(
     (db.prepare("SELECT COUNT(*) AS count FROM domain_fallback_chains").get() as any).count,
-    0
+    1
   );
   assert.equal(
     (db.prepare("SELECT COUNT(*) AS count FROM domain_lockout_state").get() as any).count,
-    0
+    1
   );
   assert.equal(
     (
@@ -308,7 +321,7 @@ test("getDbInstance can auto-repair persisted broken rows when startup repair is
         .prepare("SELECT options FROM domain_circuit_breakers WHERE name = ?")
         .get("broken-breaker") as any
     ).options,
-    null
+    "{invalid"
   );
 });
 
@@ -341,7 +354,7 @@ test("runDbHealthCheck repairs a drifted db_meta schema version", async () => {
 
   const result = healthCheckDb.runDbHealthCheck(db, {
     autoRepair: true,
-    createBackupBeforeRepair: () => false,
+    createBackupBeforeRepair: () => true,
   });
 
   assert.equal(
