@@ -99,7 +99,7 @@ async function cleanup(): Promise<void> {
   try {
     const [
       { closeAuditDb },
-      { closeDbInstance },
+      { shutdownDbInstance },
       { flushSpendBatchWriter },
       { closeLogRotation },
       { closeCallLogSaves },
@@ -120,8 +120,12 @@ async function cleanup(): Promise<void> {
     if (closeAuditDb()) {
       console.log("[Shutdown] MCP audit database checkpointed and closed.");
     }
-    if (closeDbInstance()) {
-      console.log("[Shutdown] SQLite database checkpointed and closed.");
+    try {
+      if (await shutdownDbInstance()) {
+        console.log("[Shutdown] SQLite database checkpointed and closed.");
+      }
+    } catch (error) {
+      console.error("[Shutdown] Database cleanup failed:", (error as Error).message);
     }
     closeLogRotation();
     console.log("[Shutdown] Log rotation timer stopped.");
