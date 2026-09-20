@@ -1356,12 +1356,17 @@ export function getDbInstance(): SqliteDatabase {
       if (skipIntegrityCheck) {
         console.log("[DB] Health check skipped (OMNIROUTE_SKIP_DB_HEALTHCHECK=1)");
       }
-      runDbHealthCheck(db, {
-        autoRepair: true,
-        expectedSchemaVersion: "1",
-        skipIntegrityCheck,
-        createBackupBeforeRepair: () => createHealthCheckBackup(db),
-      });
+      try {
+        runDbHealthCheck(db, {
+          autoRepair: true,
+          expectedSchemaVersion: "1",
+          skipIntegrityCheck,
+          createBackupBeforeRepair: () => createHealthCheckBackup(db),
+        });
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[DB] Startup health-check failed: ${message}`);
+      }
     }
 
     setDb(db);
