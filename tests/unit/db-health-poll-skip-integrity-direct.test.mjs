@@ -20,10 +20,10 @@ test("manual DB health repair does not waive integrity scan", () => {
   );
 });
 
-test("managed health forwards skipIntegrityCheck into runDbHealthCheck", () => {
+test("managed health forwards skipIntegrityCheck into the coordinator", () => {
   const start = core.indexOf("export function runManagedDbHealthCheck");
   const end = core.indexOf("export function getDbInstance", start);
   const body = core.slice(start, end);
   assert.match(body, /skipIntegrityCheck\?: boolean/);
-  assert.match(body, /skipIntegrityCheck: options\?\.skipIntegrityCheck === true/);
+  assert.match(body, /managedHealth\.run\([\s\S]*options\?\.skipIntegrityCheck === true/);
 });

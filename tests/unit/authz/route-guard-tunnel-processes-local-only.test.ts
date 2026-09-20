@@ -51,3 +51,11 @@ test("unrelated tunnel paths remain outside the spawn-capable classification", (
     assert.equal(isLocalOnlyPath(path, "GET"), false);
   }
 });
+
+
+test("database health diagnostics are local-only because they spawn a child process", () => {
+  const path = "/api/db/health";
+  assert.ok(LOCAL_ONLY_API_PREFIXES.includes(path));
+  assert.equal(isLocalOnlyPath(path, "GET"), true);
+  assert.equal(isLocalOnlyPath(path, "POST"), true);
+});
