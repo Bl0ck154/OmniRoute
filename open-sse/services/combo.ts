@@ -2397,7 +2397,7 @@ async function handleComboChatInner({
           // so nothing else clears this stale pin.
           void (async () => {
             try {
-              const { clearLKGP } = await import("../../src/lib/localDb");
+              const { clearLKGP } = await import("@/lib/db/settings");
               await Promise.all([
                 clearLKGP(combo.name, target.executionKey),
                 clearLKGP(combo.name, combo.id || combo.name),
@@ -3751,7 +3751,7 @@ async function handleRoundRobinCombo({
           // by a request-scoped failure class like a stream-readiness timeout).
           void (async () => {
             try {
-              const { clearLKGP } = await import("../../src/lib/localDb");
+              const { clearLKGP } = await import("@/lib/db/settings");
               await Promise.all([
                 clearLKGP(combo.name, target.executionKey),
                 clearLKGP(combo.name, combo.id || combo.name),
