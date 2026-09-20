@@ -1232,134 +1232,150 @@ export function getDbInstance(): SqliteDatabase {
   }
 
   const db = openSqliteDatabase(sqliteFile);
-  // Emit the same "[DB] Driver: ..." line openDatabaseAsync() prints so the
-  // packaged-app smoke guard (#7592) can assert the native driver was
-  // selected on the server's primary DB path too, not only the backup-import
-  // route.
-  console.log(`[DB] Driver: ${db.driver} | file: ${sqliteFile}`);
-  // better-sqlite3 is synchronous, so a contended write parks the Node event loop for up to
-  // busy_timeout ms (a 0-CPU freeze that stacks under load → /health stops responding). The
-  // hot-path writers here (usage_history, call_logs) are best-effort and the WinUI host opens
-  // the same DB, so cap the block at 2s instead of 5s: normal writes complete in <1ms, and a
-  // contended op can no longer freeze the loop past the host watchdog's 6s liveness probe.
-  //
-  // Install the busy handler before the connection's first statement. `journal_mode = WAL`
-  // needs a SHARED lock, and another process closing its WAL connection briefly holds the
-  // file EXCLUSIVE (checkpoint + WAL delete); node:sqlite opens with busy timeout 0, so with
-  // the pragmas in the other order that window surfaced as `database is locked` at startup.
-  db.pragma("busy_timeout = 2000");
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
-  db.pragma(`cache_size = -${DEFAULT_DATABASE_SETTINGS.optimization.cacheSize}`);
-  db.pragma("temp_store = MEMORY");
-  db.exec(SCHEMA_SQL);
-  ensureProviderConnectionsColumns(db);
-  ensureUsageHistoryColumns(db);
-  ensureCallLogsColumns(db);
-
-  // ── Versioned Migrations ──
-  // Auto-seed 001 as applied (the inline SCHEMA_SQL already created these tables)
-  // then run any new migrations (002+)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS _omniroute_migrations (
-      version TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    INSERT OR IGNORE INTO _omniroute_migrations (version, name)
-    VALUES ('001', 'initial_schema');
-  `);
-
-  runMigrations(db, { isNewDb });
-  // Fresh installs need the same post-migration index guarantee as upgraded
-  // databases, including recovery from an interrupted migration 127 attempt.
-  ensureUsageHistoryAccountIndex(db);
-
-  applyStoredDatabaseOptimizationSettings(db);
-
-  // Apply mmap_size from stored settings (migration 046), fallback to 256MiB
   try {
-    const mmapRow = db
-      .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
-      .get("databaseSettings", "mmapSize") as { value: string } | undefined;
-    const mmapSize = mmapRow ? Math.max(0, parseInt(mmapRow.value, 10) || 0) : 268435456;
-    if (mmapSize > 0) {
-      db.pragma(`mmap_size = ${mmapSize}`);
-    }
-  } catch {
-    // mmap_size is best-effort; not available in all runtimes (e.g. web)
-  }
+    // Emit the same "[DB] Driver: ..." line openDatabaseAsync() prints so the
+    // packaged-app smoke guard (#7592) can assert the native driver was
+    // selected on the server's primary DB path too, not only the backup-import
+    // route.
+    console.log(`[DB] Driver: ${db.driver} | file: ${sqliteFile}`);
+    // better-sqlite3 is synchronous, so a contended write parks the Node event loop for up to
+    // busy_timeout ms (a 0-CPU freeze that stacks under load → /health stops responding). The
+    // hot-path writers here (usage_history, call_logs) are best-effort and the WinUI host opens
+    // the same DB, so cap the block at 2s instead of 5s: normal writes complete in <1ms, and a
+    // contended op can no longer freeze the loop past the host watchdog's 6s liveness probe.
+    //
+    // Install the busy handler before the connection's first statement. `journal_mode = WAL`
+    // needs a SHARED lock, and another process closing its WAL connection briefly holds the
+    // file EXCLUSIVE (checkpoint + WAL delete); node:sqlite opens with busy timeout 0, so with
+    // the pragmas in the other order that window surfaced as `database is locked` at startup.
+    db.pragma("busy_timeout = 2000");
+    db.pragma("journal_mode = WAL");
+    db.pragma("synchronous = NORMAL");
+    db.pragma(`cache_size = -${DEFAULT_DATABASE_SETTINGS.optimization.cacheSize}`);
+    db.pragma("temp_store = MEMORY");
+    db.exec(SCHEMA_SQL);
+    ensureProviderConnectionsColumns(db);
+    ensureUsageHistoryColumns(db);
+    ensureCallLogsColumns(db);
 
-  offloadLegacyCallLogDetails(db);
+    // ── Versioned Migrations ──
+    // Auto-seed 001 as applied (the inline SCHEMA_SQL already created these tables)
+    // then run any new migrations (002+)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS _omniroute_migrations (
+        version TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT OR IGNORE INTO _omniroute_migrations (version, name)
+      VALUES ('001', 'initial_schema');
+    `);
 
-  // Auto-migrate from db.json if exists
-  if (jsonDbFile && fs.existsSync(jsonDbFile)) {
-    migrateFromJson(db, jsonDbFile);
-  }
+    runMigrations(db, { isNewDb });
+    // Fresh installs need the same post-migration index guarantee as upgraded
+    // databases, including recovery from an interrupted migration 127 attempt.
+    ensureUsageHistoryAccountIndex(db);
 
-  if (failedProbePath && preservedCriticalState.preservedTables.length > 0) {
+    applyStoredDatabaseOptimizationSettings(db);
+
+    // Apply mmap_size from stored settings (migration 046), fallback to 256MiB
     try {
-      const restoredTables = restoreCriticalDbState(db, preservedCriticalState);
-      console.log(
-        `[DB] Restored preserved critical DB state after probe failure: ${summarizePreservedTables(
-          restoredTables
-        )}`
-      );
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      try {
-        closeProbeIfSafe(db);
-      } catch {
-        /* ignore */
+      const mmapRow = db
+        .prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?")
+        .get("databaseSettings", "mmapSize") as { value: string } | undefined;
+      const mmapSize = mmapRow ? Math.max(0, parseInt(mmapRow.value, 10) || 0) : 268435456;
+      if (mmapSize > 0) {
+        db.pragma(`mmap_size = ${mmapSize}`);
       }
-      cleanupRecreatedSqliteFiles(sqliteFile);
-      throw new Error(
-        `[DB] Automatic recovery aborted after probe failure. ` +
-          `Preserved database: ${failedProbePath}. ` +
-          `Restore failure: ${message}.`
-      );
+    } catch {
+      // mmap_size is best-effort; not available in all runtimes (e.g. web)
     }
-  }
 
-  // Store schema version
-  const versionStmt = db.prepare(
-    "INSERT OR REPLACE INTO db_meta (key, value) VALUES ('schema_version', '1')"
-  );
-  versionStmt.run();
-  if (shouldRunStartupDbHealthCheck()) {
-    const skipIntegrityCheck = process.env.OMNIROUTE_SKIP_DB_HEALTHCHECK === "1";
-    if (skipIntegrityCheck) {
-      console.log("[DB] Health check skipped (OMNIROUTE_SKIP_DB_HEALTHCHECK=1)");
+    offloadLegacyCallLogDetails(db);
+
+    // Auto-migrate from db.json if exists
+    if (jsonDbFile && fs.existsSync(jsonDbFile)) {
+      migrateFromJson(db, jsonDbFile);
     }
-    runDbHealthCheck(db, {
-      autoRepair: true,
-      expectedSchemaVersion: "1",
-      skipIntegrityCheck,
-      createBackupBeforeRepair: () => createHealthCheckBackup(db),
-    });
+
+    if (failedProbePath && preservedCriticalState.preservedTables.length > 0) {
+      try {
+        const restoredTables = restoreCriticalDbState(db, preservedCriticalState);
+        console.log(
+          `[DB] Restored preserved critical DB state after probe failure: ${summarizePreservedTables(
+            restoredTables
+          )}`
+        );
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        try {
+          closeProbeIfSafe(db);
+        } catch {
+          /* ignore */
+        }
+        cleanupRecreatedSqliteFiles(sqliteFile);
+        throw new Error(
+          `[DB] Automatic recovery aborted after probe failure. ` +
+            `Preserved database: ${failedProbePath}. ` +
+            `Restore failure: ${message}.`
+        );
+      }
+    }
+
+    // Store schema version
+    const versionStmt = db.prepare(
+      "INSERT OR REPLACE INTO db_meta (key, value) VALUES ('schema_version', '1')"
+    );
+    versionStmt.run();
+    if (shouldRunStartupDbHealthCheck()) {
+      const skipIntegrityCheck = process.env.OMNIROUTE_SKIP_DB_HEALTHCHECK === "1";
+      if (skipIntegrityCheck) {
+        console.log("[DB] Health check skipped (OMNIROUTE_SKIP_DB_HEALTHCHECK=1)");
+      }
+      runDbHealthCheck(db, {
+        autoRepair: true,
+        expectedSchemaVersion: "1",
+        skipIntegrityCheck,
+        createBackupBeforeRepair: () => createHealthCheckBackup(db),
+      });
+    }
+
+    setDb(db);
+
+    // Re-encrypt any tokens using the legacy dynamic salt to canonical static salt
+    try {
+      autoMigrateLegacyEncryptedConnections(db);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[DB] Legacy encryption migration failed: ${message}`);
+    }
+
+    startDbHealthCheckScheduler(db);
+    startWalMaintenance(db, SQLITE_FILE);
+    // Log the resolved absolute DATA_DIR + SQLITE_FILE once at init so a
+    // multi-replica / Docker volume-topology mismatch (each replica opening a
+    // different on-disk DB → "phantom"/missing combos & connections) is
+    // diagnosable straight from the logs. (#3147)
+    console.log(
+      `[DB] SQLite database ready: ${sqliteFile} ` +
+        `(DATA_DIR=${path.resolve(DATA_DIR)}, SQLITE_FILE=${path.resolve(sqliteFile)})`
+    );
+    return db;
+  } catch (error) {
+    // Initialization may fail after a real SQLite handle has opened but before
+    // getDbInstance() can return it. Never leak that handle or leave a half-registered
+    // singleton/timer behind; a later retry must start from a clean process state.
+    if (getDb() === db) setDb(null);
+    clearDbHealthCheckScheduler();
+    stopWalMaintenance();
+    try {
+      closeProbeIfSafe(db);
+    } catch {
+      /* best effort */
+    }
+    console.warn("[DB] DB initialization failed; closing newly opened handle.");
+    throw error;
   }
-
-  setDb(db);
-
-  // Re-encrypt any tokens using the legacy dynamic salt to canonical static salt
-  try {
-    autoMigrateLegacyEncryptedConnections(db);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[DB] Legacy encryption migration failed: ${message}`);
-  }
-
-  startDbHealthCheckScheduler(db);
-  startWalMaintenance(db, SQLITE_FILE);
-  // Log the resolved absolute DATA_DIR + SQLITE_FILE once at init so a
-  // multi-replica / Docker volume-topology mismatch (each replica opening a
-  // different on-disk DB → "phantom"/missing combos & connections) is
-  // diagnosable straight from the logs. (#3147)
-  console.log(
-    `[DB] SQLite database ready: ${sqliteFile} ` +
-      `(DATA_DIR=${path.resolve(DATA_DIR)}, SQLITE_FILE=${path.resolve(sqliteFile)})`
-  );
-  return db;
 }
 
 /**
