@@ -70,8 +70,8 @@ describe("migrationRunner/constants — exact small-table snapshots", () => {
 // ── large tables — count + shape + spot-checks (corruption guard) ─────────────
 
 describe("migrationRunner/constants — large-table integrity", () => {
-  it("RENAMED_MIGRATION_COMPATIBILITY has 27 well-formed entries", () => {
-    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 27);
+  it("RENAMED_MIGRATION_COMPATIBILITY has 28 well-formed entries", () => {
+    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 28);
     for (const e of RENAMED_MIGRATION_COMPATIBILITY) {
       assert.equal(typeof e.fromVersion, "string");
       assert.equal(typeof e.fromName, "string");
@@ -113,8 +113,17 @@ describe("migrationRunner/constants — large-table integrity", () => {
         "144",
       ]
     );
-    // 147 collided with 147_api_keys_model_access_mode — renumbered to 151 in #8228
-    assert.ok(devin.every((e) => e.toVersion === "151"));
+    assert.deepEqual(
+      RENAMED_MIGRATION_COMPATIBILITY.find(
+        (e) => e.fromVersion === "074" && e.fromName === "inspector_custom_hosts"
+      ),
+      {
+        fromVersion: "074",
+        fromName: "inspector_custom_hosts",
+        toVersion: "081",
+        toName: "inspector_custom_hosts",
+      }
+    );
     assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-3), {
       fromVersion: "134",
       fromName: "ccr_blocks",

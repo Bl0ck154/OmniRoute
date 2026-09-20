@@ -1104,7 +1104,8 @@ export function getDbInstance(): SqliteDatabase {
   // #9934: also classify as fresh a file that `omniroute setup` created with
   // only the clipped skeleton schema (see the probe below) — even though the
   // file exists, it has never had migrations run.
-  let isNewDb = !fs.existsSync(sqliteFile);
+  const databaseExistedBeforeInitialization = fs.existsSync(sqliteFile);
+  let isNewDb = !databaseExistedBeforeInitialization;
 
   // Detect and handle old schema format — preserve data when possible (#146)
   // Uses a single probe connection that becomes the real connection when possible.
@@ -1294,7 +1295,7 @@ export function getDbInstance(): SqliteDatabase {
       VALUES ('001', 'initial_schema');
     `);
 
-    runMigrations(db, { isNewDb });
+    runMigrations(db, { isNewDb, databaseExistedBeforeInitialization });
     // Fresh installs need the same post-migration index guarantee as upgraded
     // databases, including recovery from an interrupted migration 127 attempt.
     ensureUsageHistoryAccountIndex(db);
