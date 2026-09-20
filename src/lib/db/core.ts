@@ -963,10 +963,14 @@ function startDbHealthCheckScheduler(db: SqliteDatabase) {
   dbHealthCheckTimer.unref?.();
 }
 
-export function runManagedDbHealthCheck(options?: { autoRepair?: boolean }) {
+export function runManagedDbHealthCheck(options?: {
+  autoRepair?: boolean;
+  skipIntegrityCheck?: boolean;
+}) {
   const db = getDbInstance();
   return runDbHealthCheck(db, {
     autoRepair: options?.autoRepair === true,
+    skipIntegrityCheck: options?.skipIntegrityCheck === true,
     expectedSchemaVersion: "1",
     createBackupBeforeRepair: () => createHealthCheckBackup(db),
   });
