@@ -21,11 +21,8 @@ const providerChatRoute =
   await import("../../src/app/api/v1/providers/[provider]/chat/completions/route.ts");
 const imageEditRoute = await import("../../src/app/api/v1/images/edits/route.ts");
 const v1ModelsCatalog = await import("../../src/app/api/v1/models/catalog.ts");
-<<<<<<< HEAD
 const { setPinnedFetchTestOverride } = await import("../../src/shared/network/remoteImageFetch.ts");
-=======
 const proxyHealth = await import("../../src/lib/proxyHealth.ts");
->>>>>>> d6a571428 (Preserve paid image artifacts across gateway ambiguity)
 
 const originalFetch = globalThis.fetch;
 
@@ -503,14 +500,41 @@ test("v1 image edit POST routes built-in Codex references through native Respons
   assert.equal(captured.body.input[0].content.length, 3);
 });
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 test("v1 image edit POST defaults Codex results to b64_json when response_format is unset (#12268)", async () => {
   await seedConnection("codex", { apiKey: "codex-oauth-token" });
 
   globalThis.fetch = async () => {
-=======
-=======
+    const event = {
+      type: "response.output_item.done",
+      item: {
+        type: "image_generation_call",
+        id: "ig_edit_default",
+        status: "completed",
+        result: "ZGVmYXVsdC1lZGl0",
+      },
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  };
+
+  // Codex CLI's built-in image_gen never sends response_format; it expects
+  // the OpenAI gpt-image-* shape with the bytes in b64_json.
+  const response = await imageEditRoute.POST(
+    new Request("http://localhost/api/v1/images/edits", {
+      method: "POST",
+      body: createCodexEditForm("make it cute"),
+    })
+  );
+  const body = (await response.json()) as ImageResponseBody & { created?: number };
+
+  assert.equal(response.status, 200);
+  assert.equal(typeof body.created, "number");
+  assert.equal(body.data[0].b64_json, "ZGVmYXVsdC1lZGl0");
+  assert.equal(body.data[0].url, undefined);
+});
+
 test("Codex image generation reports a fresh 5h baseline without requiring artifact-retention scope", async () => {
   const connection = await seedConnection("codex", {
     authType: "oauth",
@@ -609,12 +633,7 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
       const encoded = Buffer.from(VALID_PNG_BYTES).toString("base64");
       const event = {
         type: "response.output_item.done",
-        item: {
-          type: "image_generation_call",
-          id: "ig_retained",
-          status: "completed",
-          result: encoded,
-        },
+        item: { type: "image_generation_call", id: "ig_retained", status: "completed", result: encoded },
       };
       return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
         status: 200,
@@ -658,9 +677,6 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
   }
 });
 
-<<<<<<< HEAD
->>>>>>> a2e246eca (Harden image quota telemetry and artifact retention)
-=======
 test("Order Forge image edit persists a delayed success after proxy fast-fail returns 503", async () => {
   const connection = await seedConnection("codex", {
     authType: "oauth",
@@ -805,7 +821,6 @@ test("Order Forge image edit marks an upstream 503 as a definitive failure", asy
   assert.equal(response.headers.get("x-omniroute-image-submission-state"), "definitive-failure");
 });
 
->>>>>>> d6a571428 (Preserve paid image artifacts across gateway ambiguity)
 test("v1 Codex image edit rotates on insufficient_quota and stays inside the API-key allowlist", async () => {
   const disallowed = await seedConnection("codex", {
     apiKey: "codex-disallowed-token",
@@ -849,20 +864,13 @@ test("v1 Codex image edit rotates on insufficient_quota and stays inside the API
       );
     }
     assert.equal(authorization, "Bearer codex-image-quota-healthy");
->>>>>>> 9895b1b93 (fix(codex): rotate image edits on account quota)
     const event = {
       type: "response.output_item.done",
       item: {
         type: "image_generation_call",
-<<<<<<< HEAD
-        id: "ig_edit_default",
-        status: "completed",
-        result: "ZGVmYXVsdC1lZGl0",
-=======
         id: "ig_edit_rotated",
         status: "completed",
         result: "cm90YXRlZC1lZGl0",
->>>>>>> 9895b1b93 (fix(codex): rotate image edits on account quota)
       },
     };
     return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
@@ -871,22 +879,6 @@ test("v1 Codex image edit rotates on insufficient_quota and stays inside the API
     });
   };
 
-<<<<<<< HEAD
-  // Codex CLI's built-in image_gen never sends response_format; it expects
-  // the OpenAI gpt-image-* shape with the bytes in b64_json.
-  const response = await imageEditRoute.POST(
-    new Request("http://localhost/api/v1/images/edits", {
-      method: "POST",
-      body: createCodexEditForm("make it cute"),
-    })
-  );
-  const body = (await response.json()) as ImageResponseBody & { created?: number };
-
-  assert.equal(response.status, 200);
-  assert.equal(typeof body.created, "number");
-  assert.equal(body.data[0].b64_json, "ZGVmYXVsdC1lZGl0");
-  assert.equal(body.data[0].url, undefined);
-=======
   const editForm = createCodexEditForm("combine these references");
   editForm.set("response_format", "b64_json");
   const response = await imageEditRoute.POST(
@@ -904,7 +896,6 @@ test("v1 Codex image edit rotates on insufficient_quota and stays inside the API
     "Bearer codex-image-quota-empty",
     "Bearer codex-image-quota-healthy",
   ]);
->>>>>>> 9895b1b93 (fix(codex): rotate image edits on account quota)
 });
 
 test("v1 Codex image edit does not gate image-capable accounts on cached text quota", async () => {

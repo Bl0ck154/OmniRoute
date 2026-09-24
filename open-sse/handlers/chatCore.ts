@@ -6401,7 +6401,6 @@ export async function handleChatCore({
     );
   }
 
-<<<<<<< HEAD
     const finalStream = assembleStreamingPipeline({
       providerResponse,
       transformStream,
@@ -6416,37 +6415,15 @@ export async function handleChatCore({
       // that same patience for their first REAL content, not just their first
       // lifecycle frame. See pipeWithDisconnect's own doc comment.
       contentStallTimeoutMs: streamReadinessPolicy.timeoutMs,
-=======
-  const finalStream = assembleStreamingPipeline({
-    providerResponse,
-    transformStream,
-    streamController,
-    createPiiTransform,
-    clientRawRequestHeaders: clientRawRequest?.headers,
-    clientResponseFormat,
-    echoModel,
-    responseHeaders,
-  });
-
-  let clientStream = finalStream;
-  if (orderForgeImageArtifactCapture) {
-    const [downstreamStream, artifactStream] = finalStream.tee();
-    clientStream = downstreamStream;
-    void drainOrderForgeImageArtifactStream(artifactStream).catch((error) => {
-      log?.error?.(
-        "ETSY_IMAGE_ARTIFACT",
-        `drain failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
-      );
->>>>>>> a2e246eca (Harden image quota telemetry and artifact retention)
     });
     let clientStream = finalStream;
-    if (codexImageArtifactCapture) {
+    if (orderForgeImageArtifactCapture) {
       const [downstreamStream, artifactStream] = finalStream.tee();
       clientStream = downstreamStream;
-      void drainCodexImageArtifactStream(artifactStream).catch((error) => {
+      void drainOrderForgeImageArtifactStream(artifactStream).catch((error) => {
         log?.error?.(
           "ETSY_IMAGE_ARTIFACT",
-          `drain failed correlationId=${codexImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+          `drain failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
         );
       });
     }
