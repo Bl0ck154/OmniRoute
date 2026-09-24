@@ -409,6 +409,7 @@ test("v1 image edit POST routes built-in Codex references through native Respons
   const codexConnection = await seedConnection("codex", {
     apiKey: "codex-oauth-token",
     providerSpecificData: {
+      chatgptPlanType: "plus",
       codexQuotaStateByScope: {
         codex: {
           usage5h: 20,
@@ -1117,7 +1118,10 @@ test("v1 image edit POST skips a Codex free-plan account and rotates to a paid s
 });
 
 test("v1 image edit POST executes Codex through the configured connection proxy", async () => {
-  const connection = await seedConnection("codex", { apiKey: "codex-proxy-token" });
+  const connection = await seedConnection("codex", {
+    apiKey: "codex-proxy-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
   await settingsDb.setProxyForLevel("key", String(connection.id), {
     type: "http",
     host: "127.0.0.1",

@@ -128,6 +128,7 @@ import {
   isCodexChildUnavailable,
   persistCodexChildCooldown,
 } from "@omniroute/open-sse/services/codexAccount/index.ts";
+import { isCodexPlanEligibleForModel } from "@omniroute/open-sse/services/codexPlanEligibility.ts";
 import {
   getProviderById,
   getProviderAlias,
@@ -1531,6 +1532,7 @@ export async function getProviderCredentials(
 
     let modelLockedCount = 0;
     let familyLockedCount = 0;
+    let codexPlanIneligibleCount = 0;
     const connectionFilterStatus = new Map<string, string>();
     // #11089: multi-host self-hosted providers keep a per-connection synced
     // inventory. Without it, a request can be routed to a host that never had
@@ -1555,6 +1557,18 @@ export async function getProviderCredentials(
         !isModelAdvertisedByConnection(requestedModel, advertisedModelsByConnection.get(c.id))
       ) {
         connectionFilterStatus.set(c.id, "modelNotAdvertised");
+        return false;
+      }
+      // GPT-5.6 Sol is not available to Codex Free/Go accounts. Keep them out
+      // of the candidate pool before every routing mode (including explicit
+      // probes), so fallback never burns a guaranteed-failing call.
+      if (
+        provider === "codex" &&
+        requestedModel &&
+        !isCodexPlanEligibleForModel(c.providerSpecificData, requestedModel)
+      ) {
+        connectionFilterStatus.set(c.id, "codexPlanIneligible");
+        codexPlanIneligibleCount += 1;
         return false;
       }
       if (!allowSuppressedConnections && explicitProbeKind !== "probe") {
@@ -1614,12 +1628,19 @@ export async function getProviderCredentials(
         `${provider} selection candidates model=${requestedModel || "none"}: active=${activeConnectionsCount}, excluded=${excludedConnectionIds.size}, modelLocked=${modelLockedCount}, familyLocked=${familyLockedCount}, eligible=${availableConnections.length}`
       );
     }
+    if (provider === "codex" && codexPlanIneligibleCount > 0) {
+      log.info(
+        "AUTH",
+        `${provider} | filtered ${codexPlanIneligibleCount} plan-ineligible account(s) for ${requestedModel}`
+      );
+    }
     connections.forEach((c) => {
       const status = connectionFilterStatus.get(c.id);
       const excluded = status === "excluded";
       const rateLimited = status === "rateLimited";
       const terminalStatus = status === "terminalStatus";
       const codexScopeLimited = status === "codexScopeLimited";
+      const codexPlanIneligible = status === "codexPlanIneligible";
       const modelLocked = status === "modelLocked";
       const modelExcluded = status === "modelExcluded";
       const modelNotAdvertised = status === "modelNotAdvertised";
@@ -1637,6 +1658,11 @@ export async function getProviderCredentials(
         log.debug(
           "AUTH",
           `  → ${c.id?.slice(0, 8)} | synced inventory does not advertise ${requestedModel}`
+        );
+      } else if (codexPlanIneligible) {
+        log.debug(
+          "AUTH",
+          `  → ${c.id?.slice(0, 8)} | Codex plan cannot serve ${requestedModel}`
         );
       } else if (terminalStatus) {
         log.debug(
