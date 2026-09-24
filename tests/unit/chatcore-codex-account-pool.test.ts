@@ -265,7 +265,7 @@ test("chatCore keeps a Codex Spark 429 scoped so Sol remains selectable", async 
     email: "codex-scope@example.com",
     accessToken: "codex-scope-token",
     isActive: true,
-    providerSpecificData: {},
+    providerSpecificData: { chatgptPlanType: "plus" },
   });
 
   const { result } = await invokeChatCore({
