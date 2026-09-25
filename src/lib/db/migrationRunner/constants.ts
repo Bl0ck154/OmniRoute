@@ -168,10 +168,11 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
   },
   {
     // Fork migration originally shipped in slot 170 before upstream claimed
-    // 170_log_export_destinations. Rehome it so both migrations can coexist.
+    // 170_log_export_destinations. Upstream later also claimed 191, so keep the
+    // fork migration in 192 and remap already-applied 170 rows there.
     fromVersion: "170",
     fromName: "api_key_preferred_connections",
-    toVersion: "191",
+    toVersion: "192",
     toName: "api_key_preferred_connections",
   },
   {
