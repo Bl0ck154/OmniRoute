@@ -92,6 +92,7 @@ test("isUserCallableAntigravityModelId only allows public chat-capable model IDs
     assert.equal(isUserCallableAntigravityModelId(modelId), true);
   }
   assert.equal(isUserCallableAntigravityModelId("gemini-3.1-flash-lite"), true);
+  assert.equal(isUserCallableAntigravityModelId("gemini-3.5-flash-lite"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-pro"), false);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash"), false);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash-lite"), false);

@@ -76,6 +76,13 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     maxOutputTokens: 65535,
     toolCalling: true,
   },
+  {
+    id: "gemini-3.5-flash-lite",
+    name: "Gemini 3.5 Flash Lite",
+    contextLength: 1048576,
+    maxOutputTokens: 65535,
+    toolCalling: true,
+  },
   // Claude (Antigravity backend).
   {
     id: "claude-opus-4-6-thinking",

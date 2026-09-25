@@ -66,6 +66,13 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
     maxOutputTokens: 65535,
     toolCalling: true,
   },
+  {
+    id: "gemini-3.5-flash-lite",
+    name: "Gemini 3.5 Flash Lite",
+    contextLength: 1048576,
+    maxOutputTokens: 65535,
+    toolCalling: true,
+  },
   // Claude (Antigravity backend). The `agy` provider already ships these from the live
   // :fetchAvailableModels probe (see agyModels.ts) and discussion #3184 confirmed they
   // are user-callable through the `antigravity` OAuth provider too — same backend.
