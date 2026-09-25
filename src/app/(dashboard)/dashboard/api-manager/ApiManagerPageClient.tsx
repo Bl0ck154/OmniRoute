@@ -13,7 +13,6 @@ import {
   isExpired,
   isRestricted as isKeyRestricted,
   buildModelAccessSavePayload,
-  classifyKeyStatus,
   computeApiKeyCounts,
   formatProviderModelPermissionSummary,
   formatUsdCost,
@@ -1969,21 +1968,6 @@ const PermissionsModal = memo(function PermissionsModal({
       );
     },
     [allowAllCombos]
-  );
-
-  const handleToggleConnection = useCallback(
-    (connectionId: string) => {
-      if (allowAllConnections) return;
-      if (selectedConnections.includes(connectionId)) {
-        setSelectedPreferredConnections((prev) => prev.filter((id) => id !== connectionId));
-      }
-      setSelectedConnections((prev) =>
-        prev.includes(connectionId)
-          ? prev.filter((c) => c !== connectionId)
-          : [...prev, connectionId]
-      );
-    },
-    [allowAllConnections, selectedConnections]
   );
 
   const handleTogglePreferredConnection = useCallback(
