@@ -565,8 +565,9 @@ export async function handleChatCore({
   // Per-request trace id + checkpoint helper. Lets us see exactly which await
   // a hung request was sitting on in `[STAGE_TRACE]` log lines. Uses crypto RNG
   // (not Math.random) purely to satisfy CodeQL js/insecure-randomness — this id
-  // is a log-correlation token, not a security secret.
-  const traceId = globalThis.crypto.randomUUID().slice(0, 6);
+  // is a log-correlation token, not a security secret. Keep the full UUID:
+  // a 6-char prefix collides in call_logs under production volume (#14451).
+  const traceId = globalThis.crypto.randomUUID();
   // Emit request.started event for real-time dashboard
   setImmediate(() => {
     emit("request.started", {
@@ -1344,7 +1345,7 @@ export async function handleChatCore({
       }
     );
     if (policy.incompatibleReasoning) {
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
       return createErrorResult(
         HTTP_STATUS.BAD_REQUEST,
         "Reasoning continuation is not compatible with the selected target"
@@ -2257,7 +2258,7 @@ export async function handleChatCore({
       `estimated ${outputBudget.estimatedInputTokens} input tokens, ${exceededInputCap ? `max input ${outputBudget.maxInputTokens}` : `limit ${outputBudget.contextLimit}`}. ` +
       `Reduce the prompt or route to a model with a larger ${exceededInputCap ? "input limit" : "context window"}.`;
     log?.warn?.("CONTEXT", message);
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
     return createErrorResult(
       HTTP_STATUS.BAD_REQUEST,
       message,
@@ -2663,7 +2664,7 @@ export async function handleChatCore({
     const result = createTranslationFailureResult(statusCode, message, errorType);
     log?.warn?.("TRANSLATE", `Request translation failed: ${result.error}`);
 
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
     return result;
   }
 
@@ -2868,7 +2869,7 @@ export async function handleChatCore({
     model
   );
   if (toolCallingCheck.blocked) {
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
     return createErrorResult(400, toolCallingCheck.message!, null, "tool_calling_not_supported");
   }
 
@@ -2970,12 +2971,7 @@ export async function handleChatCore({
         // return path never reaches the upstream, and without the decrement the
         // pending detail lingers as an orphaned status-0 call-log row until the
         // reaper sweeps it (mirrors the other pre-upstream error returns).
-        trackPendingRequest(
-          model,
-          provider,
-          connectionId || credentials?.connectionId || null,
-          false
-        );
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (decision.retryAfterSeconds) {
           headers["Retry-After"] = String(decision.retryAfterSeconds);
@@ -3023,7 +3019,7 @@ export async function handleChatCore({
     if (!fit.compatible) {
       const msg = buildCapabilityMismatchMessage(fit.terminalReason!, provider, effectiveModel);
       log?.warn?.("CAPABILITY", msg);
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
       return createErrorResult(400, msg, null, fit.terminalReason, "invalid_request_error");
     }
   }
@@ -3078,6 +3074,7 @@ export async function handleChatCore({
     provider,
     model,
     connectionId,
+    pendingRequestId,
     clientResponseFormat,
     // Scoped EtsyTrello image requests keep running after the caller times out. The
     // private tee below remains the consumer and atomically persists the finished image.
@@ -3469,7 +3466,7 @@ export async function handleChatCore({
                           )
                         ),
                       continueStream,
-                      ...buildContinuationLogHooks(log),
+                      ...buildContinuationLogHooks(log, correlationId),
                       throughputWatchdog,
                       onWatchdogAbort: () =>
                         log?.warn?.(
@@ -3636,7 +3633,7 @@ export async function handleChatCore({
             : `${tokenBreach.scopeType} "${tokenBreach.scopeValue}"`;
         // FIX 6: clear the pending request marker before the early return so we do
         // not leak a phantom pending request (start was tracked at line ~1847).
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
         // FIX 5: tag this as a per-API-key token-limit breach (errorCode
         // TOKEN_LIMIT_EXCEEDED) so the combo loop can distinguish it from an
         // upstream 429 and NOT cool shared accounts / retry it transiently.
@@ -3660,7 +3657,7 @@ export async function handleChatCore({
   if (provider === "gemini") {
     try {
       if (isTpmExhausted(effectiveModel)) {
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
         return createErrorResult(
           HTTP_STATUS.RATE_LIMITED,
           `Gemini TPM rate limit reached for ${effectiveModel}. Please try again later.`,
@@ -4258,7 +4255,7 @@ export async function handleChatCore({
         // fail-open: saturation signal is best-effort
       }
     } catch (error) {
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
       const errorMetadata = getSafeErrorMetadata(error);
       const managedLeaseFenceCode = getManagedLeaseFenceErrorCode(errorMetadata.code);
       if (managedLeaseFenceCode) return managedLeaseFenceErrorResult(managedLeaseFenceCode);
@@ -4608,7 +4605,7 @@ export async function handleChatCore({
 
     // Check provider response - return error info for fallback handling
     providerFailure: if (!providerResponse.ok) {
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
 
       let statusCode = providerResponse.status;
       let message = "";
@@ -5176,7 +5173,7 @@ export async function handleChatCore({
           cacheSource: "upstream",
         });
         persistFailureUsage(err.status, err.errorCode || `upstream_${err.status}`);
-        trackPendingRequest(model, provider, connectionId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
         return err;
       }
 
@@ -5305,11 +5302,12 @@ export async function handleChatCore({
           loop: loopApply.loop,
           model,
           provider,
-          connectionId,
+          connectionId: pendingConnId,
           providerRequest: loopApply.loop.finalProviderRequest || finalBody || translatedBody,
           persistFailureUsage,
           persistAttemptLogs,
           trackPendingRequest,
+          pendingRequestId,
         });
       }
       // `legResult` is declared as the full NonStreamingProviderLegResult union. The
@@ -5575,7 +5573,7 @@ export async function handleChatCore({
           cacheSource: "upstream",
         });
         persistFailureUsage(HTTP_STATUS.BAD_GATEWAY, "malformed_translated_response");
-        trackPendingRequest(model, provider, pendingConnId, false);
+        trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
         // Routing event (feedback foundation) — record the malformed outcome so
         // the quality tracker de-prioritizes this model over time.
         void emitRoutingEvent(
@@ -5746,7 +5744,7 @@ export async function handleChatCore({
         }),
       };
     } catch (error) {
-      trackPendingRequest(model, provider, connectionId, false);
+      trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
       const errorMetadata = getSafeErrorMetadata(error);
       const managedLeaseFenceCode = getManagedLeaseFenceErrorCode(errorMetadata.code);
       if (managedLeaseFenceCode) return managedLeaseFenceErrorResult(managedLeaseFenceCode);
@@ -5839,7 +5837,7 @@ export async function handleChatCore({
   if (streamReadiness.ok === false) {
     const { response: failureResponse, reason } = streamReadiness;
     const { classificationReason, upstreamDiagnostic } = streamReadiness;
-    trackPendingRequest(model, provider, connectionId, false);
+    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
     appendRequestLog({
       model,
       provider,
