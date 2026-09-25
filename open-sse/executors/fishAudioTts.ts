@@ -167,7 +167,7 @@ export function buildFishAudioSpeechPayload(body: JsonRecord): FishAudioPayloadR
     const options = fishAudioOptions(body);
     if (options.references !== undefined) {
       throw new Error(
-        "inline references require Fish Audio MessagePack; create a persistent voice via /v1/providers/fishaudio/voices and pass its id as voice/reference_id"
+        "inline references require Fish Audio MessagePack; create a persistent voice with Route /v1/providers/fishaudio/voices and pass its id as voice/reference_id"
       );
     }
 

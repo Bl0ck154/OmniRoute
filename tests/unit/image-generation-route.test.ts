@@ -501,7 +501,10 @@ test("v1 image edit POST routes built-in Codex references through native Respons
 });
 
 test("v1 image edit POST defaults Codex results to b64_json when response_format is unset (#12268)", async () => {
-  await seedConnection("codex", { apiKey: "codex-oauth-token" });
+  await seedConnection("codex", {
+    apiKey: "codex-oauth-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
 
   globalThis.fetch = async () => {
     const event = {
