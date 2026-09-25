@@ -618,6 +618,11 @@ function isSchemaAlreadyApplied(
       // attempt_number at boot. Keyed by version only — a stale number here
       // would answer for another migration's schema and skip it.
       return hasColumn(db, "proxy_logs", "attempt_number");
+    case "191":
+      // Fork compatibility: api_key_preferred_connections originally shipped as
+      // migration 170 before upstream claimed that slot for log_export_destinations.
+      // Existing fork databases already have this column and must not re-run ALTER TABLE.
+      return hasColumn(db, "api_keys", "preferred_connections");
     default:
       return false;
   }

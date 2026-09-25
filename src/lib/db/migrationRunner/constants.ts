@@ -167,6 +167,14 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     toName: "inspector_custom_hosts",
   },
   {
+    // Fork migration originally shipped in slot 170 before upstream claimed
+    // 170_log_export_destinations. Rehome it so both migrations can coexist.
+    fromVersion: "170",
+    fromName: "api_key_preferred_connections",
+    toVersion: "191",
+    toName: "api_key_preferred_connections",
+  },
+  {
     fromVersion: "134",
     fromName: "ccr_blocks",
     toVersion: "139",
