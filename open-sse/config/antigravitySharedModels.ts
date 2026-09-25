@@ -100,6 +100,13 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
     maxOutputTokens: 65535,
     toolCalling: true,
   },
+  {
+    id: "gemini-3.5-flash-lite",
+    name: "Gemini 3.5 Flash Lite",
+    contextLength: 1048576,
+    maxOutputTokens: 65535,
+    toolCalling: true,
+  },
   // Claude (Antigravity backend). Discussion #3184 confirmed these are
   // user-callable through both the agy and antigravity OAuth providers.
   {
