@@ -249,6 +249,7 @@ export async function sampleResourceSignals(
         readText(path.join(cgroupDirectory, "memory.high")),
         readText(path.join(cgroupDirectory, "memory.events")),
         readText(path.join(cgroupDirectory, "memory.stat")),
+        readText(path.join(cgroupDirectory, "memory.pressure")),
       ])
     : null;
   // Named bindings instead of positional indices: the read order above is
@@ -260,8 +261,14 @@ export async function sampleResourceSignals(
     high: cgroupReads?.[2] ?? null,
     events: cgroupReads?.[3] ?? null,
     stat: cgroupReads?.[4] ?? null,
+    pressure: cgroupReads?.[5] ?? null,
   };
-  const psi = await readText("/proc/pressure/memory").catch(() => null);
+  // Prefer pressure scoped to OmniRoute's own cgroup. Host-wide PSI can be
+  // elevated by unrelated workloads and must not make this service shed all AI
+  // traffic while its own memory cgroup is healthy. Fall back to global PSI on
+  // platforms where memory.pressure is unavailable.
+  const psi =
+    cgroupFiles.pressure ?? (await readText("/proc/pressure/memory").catch(() => null));
 
   return {
     observedAtMs: (deps.nowMs ?? Date.now)(),
