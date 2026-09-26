@@ -372,6 +372,10 @@ try {
   await program.parseAsync(process.argv);
 } catch (err) {
   if (err.exitCode !== undefined) process.exit(err.exitCode);
-  console.error("\x1b[31m✖", err.message, "\x1b[0m");
+  const detail =
+    process.env.OMNIROUTE_DEBUG_STACK === "1"
+      ? err?.stack || err?.message || String(err)
+      : err?.message || String(err);
+  console.error("\x1b[31m✖", detail, "\x1b[0m");
   process.exit(1);
 }

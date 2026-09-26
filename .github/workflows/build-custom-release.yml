@@ -106,6 +106,8 @@ jobs:
         run: npm install --prefix smoke-root --omit=dev "./artifacts/${{ steps.pack.outputs.file }}"
 
       - name: Test packaged launcher and dashboard
+        env:
+          OMNIROUTE_DEBUG_STACK: "1"
         run: node ops/packaged-smoke.mjs "$GITHUB_WORKSPACE/smoke-root/node_modules/omniroute"
 
       - name: Create release manifest and checksum

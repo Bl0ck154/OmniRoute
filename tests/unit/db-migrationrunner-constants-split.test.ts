@@ -131,7 +131,7 @@ describe("migrationRunner/constants — large-table integrity", () => {
       {
         fromVersion: "170",
         fromName: "api_key_preferred_connections",
-        toVersion: "192",
+        toVersion: "194",
         toName: "api_key_preferred_connections",
       }
     );
