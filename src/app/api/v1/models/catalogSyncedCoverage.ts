@@ -45,9 +45,12 @@ export function shouldSuppressStaticModelForExclusiveListing(opts: {
   providerHasSynced: boolean;
   staticModelId: string;
   syncedModelIds: string[];
+  liveCatalogIds?: readonly string[];
 }): boolean {
   if (opts.exclusiveListing) {
-    return opts.providerHasSynced && opts.syncedModelIds.length > 0;
+    if (!opts.providerHasSynced || opts.syncedModelIds.length === 0) return false;
+    const acceptedLiveIds = new Set([opts.staticModelId, ...(opts.liveCatalogIds ?? [])]);
+    return !opts.syncedModelIds.some((id) => acceptedLiveIds.has(id));
   }
   return shouldSuppressStaticModelBySyncedCoverage({
     providerHasSynced: opts.providerHasSynced,

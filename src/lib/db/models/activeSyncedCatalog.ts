@@ -1,6 +1,6 @@
 import { providerUsesAuthoritativeLiveCatalog } from "@omniroute/open-sse/config/providerRegistry";
 import { getSearchProvider } from "@omniroute/open-sse/config/searchRegistry.ts";
-import { PROVIDER_ID_TO_ALIAS } from "@omniroute/open-sse/config/providerModels.ts";
+import { getProviderModels, PROVIDER_ID_TO_ALIAS } from "@omniroute/open-sse/config/providerModels.ts";
 import { ensureCursorAutoCatalogEntry } from "@/lib/providerModels/cursorAutoCatalog";
 import {
   getCustomModels,
@@ -379,7 +379,14 @@ export async function reconcileProvidersWithActiveSyncedCatalog(
   const excludedProviders: string[] = [];
 
   for (const { provider, catalog } of states) {
-    const modelIsLive = catalog.models.some((model) => model.id === modelId);
+    const unprefixedModelId = modelId.includes("/") ? modelId.slice(modelId.indexOf("/") + 1) : modelId;
+    const registryModel = getProviderModels(provider).find((model) => model.id === unprefixedModelId);
+    const declaredLiveIds = Array.isArray(registryModel?.liveCatalogIds)
+      ? registryModel.liveCatalogIds
+      : [];
+    const modelIsLive = catalog.models.some(
+      (model) => model.id === unprefixedModelId || declaredLiveIds.includes(model.id)
+    );
     // Cursor auto-router: always allow `auto` / router variants even if a stale live
     // catalog omitted them (AvailableModels / agent list often returns wire id
     // `default` only; listing injects `auto` + cost/balance/intelligence).

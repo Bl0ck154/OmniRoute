@@ -13,8 +13,11 @@ process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "live-catalog-8926-te
 const core = await import("../../src/lib/db/core.ts");
 const { addCustomModel, replaceSyncedAvailableModelsForConnection } =
   await import("../../src/lib/db/models.ts");
-const { getActiveSyncedCatalog, getAllActiveSyncedModels } =
-  await import("../../src/lib/db/models/activeSyncedCatalog.ts");
+const {
+  getActiveSyncedCatalog,
+  getAllActiveSyncedModels,
+  reconcileProvidersWithActiveSyncedCatalog,
+} = await import("../../src/lib/db/models/activeSyncedCatalog.ts");
 const { isRegisteredProviderEffortVariant } =
   await import("../../open-sse/utils/registeredEffortVariants.ts");
 
@@ -200,6 +203,28 @@ test("#8926: partial passthrough discovery remains non-authoritative", async () 
     catalog.models.map((model) => model.id),
     ["gpt-5.6-luna"]
   );
+});
+
+
+test("Antigravity 3.7 display tiers remain routable when live catalog exposes only tiered upstream id", async () => {
+  await seedProviderCatalog("antigravity", "antigravity-3.7-tiered-live", [
+    "gemini-3.7-flash-tiered",
+  ]);
+
+  for (const tier of ["low", "medium", "high"]) {
+    const modelId = `gemini-3.7-flash-${tier}`;
+    const explicit = await getModelInfo(`antigravity/${modelId}`);
+    assert.equal(explicit.errorType, undefined, explicit.errorMessage);
+    assert.equal(explicit.provider, "antigravity");
+    assert.equal(explicit.model, modelId);
+
+    const reconciled = await reconcileProvidersWithActiveSyncedCatalog(
+      ["antigravity"],
+      modelId
+    );
+    assert.deepEqual(reconciled.providers, ["antigravity"]);
+    assert.deepEqual(reconciled.excludedProviders, []);
+  }
 });
 
 test("#12866: agy CLI catalog is visible after parseModel folds the prefix to antigravity", async () => {

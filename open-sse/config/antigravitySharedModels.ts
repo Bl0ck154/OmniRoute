@@ -9,6 +9,7 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
   // all three ids to both the IDE 2.5.5 and CLI 1.1.x clients.
   {
     id: "gemini-3.7-flash-high",
+    liveCatalogIds: ["gemini-3.7-flash-tiered"],
     name: "Gemini 3.7 Flash (High)",
     contextLength: 1048576,
     maxOutputTokens: 65536,
@@ -18,6 +19,7 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
   },
   {
     id: "gemini-3.7-flash-medium",
+    liveCatalogIds: ["gemini-3.7-flash-tiered"],
     name: "Gemini 3.7 Flash (Medium)",
     contextLength: 1048576,
     maxOutputTokens: 65536,
@@ -27,6 +29,7 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
   },
   {
     id: "gemini-3.7-flash-low",
+    liveCatalogIds: ["gemini-3.7-flash-tiered"],
     name: "Gemini 3.7 Flash (Low)",
     contextLength: 1048576,
     maxOutputTokens: 65536,

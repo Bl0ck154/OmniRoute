@@ -1080,6 +1080,7 @@ async function buildUnifiedModelsResponseCore(
           providerHasSynced,
           staticModelId: model.id,
           syncedModelIds: syncedForProvider ? [...syncedForProvider] : [],
+          liveCatalogIds: model.liveCatalogIds,
         });
         const hasDeclaredEffortTiers =
           Array.isArray(model.supportedThinkingEfforts) &&
