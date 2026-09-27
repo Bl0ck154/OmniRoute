@@ -81,6 +81,7 @@ import {
 } from "@/lib/db/sessionAccountAffinity";
 import { dispatchChatWithAffinityEviction } from "./chatDispatch";
 import { resolveInternalUpstreamStartTimeoutMs } from "../services/internalUpstreamStartTimeout";
+import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
 import { getCachedSettings, getCombosCacheVersion } from "@/lib/db/readCache";
 import { comboCheckProvider, ghComboGate } from "./chat/githubLiveCatalogFilter.ts";
 import { comboTargetPassesKeyModelPolicy } from "./chat/comboTargetKeyPolicy.ts";
@@ -2045,7 +2046,11 @@ async function handleSingleModelChat(
             videoBridgeLog: runtimeOptions.videoBridgeLog,
             previousResponseResumed: runtimeOptions.previousResponseResumed,
             fallbackAttempts: runtimeOptions.fallbackAttempts,
-            requestUpstreamStartTimeoutMs,
+            requestUpstreamStartTimeoutMs: resolvePreferredConnectionUpstreamStartTimeoutMs(
+              provider,
+              credentials,
+              requestUpstreamStartTimeoutMs
+            ),
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
           },
           runtimeOptions
