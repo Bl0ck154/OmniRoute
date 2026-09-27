@@ -61,6 +61,44 @@ try {
     .setExpirationTime("5m")
     .sign(new TextEncoder().encode(jwtSecret));
 
+  // Exercise a real authenticated chat POST before opening the dashboard. A
+  // packaged Next route can use a Request implementation with a different
+  // internal Undici brand than the helper bundle. Re-wrapping that object via
+  // `new Request(request, ...)` crashed with a private-#state TypeError while
+  // health, /v1/models and the dashboard all remained green. A deliberately
+  // unknown model reaches the route deterministically without any provider
+  // credentials and must be rejected as a normal 400, never a runtime 500.
+  const createKeyResponse = await fetch(`${origin}/api/keys`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `auth_token=${token}`,
+    },
+    body: JSON.stringify({ name: "packaged-smoke" }),
+  });
+  if (createKeyResponse.status !== 201) {
+    throw new Error(`API key creation expected 201, got ${createKeyResponse.status}`);
+  }
+  const createdKey = await createKeyResponse.json();
+  if (!createdKey?.key) throw new Error("API key creation returned no key");
+
+  const chatProbe = await fetch(`${origin}/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${createdKey.key}`,
+    },
+    body: JSON.stringify({
+      model: "__omniroute_packaged_smoke_nonexistent__",
+      messages: [{ role: "user", content: "smoke" }],
+      stream: false,
+    }),
+  });
+  if (chatProbe.status !== 400) {
+    const body = await chatProbe.text().catch(() => "");
+    throw new Error(`chat route expected 400, got ${chatProbe.status}: ${body.slice(0, 500)}`);
+  }
+
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   await context.addCookies([{ name: "auth_token", value: token, url: origin, httpOnly: true, sameSite: "Lax" }]);

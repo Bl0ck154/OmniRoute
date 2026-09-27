@@ -79,6 +79,7 @@ jobs:
           tests/unit/httpClientAbortGuard.test.mjs
           tests/unit/httpClientAbortGuard-default-logger.test.mjs
           tests/unit/http-client-abort-guard-direct-timeout-12861.test.ts
+          tests/unit/early-stream-keepalive.test.ts
           tests/unit/middleware-hook-realm-isolation.test.ts
           tests/unit/cli-serve-port-in-use-preflight.test.mjs
 
