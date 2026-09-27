@@ -112,6 +112,28 @@ test("findListeningPids returns null for a missing netstat on win32", async () =
   assert.equal(pids, null);
 });
 
+test("serve preflight normalizes unavailable discovery to an empty list when the port is free", async () => {
+  const { resolveListeningPidsForServe } = await import(
+    "../../bin/cli/commands/serve.mjs"
+  );
+  const pids = await resolveListeningPidsForServe(20228, {
+    findListening: async () => null,
+    probeFree: async () => true,
+  });
+  assert.deepEqual(pids, [], "a free port must never leave the serve path with null");
+});
+
+test("serve preflight reports an unidentified owner when discovery is unavailable and the port is busy", async () => {
+  const { resolveListeningPidsForServe } = await import(
+    "../../bin/cli/commands/serve.mjs"
+  );
+  const pids = await resolveListeningPidsForServe(20228, {
+    findListening: async () => null,
+    probeFree: async () => false,
+  });
+  assert.deepEqual(pids, [null]);
+});
+
 test("probePortFree is false while a socket holds the port and true after release", async () => {
   const { probePortFree } = await import("../../bin/cli/utils/pid.mjs");
   const server = net.createServer();
