@@ -131,3 +131,50 @@ test("resolveTargetTimeoutMsForTarget: connection without timeoutMs -> undefined
   );
   assert.equal(result, undefined);
 });
+
+
+test("executeWithUpstreamStartTimeout: trusted request cap shortens a longer configured timeout", async () => {
+  let elapsed = Number.POSITIVE_INFINITY;
+  const started = Date.now();
+  const result = await executeWithUpstreamStartTimeout({
+    executor: fakeExecutor(600_000),
+    provider: "antigravity",
+    model: "gemini-3.7-flash-medium",
+    connectionTimeoutMs: 30_000,
+    requestTimeoutMs: 40,
+    signal: new AbortController().signal,
+    log: null,
+    execute: (signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => {
+          elapsed = Date.now() - started;
+          resolve("aborted");
+        });
+      }),
+  });
+  assert.equal(result, "aborted");
+  assert.ok(elapsed < 1_000, `aborted at ${elapsed}ms, expected < 1000ms`);
+});
+
+test("executeWithUpstreamStartTimeout: request cap never lengthens a shorter configured timeout", async () => {
+  let elapsed = Number.POSITIVE_INFINITY;
+  const started = Date.now();
+  const result = await executeWithUpstreamStartTimeout({
+    executor: fakeExecutor(600_000),
+    provider: "antigravity",
+    model: "gemini-3.7-flash-medium",
+    connectionTimeoutMs: 35,
+    requestTimeoutMs: 5_000,
+    signal: new AbortController().signal,
+    log: null,
+    execute: (signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => {
+          elapsed = Date.now() - started;
+          resolve("aborted");
+        });
+      }),
+  });
+  assert.equal(result, "aborted");
+  assert.ok(elapsed < 1_000, `aborted at ${elapsed}ms, expected < 1000ms`);
+});

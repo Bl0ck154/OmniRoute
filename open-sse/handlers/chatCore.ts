@@ -527,6 +527,7 @@ async function handleChatCoreInner({
   // the model-bound `body` itself is never touched.
   videoBridgeLog = undefined,
   fallbackAttempts = undefined,
+  requestUpstreamStartTimeoutMs = undefined,
   forcedConnectionId = null, // #14116: caller's pinned/requested connection, vs credentials.connectionId below
   previousResponseResumed = undefined, // rehydrated-continuation flag from chat.ts; noted below, no semantics.
 }) {
@@ -3230,6 +3231,7 @@ async function handleChatCoreInner({
                     connectionTimeoutMs: resolveConnectionTimeoutMs(
                       execCreds?.providerSpecificData
                     ),
+                    requestTimeoutMs: requestUpstreamStartTimeoutMs,
                     signal: streamController.signal,
                     log,
                     execute: (signal) =>
@@ -3414,6 +3416,7 @@ async function handleChatCoreInner({
                         connectionTimeoutMs: resolveConnectionTimeoutMs(
                           execCreds?.providerSpecificData
                         ),
+                        requestTimeoutMs: requestUpstreamStartTimeoutMs,
                         signal: streamController.signal,
                         log,
                         execute: (signal) =>
