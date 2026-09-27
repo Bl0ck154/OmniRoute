@@ -158,6 +158,8 @@ test("API-key ordered preference wins among eligible Antigravity accounts and fa
   );
   assert.ok(selectedPrimary && !("allRateLimited" in selectedPrimary && selectedPrimary.allRateLimited));
   assert.equal(selectedPrimary.connectionId, primaryId);
+  assert.equal(selectedPrimary.selectedByApiKeyPreference, true);
+  assert.equal(selectedPrimary.preferredFallbackAvailable, true);
 
   // The retry loop excludes a failed/cooling connection. Preference must not
   // resurrect it; the next preferred eligible account becomes the fallback.
@@ -173,6 +175,8 @@ test("API-key ordered preference wins among eligible Antigravity accounts and fa
   );
   assert.ok(selectedFallback && !("allRateLimited" in selectedFallback && selectedFallback.allRateLimited));
   assert.equal(selectedFallback.connectionId, fallbackId);
+  assert.equal(selectedFallback.selectedByApiKeyPreference, true);
+  assert.equal(selectedFallback.preferredFallbackAvailable, false);
 });
 
 test("Antigravity 429 rate-limited locks only the exact model so siblings stay eligible", async () => {
@@ -229,4 +233,53 @@ test("Antigravity 429 rate-limited locks only the exact model so siblings stay e
   // back through. clearModelLock is the existing success-path hook.
   const { clearModelLock } = await import("../../open-sse/services/accountFallback.ts");
   assert.equal(clearModelLock("antigravity", connId, "gemini-3-pro"), true);
+});
+
+
+test("Antigravity 3.7 tier aliases share one exact upstream lock after 429", async () => {
+  await resetStorage();
+
+  const conn = await providersDb.createProviderConnection({
+    provider: "antigravity",
+    authType: "oauth",
+    email: "tiered-quota@example.test",
+    accessToken: "tok-tiered-quota",
+    isActive: true,
+    testStatus: "active",
+  });
+  const connId = connectionId(conn);
+
+  const result = await auth.markAccountUnavailable(
+    connId,
+    429,
+    "RESOURCE_EXHAUSTED: Resource has been exhausted (check quota)",
+    "antigravity",
+    "gemini-3.7-flash-high"
+  );
+  assert.equal(result.shouldFallback, true);
+
+  const medium = await auth.getProviderCredentials(
+    "antigravity",
+    null,
+    null,
+    "gemini-3.7-flash-medium"
+  );
+  assert.ok(medium && "allRateLimited" in medium && medium.allRateLimited);
+
+  const low = await auth.getProviderCredentials(
+    "antigravity",
+    null,
+    null,
+    "gemini-3.7-flash-low"
+  );
+  assert.ok(low && "allRateLimited" in low && low.allRateLimited);
+
+  const unrelated = await auth.getProviderCredentials(
+    "antigravity",
+    null,
+    null,
+    "gemini-3.8-flash-high"
+  );
+  assert.ok(unrelated && !("allRateLimited" in unrelated && unrelated.allRateLimited));
+  assert.equal(unrelated.connectionId, connId);
 });
