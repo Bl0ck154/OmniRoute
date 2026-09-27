@@ -83,7 +83,9 @@ jobs:
           tests/unit/cli-serve-port-in-use-preflight.test.mjs
 
       - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+        run: |
+          echo "playwright runtime=$(node -p \"require(./node_modules/playwright/package.json).version\")"
+          node node_modules/playwright/cli.js install --with-deps chromium
 
       - name: Build Next release
         timeout-minutes: 35
