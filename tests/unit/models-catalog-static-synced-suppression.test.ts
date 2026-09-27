@@ -104,6 +104,25 @@ test("authoritative live catalog suppresses static effort-tier variants on sync"
   assert.equal(ids.has(`glm/${glmStaticModel.id}-${effort}`), false);
 });
 
+
+test("authoritative Antigravity catalog preserves 3.7 display tiers backed by the tiered live id", async () => {
+  const connection = await seedConnection("antigravity", "antigravity-tiered-alias-coverage");
+  await modelsDb.replaceSyncedAvailableModelsForConnection(
+    "antigravity",
+    connection.id as string,
+    [{ id: "gemini-3.7-flash-tiered", name: "Gemini 3.7 Flash Tiered", source: "imported" }]
+  );
+
+  const ids = await getCatalogIds();
+  for (const tier of ["low", "medium", "high"]) {
+    assert.equal(
+      ids.has(`antigravity/gemini-3.7-flash-${tier}`),
+      true,
+      `3.7 ${tier} display tier should remain listed when canonical tiered id is live`
+    );
+  }
+});
+
 test("partial discovery provider preserves uncovered static models when synced", async () => {
   const connection = await seedConnection("command-code", "command-code-partial-discovery");
   const uncoveredStaticModel = "deepseek/deepseek-v4-flash";
