@@ -76,6 +76,10 @@ jobs:
           tests/unit/db-read-cache.test.ts
           tests/unit/order-forge-image-artifact-sink.test.ts
           tests/unit/gemini-web-image-account-fallback.test.ts
+          tests/unit/httpClientAbortGuard.test.mjs
+          tests/unit/httpClientAbortGuard-default-logger.test.mjs
+          tests/unit/http-client-abort-guard-direct-timeout-12861.test.ts
+          tests/unit/middleware-hook-realm-isolation.test.ts
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
