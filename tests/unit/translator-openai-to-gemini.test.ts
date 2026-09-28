@@ -1654,3 +1654,51 @@ test("OpenAI -> Gemini allows thinkingConfig for unknown model (no spec)", () =>
   assert.equal(result.generationConfig.thinkingConfig.thinkingBudget, 5000);
   assert.equal(result.generationConfig.thinkingConfig.includeThoughts, true);
 });
+
+
+test("OpenAI -> Gemini 3.5 Flash-Lite uses native minimal thinking by default", () => {
+  const result = openaiToGeminiRequest(
+    "gemini-3.5-flash-lite",
+    { messages: [{ role: "user", content: "Reply exactly OK" }] },
+    false
+  ) as any;
+
+  assert.deepEqual(result.generationConfig.thinkingConfig, {
+    thinkingLevel: "minimal",
+    includeThoughts: true,
+  });
+  assert.equal(result.generationConfig.thinkingConfig.thinkingBudget, undefined);
+});
+
+test("OpenAI -> Gemini 3.5 Flash-Lite maps OpenAI effort to native thinking levels", () => {
+  for (const [effort, expected] of [
+    ["none", "minimal"],
+    ["minimal", "minimal"],
+    ["low", "low"],
+    ["medium", "medium"],
+    ["high", "high"],
+    ["xhigh", "high"],
+  ] as const) {
+    const result = openaiToGeminiRequest(
+      "gemini-3.5-flash-lite",
+      { messages: [{ role: "user", content: "Reply exactly OK" }], reasoning_effort: effort },
+      false
+    ) as any;
+    assert.equal(result.generationConfig.thinkingConfig.thinkingLevel, expected, effort);
+    assert.equal(result.generationConfig.thinkingConfig.thinkingBudget, undefined, effort);
+  }
+});
+
+test("OpenAI -> Gemini 3.5 Flash-Lite converts legacy numeric thinking budgets to levels", () => {
+  const result = openaiToGeminiRequest(
+    "gemini-3.5-flash-lite",
+    {
+      messages: [{ role: "user", content: "Reply exactly OK" }],
+      thinking: { type: "enabled", budget_tokens: 4096 },
+    },
+    false
+  ) as any;
+
+  assert.equal(result.generationConfig.thinkingConfig.thinkingLevel, "medium");
+  assert.equal(result.generationConfig.thinkingConfig.thinkingBudget, undefined);
+});

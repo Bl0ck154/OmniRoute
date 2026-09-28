@@ -94,6 +94,47 @@ type GeminiRequest = {
   _toolNameMap?: Map<string, string>;
 };
 
+type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
+
+function resolveNativeGeminiThinkingLevel(
+  model: string,
+  body: Record<string, any>
+): GeminiThinkingLevel | null {
+  const spec = getModelSpec(model);
+  const supported = spec?.geminiThinkingLevels;
+  if (!supported?.length) return null;
+
+  const reasoning = body.reasoning && typeof body.reasoning === "object" ? body.reasoning : {};
+  const rawEffort = body.reasoning_effort ?? reasoning.effort;
+  if (typeof rawEffort === "string") {
+    const effort = rawEffort.trim().toLowerCase();
+    const mapped: GeminiThinkingLevel | null =
+      effort === "none" || effort === "minimal"
+        ? "minimal"
+        : effort === "low" || effort === "medium" || effort === "high"
+          ? effort
+          : effort === "xhigh" || effort === "max" || effort === "auto"
+            ? "high"
+            : null;
+    if (mapped && supported.includes(mapped)) return mapped;
+  }
+
+  const thinking = body.thinking && typeof body.thinking === "object" ? body.thinking : {};
+  if (body.thinking === false || thinking.type === "disabled") {
+    return supported.includes("minimal") ? "minimal" : (spec?.defaultGeminiThinkingLevel ?? null);
+  }
+  const rawBudget = thinking.budget_tokens ?? thinking.budgetTokens;
+  if (typeof rawBudget === "number" && Number.isFinite(rawBudget)) {
+    const mapped: GeminiThinkingLevel =
+      rawBudget <= 0 ? "minimal" : rawBudget <= 1024 ? "low" : rawBudget <= 8192 ? "medium" : "high";
+    if (supported.includes(mapped)) return mapped;
+  }
+
+  return spec?.defaultGeminiThinkingLevel && supported.includes(spec.defaultGeminiThinkingLevel)
+    ? spec.defaultGeminiThinkingLevel
+    : supported[0] ?? null;
+}
+
 // Convert OpenAI tool_choice into Gemini's functionCallingConfig mode. Mirrors
 // convertOpenAIToolChoice in openai-to-claude.ts (same enum shapes from the client).
 // Gemini's modes: AUTO (model decides), ANY (must call a function — OpenAI's
@@ -217,7 +258,13 @@ function openaiToGeminiBase(
   // Mirrors the same guard in claude-to-gemini.ts. Port of the thinkingConfig
   // guard half of decolua/9router#2480 (the signature-replay half of that PR
   // is out of scope and not ported here).
-  if (model.startsWith("gemma-4")) {
+  const nativeThinkingLevel = resolveNativeGeminiThinkingLevel(model, body);
+  if (nativeThinkingLevel !== null) {
+    result.generationConfig.thinkingConfig = {
+      thinkingLevel: nativeThinkingLevel,
+      includeThoughts: true,
+    };
+  } else if (model.startsWith("gemma-4")) {
     // gemma-4 models returns - 400: Thinking budget is not supported for this model
   } else {
     // 1. OpenAI format: reasoning_effort (none/low/medium/high/auto/max/xhigh)
