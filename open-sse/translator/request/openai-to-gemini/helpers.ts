@@ -11,7 +11,8 @@ export type GeminiGenerationConfig = {
   topK?: unknown;
   maxOutputTokens?: unknown;
   thinkingConfig?: {
-    thinkingBudget: number;
+    thinkingBudget?: number;
+    thinkingLevel?: "minimal" | "low" | "medium" | "high";
     includeThoughts: boolean;
   };
   responseMimeType?: string;
