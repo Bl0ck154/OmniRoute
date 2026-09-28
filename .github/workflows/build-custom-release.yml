@@ -82,6 +82,7 @@ jobs:
           tests/unit/auth-antigravity-account-retry-v2.test.ts
           tests/unit/preferred-connection-failover.test.ts
           tests/unit/early-stream-keepalive.test.ts
+          tests/unit/free-models.test.ts
           tests/unit/middleware-hook-realm-isolation.test.ts
           tests/unit/cli-serve-port-in-use-preflight.test.mjs
 
