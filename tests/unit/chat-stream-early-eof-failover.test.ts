@@ -223,6 +223,8 @@ test("flag off (default): early EOF stays terminal after the same-connection ret
   assert.equal(response.status, 502, `expected 502, got ${response.status}: ${bodyText}`);
   assert.equal(errorCodeOf(bodyText), "STREAM_EARLY_EOF");
   assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Id"), first.id);
+  assert.equal(response.headers.get("X-OmniRoute-Same-Account-Retries"), "1");
+  assert.equal(response.headers.get("X-OmniRoute-Account-Fallbacks"), null);
   await assertNotMarked(connA, "first");
   await assertNotMarked(connB, "sibling");
 });
@@ -250,6 +252,9 @@ test("flag on: fails over to the sibling after the bounded retry, without markin
     sibling.id,
     "the response must carry the sibling as the selected connection"
   );
+  assert.equal(response.headers.get("X-OmniRoute-Same-Account-Retries"), "1");
+  assert.equal(response.headers.get("X-OmniRoute-Account-Fallbacks"), "1");
+  assert.equal(response.headers.get("X-OmniRoute-Account-Fallback-Reasons"), "stream_early_eof");
   assert.match(bodyText, /OK/, "the client must receive the sibling's content");
   assert.ok(!bodyText.includes("STREAM_EARLY_EOF"), "the client must not see the early-EOF 502");
   await assertNotMarked(first, "first");
