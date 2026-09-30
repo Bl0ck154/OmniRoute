@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createChatPipelineHarness } from "../integration/_chatPipelineHarness.ts";
-import { withSelectedConnectionHeader } from "../../src/sse/handlers/chatHelpers.ts";
 
 const harness = await createChatPipelineHarness("account-fallback-telemetry");
 const { buildOpenAIResponse, buildRequest, handleChat, resetStorage, seedConnection } = harness;
+const { withSelectedConnectionHeader } = await import("../../src/sse/handlers/chatHelpers.ts");
 
 test.beforeEach(async () => {
   await resetStorage();
