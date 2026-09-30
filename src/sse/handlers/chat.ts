@@ -25,6 +25,7 @@ import {
   recordModelLockoutFailure,
   isDailyQuotaExhausted,
 } from "@omniroute/open-sse/services/accountFallback.ts";
+import { getCodexPlanType } from "@omniroute/open-sse/services/codexPlanEligibility.ts";
 import { getCombo, getComboForModel, getModelInfo } from "../services/model";
 import { stripContextWindowSuffix } from "@omniroute/open-sse/services/model.ts";
 import { resolveBareModelToConnectionDefault } from "@omniroute/open-sse/services/model.ts";
@@ -1687,6 +1688,26 @@ async function handleSingleModelChat(
   // original early-EOF 502 so an exhausted sibling pool surfaces it verbatim (combo detection).
   let earlyEofOriginal: Response | null = null;
   const sameAccountTransportRetries = new Map<string, number>();
+  let accountFallbacks = 0;
+  let selectedConnectionPlan: string | null = null;
+  let sameAccountRetries = 0;
+  let routingWaitMs = 0;
+  const accountFallbackReasons: string[] = [];
+  const noteAccountFallback = (reason: string): void => {
+    accountFallbacks += 1;
+    if (accountFallbackReasons.length < 8) accountFallbackReasons.push(reason);
+  };
+  const withRoutingTelemetry = (
+    response: Response,
+    connectionId: string | null | undefined
+  ): Response =>
+    withSelectedConnectionHeader(response, connectionId, {
+      accountFallbacks,
+      accountFallbackReasons,
+      selectedConnectionPlan,
+      sameAccountRetries,
+      routingWaitMs,
+    });
   const occupancySessionKey =
     runtimeOptions.sessionAffinityKey ?? runtimeOptions.sessionId ?? `request:${randomUUID()}`;
   let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
@@ -1798,6 +1819,7 @@ async function handleSingleModelChat(
               return errorResponse(499, "Request aborted");
             }
 
+            routingWaitMs += retryDecision.waitMs;
             requestRetryAttempt += 1;
             requestRetryBudgetLeftMs = Math.max(0, requestRetryBudgetLeftMs - retryDecision.waitMs);
             log.info(
@@ -1859,9 +1881,11 @@ async function handleSingleModelChat(
           excludedConnectionIds.size > 0
             ? Array.from(excludedConnectionIds)[excludedConnectionIds.size - 1]
             : null;
-        return withSelectedConnectionHeader(noCredsRes, lastFailedConnectionId);
+        return withRoutingTelemetry(noCredsRes, lastFailedConnectionId);
       }
 
+      selectedConnectionPlan =
+        provider === "codex" ? getCodexPlanType(credentials.providerSpecificData) : null;
       const accountId = credentials.connectionId.slice(0, 8);
       const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
       // Undefined whenever the lease flag is off, which makes every release/hold below a no-op.
@@ -2120,7 +2144,7 @@ async function handleSingleModelChat(
         }
         if (telemetry) telemetry.startPhase("finalize");
         if (telemetry) telemetry.endPhase();
-        const successResponse = withSelectedConnectionHeader(
+        const successResponse = withRoutingTelemetry(
           result.response,
           credentials?.connectionId
         );
@@ -2146,7 +2170,7 @@ async function handleSingleModelChat(
       // redispatch and repeat bootstrap within the same logical request.
       if (isAntigravityMissingProjectError(provider, result)) {
         markAntigravityMissingCloudCodeProject(credentials.connectionId);
-        return withSelectedConnectionHeader(result.response, credentials.connectionId);
+        return withRoutingTelemetry(result.response, credentials.connectionId);
       }
 
       const isAntigravityStreamReadinessFailure =
@@ -2174,6 +2198,7 @@ async function handleSingleModelChat(
           !hasForcedConnection
         ) {
           streamEarlyEofRetries += 1;
+          sameAccountRetries += 1;
           log.warn(
             "STREAM",
             `${provider}/${model} closed the stream early before useful content — retrying once (attempt ${streamEarlyEofRetries})`
@@ -2212,14 +2237,15 @@ async function handleSingleModelChat(
         ) {
           // Retry spent and nothing emitted yet: one hop to a sibling (routing only, no mark).
           log.warn("STREAM", `${provider}/${model} early-EOF retry exhausted — trying one sibling`);
-          earlyEofOriginal = withSelectedConnectionHeader(
+          noteAccountFallback("stream_early_eof");
+          earlyEofOriginal = withRoutingTelemetry(
             result.response,
             credentials.connectionId
           );
           excludedConnectionIds.add(credentials.connectionId);
           continue;
         }
-        return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+        return withRoutingTelemetry(result.response, credentials?.connectionId);
       }
 
       if (isAntigravityStreamReadinessFailure) {
@@ -2256,6 +2282,7 @@ async function handleSingleModelChat(
               // best-effort: selection also excludes this connection for the current retry.
             }
           }
+          noteAccountFallback("stream_readiness");
           excludedConnectionIds.add(credentials.connectionId);
           lastError = classificationError;
           lastStatus = result.status;
@@ -2263,7 +2290,7 @@ async function handleSingleModelChat(
           requestRetryLastStatus = result.status;
           continue;
         }
-        return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+        return withRoutingTelemetry(result.response, credentials?.connectionId);
       }
 
       const isAntigravityPreResponseTimeout =
@@ -2305,6 +2332,7 @@ async function handleSingleModelChat(
               // best-effort: selection also excludes this connection for the current retry.
             }
           }
+          noteAccountFallback("pre_response_timeout");
           excludedConnectionIds.add(credentials.connectionId);
           lastError = result.error;
           lastStatus = result.status;
@@ -2313,20 +2341,21 @@ async function handleSingleModelChat(
           continue;
         }
 
-        return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+        return withRoutingTelemetry(result.response, credentials?.connectionId);
       }
 
       if (result.errorType === "account_semaphore_capacity") {
         // Local concurrency pressure is not an upstream quota failure. Prefer another
         // account when possible; pinned combo steps fall through to combo orchestration.
         if (hasForcedConnection) {
-          return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+          return withRoutingTelemetry(result.response, credentials?.connectionId);
         }
 
         log.warn(
           "AUTH",
           `Account ${accountId}... at local concurrency cap, trying fallback account`
         );
+        noteAccountFallback("capacity");
         excludedConnectionIds.add(credentials.connectionId);
         lastError = result.error;
         lastStatus = result.status;
@@ -2508,6 +2537,8 @@ async function handleSingleModelChat(
           releaseOAuthSession();
           return errorResponse(499, "Request aborted");
         }
+        sameAccountRetries += 1;
+        routingWaitMs += waitMs;
         preselectedCredentials = credentials;
         continue;
       }
@@ -2570,6 +2601,9 @@ async function handleSingleModelChat(
             // best-effort: selection also excludes this connection for the current retry.
           }
         }
+        noteAccountFallback(
+          result.status ? `http_${result.status}` : result.errorType || "upstream_error"
+        );
         excludedConnectionIds.add(credentials.connectionId);
         lastError = result.error;
         lastStatus = result.status;
@@ -2587,7 +2621,7 @@ async function handleSingleModelChat(
         breaker._onFailure();
       }
 
-      return withSelectedConnectionHeader(result.response, credentials?.connectionId);
+      return withRoutingTelemetry(result.response, credentials?.connectionId);
     }
   }
 }
