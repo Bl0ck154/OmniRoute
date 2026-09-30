@@ -9,6 +9,7 @@ export const OMNIROUTE_RESPONSE_HEADERS = {
   decision: "X-OmniRoute-Decision",
   accountFallbacks: "X-OmniRoute-Account-Fallbacks",
   accountFallbackReasons: "X-OmniRoute-Account-Fallback-Reasons",
+  selectedConnectionPlan: "X-OmniRoute-Selected-Connection-Plan",
   sameAccountRetries: "X-OmniRoute-Same-Account-Retries",
   routingWaitMs: "X-OmniRoute-Routing-Wait-Ms",
   fallbackAttempts: "X-OmniRoute-Fallback-Attempts",

@@ -1237,6 +1237,7 @@ export function withSelectedConnectionHeader(
   telemetry?: {
     accountFallbacks?: number;
     accountFallbackReasons?: readonly string[];
+    selectedConnectionPlan?: string | null;
     sameAccountRetries?: number;
     routingWaitMs?: number;
   }
@@ -1244,6 +1245,11 @@ export function withSelectedConnectionHeader(
   if (!response) return response;
 
   const accountFallbacks = Math.max(0, Math.floor(telemetry?.accountFallbacks ?? 0));
+  const selectedConnectionPlan = String(telemetry?.selectedConnectionPlan ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.:-]+/g, "_")
+    .slice(0, 40);
   const sameAccountRetries = Math.max(0, Math.floor(telemetry?.sameAccountRetries ?? 0));
   const routingWaitMs = Math.max(0, Math.round(telemetry?.routingWaitMs ?? 0));
   const fallbackReasons = (telemetry?.accountFallbackReasons ?? [])
@@ -1265,6 +1271,9 @@ export function withSelectedConnectionHeader(
     if (fallbackReasons.length > 0) {
       headers.set(OMNIROUTE_RESPONSE_HEADERS.accountFallbackReasons, fallbackReasons.join(","));
     }
+    if (selectedConnectionPlan) {
+      headers.set(OMNIROUTE_RESPONSE_HEADERS.selectedConnectionPlan, selectedConnectionPlan);
+    }
     if (sameAccountRetries > 0) {
       headers.set(OMNIROUTE_RESPONSE_HEADERS.sameAccountRetries, String(sameAccountRetries));
     }
@@ -1277,6 +1286,7 @@ export function withSelectedConnectionHeader(
     !connectionId &&
     accountFallbacks === 0 &&
     fallbackReasons.length === 0 &&
+    !selectedConnectionPlan &&
     sameAccountRetries === 0 &&
     routingWaitMs === 0
   ) {

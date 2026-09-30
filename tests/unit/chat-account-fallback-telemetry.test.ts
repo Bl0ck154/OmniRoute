@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createChatPipelineHarness } from "../integration/_chatPipelineHarness.ts";
+import { withSelectedConnectionHeader } from "../../src/sse/handlers/chatHelpers.ts";
 
 const harness = await createChatPipelineHarness("account-fallback-telemetry");
 const { buildOpenAIResponse, buildRequest, handleChat, resetStorage, seedConnection } = harness;
@@ -12,6 +13,14 @@ test.beforeEach(async () => {
 
 test.after(async () => {
   await harness.cleanup();
+});
+
+test("selected Codex plan is exposed without depending on an upstream quota header", () => {
+  const response = withSelectedConnectionHeader(new Response("ok"), "connection-id", {
+    selectedConnectionPlan: "Plus",
+  });
+
+  assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Plan"), "plus");
 });
 
 test("account rotation is exposed through bounded routing telemetry headers", async () => {

@@ -25,6 +25,7 @@ import {
   recordModelLockoutFailure,
   isDailyQuotaExhausted,
 } from "@omniroute/open-sse/services/accountFallback.ts";
+import { getCodexPlanType } from "@omniroute/open-sse/services/codexPlanEligibility.ts";
 import { getCombo, getComboForModel, getModelInfo } from "../services/model";
 import { stripContextWindowSuffix } from "@omniroute/open-sse/services/model.ts";
 import { resolveBareModelToConnectionDefault } from "@omniroute/open-sse/services/model.ts";
@@ -1688,6 +1689,7 @@ async function handleSingleModelChat(
   let earlyEofOriginal: Response | null = null;
   const sameAccountTransportRetries = new Map<string, number>();
   let accountFallbacks = 0;
+  let selectedConnectionPlan: string | null = null;
   let sameAccountRetries = 0;
   let routingWaitMs = 0;
   const accountFallbackReasons: string[] = [];
@@ -1702,6 +1704,7 @@ async function handleSingleModelChat(
     withSelectedConnectionHeader(response, connectionId, {
       accountFallbacks,
       accountFallbackReasons,
+      selectedConnectionPlan,
       sameAccountRetries,
       routingWaitMs,
     });
@@ -1881,6 +1884,8 @@ async function handleSingleModelChat(
         return withRoutingTelemetry(noCredsRes, lastFailedConnectionId);
       }
 
+      selectedConnectionPlan =
+        provider === "codex" ? getCodexPlanType(credentials.providerSpecificData) : null;
       const accountId = credentials.connectionId.slice(0, 8);
       const releaseOAuthSession = credentials.releaseOAuthSession ?? (() => {});
       // Undefined whenever the lease flag is off, which makes every release/hold below a no-op.
