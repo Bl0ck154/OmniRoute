@@ -12,7 +12,6 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
   // all three ids to both the IDE 2.5.5 and CLI 1.1.x clients.
   {
     id: "gemini-3.7-flash-high",
-    liveCatalogIds: ["gemini-3.7-flash-tiered"],
     name: "Gemini 3.7 Flash (High)",
     liveCatalogIds: ["gemini-3.7-flash-tiered"],
     contextLength: 1048576,
@@ -23,7 +22,6 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
   },
   {
     id: "gemini-3.7-flash-medium",
-    liveCatalogIds: ["gemini-3.7-flash-tiered"],
     name: "Gemini 3.7 Flash (Medium)",
     liveCatalogIds: ["gemini-3.7-flash-tiered"],
     contextLength: 1048576,
@@ -34,7 +32,6 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
   },
   {
     id: "gemini-3.7-flash-low",
-    liveCatalogIds: ["gemini-3.7-flash-tiered"],
     name: "Gemini 3.7 Flash (Low)",
     liveCatalogIds: ["gemini-3.7-flash-tiered"],
     contextLength: 1048576,
@@ -52,8 +49,8 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
     supportsVision: true,
     toolCalling: true,
   },
-  // Gemini 3.8 Flash tiers. Served directly at these ids by the live upstream — no
-  // shared "-tiered" endpoint exists for 3.8 (unlike 3.7).
+  // Gemini 3.8 Flash tiers. Keep fork's direct execution ids while accepting
+  // live catalog entries reported with the shared -tiered capability marker.
   {
     id: "gemini-3.8-flash-high",
     name: "Gemini 3.8 Flash (High)",
