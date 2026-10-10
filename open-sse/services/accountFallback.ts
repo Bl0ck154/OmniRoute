@@ -1246,9 +1246,7 @@ export function recordProviderFailure(
     const dedupKey = `${provider}:${connectionId}`;
     const now = Date.now();
     const lastFailure = lastConnectionFailure.get(dedupKey);
-    if (lastFailure && now - lastFailure < CONNECTION_FAILURE_DEDUP_MS) {
-      return;
-    }
+    if (lastFailure && now - lastFailure < CONNECTION_FAILURE_DEDUP_MS) return;
     lastConnectionFailure.delete(dedupKey);
     lastConnectionFailure.set(dedupKey, now);
     pruneConnectionFailureDedupeEntries();
@@ -1317,8 +1315,10 @@ export function recordProviderSuccess(
  * Reset the shared provider breaker.
  */
 export function clearProviderFailure(provider: string | null | undefined): void {
-  const breaker = getProviderBreaker(provider);
-  breaker?.reset();
+  if (provider) lastNetworkErrorByProvider.delete(provider); // #13887: fresh blip after reset counts
+  for (const key of lastConnectionFailure.keys())
+    if (provider && key.startsWith(`${provider}:`)) lastConnectionFailure.delete(key);
+  getProviderBreaker(provider)?.reset();
 }
 
 /**

@@ -1,0 +1,56 @@
+name: Selected upstream regressions
+
+on:
+  pull_request:
+    branches: [production]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      JWT_SECRET: ci-test-jwt-secret-0123456789-abcdefghijklmnopqrstuvwxyz
+      API_KEY_SECRET: ci-test-api-secret-0123456789-abcdefghijklmnopqrstuvwxyz
+      INITIAL_PASSWORD: ci-only-password
+      DISABLE_SQLITE_AUTO_BACKUP: 'true'
+      OMNIROUTE_DISABLE_BACKGROUND_SERVICES: 'true'
+      OMNIROUTE_SKIP_SYSTEM_TRUST: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Validate selected upstream regressions
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=2 \
+            tests/unit/agentic-executor-fallback.test.ts \
+            tests/unit/antigravity-38-flash-tiered-only-account-15659.test.ts \
+            tests/unit/antigravity-model-aliases.test.ts \
+            tests/unit/breaker-network-error-guard.test.ts \
+            tests/unit/buffered-responses-failure.test.ts \
+            tests/unit/codex-overload-scope.test.ts \
+            tests/unit/combo-auto-candidate-expansion.test.ts \
+            tests/unit/combo-stale-auto-prune-13505.test.ts \
+            tests/unit/combo-stale-model-refs-13505.test.ts \
+            tests/unit/combo/quota-weighted-model-window.test.ts \
+            tests/unit/feature-flags-settings.test.ts \
+            tests/unit/provider-availability.test.ts \
+            tests/unit/providers-client-route-secrets-qxg2.test.ts \
+            tests/unit/resilience-connections.test.ts \
+            tests/unit/responses-keepalive-error-frame-nested.test.ts \
+            tests/unit/responses-readable-compaction.test.ts \
+            tests/unit/server-owned-tool-loop-flag.test.ts \
+            tests/unit/bug-8020-codex-peek-body-timeout.test.ts
+      - name: UI provider availability (Vitest / jsdom)
+        run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
+      - name: Typecheck core
+        run: npm run typecheck:core
