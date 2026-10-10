@@ -1,0 +1,38 @@
+name: Codex SSE regression
+
+on:
+  pull_request:
+    branches: [production]
+    paths:
+      - 'open-sse/executors/codex.ts'
+      - 'open-sse/executors/codex/**'
+      - 'tests/unit/bug-8020-codex-peek-body-timeout.test.ts'
+      - '.github/workflows/codex-sse-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      JWT_SECRET: ci-test-jwt-secret-0123456789-abcdefghijklmnopqrstuvwxyz
+      API_KEY_SECRET: ci-test-api-secret-0123456789-abcdefghijklmnopqrstuvwxyz
+      INITIAL_PASSWORD: ci-only-password
+      DISABLE_SQLITE_AUTO_BACKUP: 'true'
+      OMNIROUTE_DISABLE_BACKGROUND_SERVICES: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: ESLint touched code
+        # Existing unrelated unused `stream` in codex.ts:1136 fails full-file lint.
+        # Only newly introduced files are linted in this targeted gate.
+        run: ./node_modules/.bin/eslint open-sse/executors/codex/ssePeekProgress.ts tests/unit/bug-8020-codex-peek-body-timeout.test.ts
+      - name: Codex SSE regression tests
+        run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit tests/unit/bug-8020-codex-peek-body-timeout.test.ts

@@ -69,6 +69,7 @@ jobs:
           --import ./open-sse/utils/setupPolyfill.ts
           --import ./tests/_setup/isolateDataDir.ts
           --test --test-force-exit
+          tests/unit/bug-8020-codex-peek-body-timeout.test.ts
           tests/unit/cline-force-stream.test.ts
           tests/unit/image-generation-handler.test.ts
           tests/unit/codex-free-plan-image-generation.test.ts
