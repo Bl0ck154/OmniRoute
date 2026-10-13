@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { proxyFetch } from "../../open-sse/utils/proxyFetch.ts";
-import { getDefaultDispatcher, getRetryDispatcher } from "../../open-sse/utils/proxyDispatcher.ts";
+import { getDefaultDispatcher, getDedicatedCodexImageDispatcher } from "../../open-sse/utils/proxyDispatcher.ts";
 
 const CODEX_GENERATION = "https://chatgpt.com/backend-api/codex/images/generations";
 const CODEX_EDITS = "https://chatgpt.com/backend-api/codex/images/edits";
@@ -49,7 +49,7 @@ test("Codex dedicated generations can take longer than the global 30s guard with
     );
     assert.equal(await res.text(), "ok");
     assert.equal(capture.calls, 1);
-    assert.equal(capture.dispatchers[0], getRetryDispatcher(), "must use a fresh socket");
+    assert.equal(capture.dispatchers[0], getDedicatedCodexImageDispatcher(90), "must use a fresh socket");
   });
 });
 
@@ -63,7 +63,7 @@ test("Codex dedicated edits use the same long timeout and never replay", async (
     );
     assert.equal(res.status, 200);
     assert.equal(capture.calls, 1);
-    assert.equal(capture.dispatchers[0], getRetryDispatcher());
+    assert.equal(capture.dispatchers[0], getDedicatedCodexImageDispatcher(90));
   });
 });
 
@@ -77,7 +77,7 @@ test("Codex dedicated image timeout has one attempt (never submits duplicate gen
       (error: unknown) => (error as { code?: string }).code === "DIRECT_RESPONSE_START_TIMEOUT"
     );
     assert.equal(capture.calls, 1);
-    assert.equal(capture.dispatchers[0], getRetryDispatcher());
+    assert.equal(capture.dispatchers[0], getDedicatedCodexImageDispatcher(90));
   });
 });
 
