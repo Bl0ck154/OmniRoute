@@ -6,6 +6,7 @@ import {
   buildVercelRelayHeaders,
   createProxyDispatcher,
   getDefaultDispatcher,
+  getDedicatedCodexImageDispatcher,
   getProxyRetryDispatcher,
   getRetryDispatcher,
   isRelayType,
@@ -375,7 +376,7 @@ function isDedicatedCodexImageRequest(targetUrl: string, options: FetchWithDispa
 
 function codexImageResponseStartTimeoutMs(): number {
   const configured = Number(process.env.OMNIROUTE_CODEX_IMAGE_RESPONSE_START_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 300_000;
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 600_000;
 }
 
 function requestHasNonReplayableBody(
@@ -980,7 +981,7 @@ async function patchedFetchUnrecorded(
             ...options,
             // Start paid image generation on a fresh socket rather than risking a stale pooled socket.
             dispatcher: dedicatedCodexImageRequest
-              ? getRetryDispatcher()
+              ? getDedicatedCodexImageDispatcher(directHeadersTimeoutMs)
               : attempt === 0
                 ? getDefaultDispatcher()
                 : getRetryDispatcher(),
