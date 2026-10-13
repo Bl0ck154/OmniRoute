@@ -35,6 +35,7 @@ jobs:
             tests/unit/antigravity-claude-55-live-tier-ids.test.ts \
             tests/unit/claude-sonnet-5-5.test.ts \
             tests/unit/claude-opus-5-5.test.ts \
+            tests/unit/claude-haiku-no-adaptive-thinking.test.ts \
             tests/unit/claude-codex-identity-version-sync.test.ts \
             tests/unit/claude-mid-system-models-16127.test.ts \
             tests/unit/claude-mid-system-passthrough-16127.test.ts \
@@ -58,6 +59,6 @@ jobs:
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts
       - name: UI provider availability (Vitest / jsdom)
-        run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx tests/unit/claude-haiku-no-adaptive-thinking.test.ts --maxWorkers=2
+        run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core
         run: npm run typecheck:core
