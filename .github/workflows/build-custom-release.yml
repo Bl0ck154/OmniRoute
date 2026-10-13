@@ -70,6 +70,13 @@ jobs:
           --import ./tests/_setup/isolateDataDir.ts
           --test --test-force-exit
           tests/unit/bug-8020-codex-peek-body-timeout.test.ts
+          tests/unit/antigravity-claude-55-live-tier-ids.test.ts
+          tests/unit/claude-sonnet-5-5.test.ts
+          tests/unit/claude-opus-5-5.test.ts
+          tests/unit/claude-codex-identity-version-sync.test.ts
+          tests/unit/claude-mid-system-models-16127.test.ts
+          tests/unit/claude-mid-system-passthrough-16127.test.ts
+          tests/unit/pricing-fallback.test.ts
           tests/unit/agentic-executor-fallback.test.ts
           tests/unit/antigravity-38-flash-tiered-only-account-15659.test.ts
           tests/unit/breaker-network-error-guard.test.ts
@@ -100,6 +107,9 @@ jobs:
           tests/unit/free-models.test.ts
           tests/unit/middleware-hook-realm-isolation.test.ts
           tests/unit/cli-serve-port-in-use-preflight.test.mjs
+
+      - name: Claude 5.5 adaptive thinking regression
+        run: ./node_modules/.bin/vitest run tests/unit/claude-haiku-no-adaptive-thinking.test.ts --maxWorkers=2
 
       - name: Install Chromium
         run: |

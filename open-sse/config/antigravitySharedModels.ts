@@ -116,6 +116,63 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
     maxOutputTokens: 65535,
     toolCalling: true,
   },
+  // Claude 5.5 live-catalog ids: the effort tier is part of the literal Cloud
+  // Code model id, not a synthetic Claude reasoning_effort suffix (#15691).
+  // The live account catalog controls eligibility; never infer it from a plan.
+  {
+    id: "claude-opus-5-5-low",
+    name: "Claude Opus 5.5 (Low)",
+    contextLength: 1048576,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-opus-5-5-medium",
+    name: "Claude Opus 5.5 (Medium)",
+    contextLength: 1048576,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-opus-5-5-high",
+    name: "Claude Opus 5.5 (High)",
+    contextLength: 1048576,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-low",
+    name: "Claude Sonnet 5.5 (Low)",
+    contextLength: 1048576,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-medium",
+    name: "Claude Sonnet 5.5 (Medium)",
+    contextLength: 1048576,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "claude-sonnet-5-5-high",
+    name: "Claude Sonnet 5.5 (High)",
+    contextLength: 1048576,
+    maxOutputTokens: 128000,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
   // Claude (Antigravity backend). Discussion #3184 confirmed these are
   // user-callable through both the agy and antigravity OAuth providers.
   {
