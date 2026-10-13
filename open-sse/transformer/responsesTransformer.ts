@@ -612,6 +612,11 @@ export function createResponsesApiTransformStream(
     }
   };
 
+  // Fed to transform() from flush() so a message left in the buffer without its
+  // blank-line terminator (upstream closed right after the last `data:` line) still
+  // goes through the normal per-message path instead of being silently dropped.
+  const SSE_MESSAGE_TERMINATOR = encoder.encode("\n\n");
+
   return new TransformStream(
     {
       start(controller) {
@@ -636,7 +641,7 @@ export function createResponsesApiTransformStream(
       },
       transform(chunk, controller) {
         const text = decoder.decode(chunk, { stream: true });
-        logger?.logInput(text.trim());
+        if (text.trim()) logger?.logInput(text.trim());
         state.buffer += text;
 
         const messages = state.buffer.split("\n\n");
@@ -979,6 +984,13 @@ export function createResponsesApiTransformStream(
         // emitted within transform(), so normally there is nothing left; this
         // only releases a terminating truncated byte and frees the decoder.
         state.buffer += decoder.decode();
+        // Drain a final message that arrived without its "\n\n" terminator — typically
+        // the last text delta, the finish_reason chunk or the usage chunk. Must run
+        // BEFORE the close/complete calls below; sendCompleted() is idempotent
+        // (completedSent guard), so a drained finish_reason+usage chunk that already
+        // completes the response does not produce a second response.completed.
+        // Web Streams invokes transformer methods with `this` = the transformer object.
+        if (state.buffer.trim()) this.transform(SSE_MESSAGE_TERMINATOR, controller);
         // Clear keepalive timer
         if (state.keepaliveTimer) {
           clearInterval(state.keepaliveTimer);
