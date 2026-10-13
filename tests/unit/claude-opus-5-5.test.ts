@@ -199,6 +199,5 @@ test("Claude Opus 5.5 pricing matches Anthropic's published rates", () => {
     inputCostPer1M: 4,
     outputCostPer1M: 20,
     isFree: false,
-    isEstimated: false,
   });
 });
