@@ -32,6 +32,13 @@
  * promise nobody is awaiting anymore, which otherwise kills the whole process
  * over a single upstream stall that the retry path was built to handle.
  *
+ * An additional stream-lifecycle failure observed upstream on 2026-10-11
+ * (`empty_response`) could escape after its request was already failed and
+ * accounted for. The stream layer marks cleared requests using
+ * `__omniroutePendingRequestCleared`; the narrow guard below recognizes
+ * that marker and the explicit empty-response code while retaining fatal
+ * behavior for unrelated exceptions.
+ *
  * Two layers:
  *   1. `attachRequestStreamGuards(req, res)` — per-request listeners that absorb
  *      client-abort errors so they never bubble to the process level. Call it
@@ -206,6 +213,36 @@ export function isUpstreamNetworkError(err) {
 }
 
 /**
+ * A stream-lifecycle error OmniRoute's own streaming pipeline already accounted
+ * for. `open-sse/utils/stream.ts` stamps `markPendingRequestCleared()` on every
+ * stream error whose pending-request entry was cleared at emit time (the empty
+ * Claude flush `empty_response`, the upstream-start timeout, the empty-choices
+ * flush, and the `streamFailureBoundary.ts` fallback) — the request layer has
+ * by then already surfaced the failure (502 error event, combo failover,
+ * single-model retry classification), so a stray copy delivered to nobody is a
+ * bookkeeping leftover, not a fault. Kept as literal checks because this file
+ * must stay build-free: canonical definitions are `PENDING_REQUEST_CLEARED_MARKER`
+ * and the `empty_response` stamp in `open-sse/utils/stream.ts` (keep in sync).
+ *
+ * 2026-10-11 production exit 7 (#16347): the combo retry wait left the errored
+ * transform stream unconsumed and the `empty_response` rejection escaped as an
+ * uncaughtException. Same escape class as RELAY_TIMEOUT (#15339) and
+ * RATE_LIMIT_QUEUE_TIMEOUT (#15706).
+ *
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isHandledStreamLifecycleError(err) {
+  if (err === "empty_response") return true;
+  if (!err || typeof err !== "object") return false;
+  const e = /** @type {Error & { code?: string; __omniroutePendingRequestCleared?: boolean }} */ (
+    err
+  );
+  if (e.__omniroutePendingRequestCleared === true) return true;
+  return e.code === "empty_response";
+}
+
+/**
  * Decide whether a process-level uncaughtException/unhandledRejection should be
  * swallowed (benign client-abort, or a recoverable upstream timeout that a
  * retry path already handles — #12861) or allowed to surface (genuine bug).
@@ -222,7 +259,8 @@ export function shouldSwallowUncaught(err, origin) {
     !isClientAbortError(err) &&
     !isRecoverableUpstreamTimeoutError(err) &&
     !isIntentionalComboAbort(err) &&
-    !isUpstreamNetworkError(err)
+    !isUpstreamNetworkError(err) &&
+    !isHandledStreamLifecycleError(err)
   ) {
     return false;
   }
