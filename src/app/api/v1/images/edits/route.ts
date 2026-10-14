@@ -11,6 +11,9 @@ import {
   FAL_IMAGE_EDIT_MAX_REFERENCES,
   isFalImageEditModel,
 } from "@omniroute/open-sse/handlers/imageGeneration/providers/fal.ts";
+import {
+  isCodexImagesApiModel,
+} from "@omniroute/open-sse/handlers/imageGeneration/providers/codexImages.ts";
 import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
@@ -39,6 +42,8 @@ import {
   resolveImageModelPrefix,
   extractImageEditInputFromJson,
   validateCodexImageEditReferences,
+  MAX_CODEX_IMAGE_EDIT_REFERENCES,
+  MAX_CODEX_GPT_IMAGE_EDIT_REFERENCES,
 } from "@/lib/images/imageRouteModel";
 import { isMicrosoftDesignerWebProviderRetiredError } from "@/shared/constants/designerWebRetirement";
 import { resolveProxyForConnection } from "@/lib/db/settings";
@@ -108,6 +113,17 @@ interface EditInput {
 }
 
 const MAX_NON_CODEX_IMAGE_EDIT_REFERENCES = 1;
+
+/** Keep the legacy hosted-tool bound while matching the documented GPT Image edit cap. */
+function validateCodexReferencesForModel(
+  images: Array<{ bytes: Buffer; mime: string }>,
+  model: string
+): string | null {
+  const maxReferences = isCodexImagesApiModel(model)
+    ? MAX_CODEX_GPT_IMAGE_EDIT_REFERENCES
+    : MAX_CODEX_IMAGE_EDIT_REFERENCES;
+  return validateCodexImageEditReferences(images, maxReferences);
+}
 
 async function readMultipartImage(formData: FormData): Promise<EditInput> {
   const promptRaw = formData.get("prompt");
@@ -466,7 +482,7 @@ async function dispatchImageEditTarget(
         error: `Unsupported Codex image edit model: ${modelStr}`,
       };
     }
-    const imageValidationError = validateCodexImageEditReferences(images);
+    const imageValidationError = validateCodexReferencesForModel(images, parsed.model);
     if (imageValidationError) {
       return { success: false, status: HTTP_STATUS.BAD_REQUEST, error: imageValidationError };
     }
@@ -843,7 +859,7 @@ async function postHandler(request: Request, _context?: unknown) {
         `Unsupported Codex image edit model: ${resolvedModel}`
       );
     }
-    const imageValidationError = validateCodexImageEditReferences(images);
+    const imageValidationError = validateCodexReferencesForModel(images, parsed.model);
     if (imageValidationError) {
       return errorResponse(HTTP_STATUS.BAD_REQUEST, imageValidationError);
     }
