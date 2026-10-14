@@ -109,7 +109,8 @@ interface ParsedImageEditInput {
 }
 
 export const MAX_CODEX_IMAGE_EDIT_BYTES = 20 * 1024 * 1024;
-export const MAX_CODEX_IMAGE_EDIT_REFERENCES = 8;
+// GPT Image edit supports up to 16 references; see the OpenAI Images API contract.
+export const MAX_CODEX_IMAGE_EDIT_REFERENCES = 16;
 export const MAX_CODEX_IMAGE_EDIT_TOTAL_BYTES = 20 * 1024 * 1024;
 
 const CODEX_IMAGE_MIME_MAGIC: Readonly<Record<string, (bytes: Buffer) => boolean>> = {

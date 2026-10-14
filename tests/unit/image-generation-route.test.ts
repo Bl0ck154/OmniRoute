@@ -383,7 +383,7 @@ test("v1 image edit POST rejects excessive or malformed Codex reference sets", a
   };
 
   const formData = createCodexEditForm("combine these references");
-  for (let index = 2; index <= 9; index += 1) {
+  for (let index = 2; index <= 17; index += 1) {
     formData.append(
       "image[]",
       new File([VALID_PNG_BYTES], `reference-${index}.png`, { type: "image/png" })
@@ -399,7 +399,7 @@ test("v1 image edit POST rejects excessive or malformed Codex reference sets", a
   const body = (await response.json()) as ErrorResponseBody;
 
   assert.equal(response.status, 400);
-  assert.match(body.error.message, /at most 8 reference images/i);
+  assert.match(body.error.message, /at most 16 reference images/i);
 
   const jsonResponse = await imageEditRoute.POST(
     new Request("http://localhost/api/v1/images/edits", {
