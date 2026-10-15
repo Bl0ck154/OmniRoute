@@ -512,10 +512,13 @@ export function enrichCodexModelsFromGithubCatalog(
   githubCatalogModels: CodexDiscoveryModel[]
 ): CodexDiscoveryModel[] {
   const byId = new Map(githubCatalogModels.map((model) => [model.id, model]));
-  return models.map((model) => {
+  const enriched = models.map((model) => {
     const githubModel = byId.get(model.id);
     return githubModel ? { ...githubModel, ...model } : model;
   });
+  // Keep the live entitlement list authoritative when present. Only use the
+  // public GitHub catalog as fallback when the account returned no live rows.
+  return models.length > 0 ? enriched : [...githubCatalogModels];
 }
 
 export async function fetchCodexDiscoveryModels({
