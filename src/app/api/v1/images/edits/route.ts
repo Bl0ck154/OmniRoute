@@ -11,9 +11,6 @@ import {
   FAL_IMAGE_EDIT_MAX_REFERENCES,
   isFalImageEditModel,
 } from "@omniroute/open-sse/handlers/imageGeneration/providers/fal.ts";
-import {
-  isCodexImagesApiModel,
-} from "@omniroute/open-sse/handlers/imageGeneration/providers/codexImages.ts";
 import { createInjectionGuard } from "@/middleware/promptInjectionGuard";
 import {
   getProviderCredentialsWithQuotaPreflight,
@@ -119,7 +116,7 @@ function validateCodexReferencesForModel(
   images: Array<{ bytes: Buffer; mime: string }>,
   model: string
 ): string | null {
-  const maxReferences = isCodexImagesApiModel(model)
+  const maxReferences = /^gpt-image-/i.test(model.trim())
     ? MAX_CODEX_GPT_IMAGE_EDIT_REFERENCES
     : MAX_CODEX_IMAGE_EDIT_REFERENCES;
   return validateCodexImageEditReferences(images, maxReferences);
