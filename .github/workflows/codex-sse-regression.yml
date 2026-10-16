@@ -7,6 +7,7 @@ on:
       - 'open-sse/executors/codex.ts'
       - 'open-sse/executors/codex/**'
       - 'tests/unit/bug-8020-codex-peek-body-timeout.test.ts'
+      - 'tests/unit/codex-gpt61-sol-backport.test.ts'
       - '.github/workflows/codex-sse-regression.yml'
   workflow_dispatch:
 
@@ -33,6 +34,6 @@ jobs:
       - name: ESLint touched code
         # Existing unrelated unused `stream` in codex.ts:1136 fails full-file lint.
         # Only newly introduced files are linted in this targeted gate.
-        run: ./node_modules/.bin/eslint open-sse/executors/codex/ssePeekProgress.ts tests/unit/bug-8020-codex-peek-body-timeout.test.ts
+        run: ./node_modules/.bin/eslint open-sse/executors/codex/ssePeekProgress.ts tests/unit/bug-8020-codex-peek-body-timeout.test.ts tests/unit/codex-gpt61-sol-backport.test.ts
       - name: Codex SSE regression tests
-        run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit tests/unit/bug-8020-codex-peek-body-timeout.test.ts
+        run: node --import tsx/esm --import ./open-sse/utils/setupPolyfill.ts --import ./tests/_setup/isolateDataDir.ts --test --test-force-exit tests/unit/bug-8020-codex-peek-body-timeout.test.ts tests/unit/codex-gpt61-sol-backport.test.ts
