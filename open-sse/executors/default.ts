@@ -63,6 +63,7 @@ import { forwardOpencodeClientHeaders } from "../utils/opencodeHeaders.ts";
 import { resolveZaiUrl } from "./default/zaiFormatOverride.ts";
 import { normalizePoolConfig } from "./default/poolConfig.ts";
 import { acquireNvidiaConcurrencySlot } from "./default/nvidiaConcurrencyGate.ts";
+import { normalizeOpenAIToolCallIds } from "./default/openaiToolCallIds.ts";
 import { resolveAlibabaProviderBaseUrl } from "@/shared/constants/alibabaProviderRegions";
 import { xiaomiAlternateUrl, xiaomiMimoChatUrl } from "./default/xiaomiTokenPlan.ts";
 import { usesCcWireImage } from "../services/ccWireImageBuiltins.ts";
@@ -817,9 +818,8 @@ export class DefaultExecutor extends BaseExecutor {
       withDefaults = defaultPerplexityAgentMaxOutputTokens(withDefaults);
     }
 
-    if (this.provider === "nvidia") {
-      normalizeNvidiaToolCallIds(withDefaults);
-    }
+    if (this.provider === "nvidia") normalizeNvidiaToolCallIds(withDefaults);
+    if (this.provider === "openai") withDefaults = normalizeOpenAIToolCallIds(withDefaults);
 
     // Port of decolua/9router commit d652300e:
     // Cerebras returns 400 (wrong_api_format), Mistral returns 422

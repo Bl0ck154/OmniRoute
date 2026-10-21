@@ -1,6 +1,7 @@
 // Gemini helper functions for translator
 
 import { safeParseJSON } from "./jsonUtil.ts";
+import { coerceSchemaValueShapes } from "./schemaValueShapes.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -844,6 +845,16 @@ export function cleanJSONSchemaForAntigravity(
 
   const root = cloneSchemaValue(schema);
   let cleaned = inlineLocalSchemaRefs(root, root);
+
+  // Phase 0a: schema positions holding a non-object (array-shaped `properties`,
+  // primitive property values, shorthand string / tuple `items`, strings inside
+  // anyOf) — Gemini's proto rejects every one of them. Protobuf scalar aliases
+  // are converted to canonical JSON Schema types, while unknown names degrade to
+  // string (rather than leaking unsupported type strings); booleans lack proto form.
+  cleaned = coerceSchemaValueShapes(cleaned, {
+    allowBooleanSchemas: false,
+    keepUnknownTypeNames: false,
+  });
 
   // Phase 0: #12269 malformed skill/tool schemas (boolean required, bare maps).
   normalizeMalformedSchemaObjects(cleaned);
