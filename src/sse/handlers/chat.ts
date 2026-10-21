@@ -2073,7 +2073,8 @@ async function handleSingleModelChat(
             requestUpstreamStartTimeoutMs: resolvePreferredConnectionUpstreamStartTimeoutMs(
               provider,
               credentials,
-              requestUpstreamStartTimeoutMs
+              requestUpstreamStartTimeoutMs,
+              effectiveModel
             ),
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
           },
