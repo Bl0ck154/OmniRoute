@@ -60,6 +60,19 @@ jobs:
             tests/unit/classify429.test.ts \
             tests/unit/responses-transformer-tail-drain.test.ts \
             tests/unit/stream-readiness-replay-rejection-16364.test.ts \
+            tests/unit/call-log-artifact-file-perms.test.ts \
+            tests/unit/chat-helpers.test.ts \
+            tests/unit/cli-tokens-scope-escalation.test.ts \
+            tests/unit/cli-tools-refuse-to-clobber.test.ts \
+            tests/unit/codex-reasoning-replay-retry.test.ts \
+            tests/unit/codex-sse-overloaded-output-3232.test.ts \
+            tests/unit/combo-model-lock-pre-dispatch-wait-16319.test.ts \
+            tests/unit/combos-list-shared-context-resolution.test.ts \
+            tests/unit/omp-settings-route.test.ts \
+            tests/unit/request-logger-url-secret-masking.test.ts \
+            tests/unit/stream-continuation-responses.test.ts \
+            tests/unit/usage/usageWriteRetry.test.ts \
+            tests/unit/vscode-token-routes.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts
       - name: UI provider availability (Vitest / jsdom)
