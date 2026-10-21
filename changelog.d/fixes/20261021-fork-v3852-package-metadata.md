@@ -1,0 +1,1 @@
+Align custom-fork package and streaming-workspace version metadata with 3.8.52 after selectively backporting 20 upstream reliability fixes. This is a **custom compatibility release**, NOT a complete merge of upstream v3.8.52. Keep fork-only account routing, OAuth policy, Gemini 3.8 startup behavior, Codex extensions, images, and production packaging unchanged.
