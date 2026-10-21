@@ -73,6 +73,13 @@ jobs:
             tests/unit/stream-continuation-responses.test.ts \
             tests/unit/usage/usageWriteRetry.test.ts \
             tests/unit/vscode-token-routes.test.ts \
+            tests/unit/codex-tools-schema-value-shapes.test.ts \
+            tests/unit/codex-tools-unicode-property-pattern.test.ts \
+            tests/unit/gemini-tool-schema-value-shapes.test.ts \
+            tests/unit/openai-claude-tool-controls-4171.test.ts \
+            tests/unit/openai-tool-call-id-normalization.test.ts \
+            tests/unit/param-support-claude-diagnostics.test.ts \
+            tests/unit/stream-keeps-generated-images.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts
       - name: UI provider availability (Vitest / jsdom)
