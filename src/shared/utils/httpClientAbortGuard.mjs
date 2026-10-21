@@ -142,9 +142,12 @@ export function isClientAbortError(err) {
 export function isRecoverableUpstreamTimeoutError(err) {
   // Same reason-shape tolerance as isIntentionalComboAbort: a bare string
   // reason rejects waiters with the string itself, not an Error object.
-  if (err === "DIRECT_RESPONSE_START_TIMEOUT") return true;
+  // Both are raised by request-layer timeout paths that already surface a 504:
+  // directResponseStartTimeout.ts and proxyFetch.ts (pooled relay), respectively.
+  if (err === "DIRECT_RESPONSE_START_TIMEOUT" || err === "RELAY_TIMEOUT") return true;
   if (!err || typeof err !== "object") return false;
-  return /** @type {NodeJS.ErrnoException} */ (err).code === "DIRECT_RESPONSE_START_TIMEOUT";
+  const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+  return code === "DIRECT_RESPONSE_START_TIMEOUT" || code === "RELAY_TIMEOUT";
 }
 
 /**
