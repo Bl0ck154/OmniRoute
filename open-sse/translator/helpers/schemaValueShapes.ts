@@ -80,6 +80,15 @@ function isPlainObject(value: unknown): value is JsonRecord {
 function schemaFromTypeName(value: string, options: ShapeOptions): JsonRecord {
   const hint = value.trim();
   const lower = hint.toLowerCase();
+  // Canonical JSON Schema scalar names; protobuf/Gemini shorthand needs mapping
+  // before the later Gemini schema walk, which does not rename type strings.
+  const protoScalarTypes: Record<string, string> = {
+    int32: "integer", int64: "integer", uint32: "integer", uint64: "integer",
+    sint32: "integer", sint64: "integer", fixed32: "integer", fixed64: "integer",
+    sfixed32: "integer", sfixed64: "integer",
+    float: "number", double: "number", bool: "boolean",
+  };
+  if (Object.hasOwn(protoScalarTypes, lower)) return { type: protoScalarTypes[lower] };
   if (JSON_SCHEMA_TYPE_NAMES.has(lower)) return { type: lower };
   return { type: options.keepUnknownTypeNames && hint ? hint : "string" };
 }

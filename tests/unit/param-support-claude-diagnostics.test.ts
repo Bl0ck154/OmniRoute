@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 
 import { stripUnsupportedParams } from "../../open-sse/translator/paramSupport.ts";
 import { findOffendingField } from "../../open-sse/config/providerFieldStrips.ts";
-import { applyFieldDowngradeRecovery } from "../../open-sse/executors/base/fieldDowngradeRecovery.ts";
 
 // Newer Claude Code clients send a top-level `diagnostics` telemetry object. It is
 // gated behind an Anthropic beta OmniRoute does not advertise, so Anthropic answers
@@ -51,36 +50,7 @@ test("findOffendingField recognizes Anthropic's diagnostics extra-input 400", ()
   assert.equal(findOffendingField(ANTHROPIC_DIAGNOSTICS_400), "diagnostics");
 });
 
-test("reactive 400 recovery strips diagnostics and retries for Claude-shaped gateways without a claude model id", async () => {
-  const sentBodies: Record<string, unknown>[] = [];
-  const body: Record<string, unknown> = {
-    model: "glm-5",
-    max_tokens: 16,
-    messages: [{ role: "user", content: "hi" }],
-    diagnostics: { client: "cli" },
-  };
-
-  const response = await applyFieldDowngradeRecovery({
-    response: new Response(ANTHROPIC_DIAGNOSTICS_400, {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    }),
-    url: "https://gateway.example/v1/messages",
-    provider: "anthropic-compatible-test",
-    model: "glm-5",
-    body,
-    fetchOptions: { method: "POST" },
-    fetchFn: async (_url, init) => {
-      sentBodies.push(JSON.parse(String(init.body)));
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    },
-    serializeBody: (b) => JSON.stringify(b),
-    strippedFields: new Set<string>(),
-    log: null,
-  });
-
-  assert.equal(response.status, 200);
-  assert.equal(sentBodies.length, 1, "exactly one retry");
-  assert.equal("diagnostics" in sentBodies[0], false, "retry body must not carry diagnostics");
-  assert.deepEqual(sentBodies[0].messages, [{ role: "user", content: "hi" }]);
-});
+// The upstream reactive retry test depends on fieldDowngradeRecovery.ts,
+// which is not present in this fork. The observed 400 classification is
+// covered here; reintroduce an end-to-end retry test with the fork executor
+// only when that executor behavior is explicitly adapted.
