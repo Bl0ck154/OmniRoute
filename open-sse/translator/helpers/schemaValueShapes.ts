@@ -88,7 +88,9 @@ function schemaFromTypeName(value: string, options: ShapeOptions): JsonRecord {
     sfixed32: "integer", sfixed64: "integer",
     float: "number", double: "number", bool: "boolean",
   };
-  if (Object.hasOwn(protoScalarTypes, lower)) return { type: protoScalarTypes[lower] };
+  if (!options.keepUnknownTypeNames && Object.hasOwn(protoScalarTypes, lower)) {
+    return { type: protoScalarTypes[lower] };
+  }
   if (JSON_SCHEMA_TYPE_NAMES.has(lower)) return { type: lower };
   return { type: options.keepUnknownTypeNames && hint ? hint : "string" };
 }
