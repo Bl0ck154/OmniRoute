@@ -92,6 +92,7 @@ jobs:
           tests/unit/resilience-connections.test.ts
           tests/unit/responses-keepalive-error-frame-nested.test.ts
           tests/unit/responses-readable-compaction.test.ts
+          tests/unit/antigravity-preferred-start-12s.test.ts
           tests/unit/cline-force-stream.test.ts
           tests/unit/image-generation-handler.test.ts
           tests/unit/codex-free-plan-image-generation.test.ts
