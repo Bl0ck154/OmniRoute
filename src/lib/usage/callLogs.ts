@@ -44,7 +44,8 @@ import {
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import { getCallLogsDir, type CallLogArtifact, type CallLogDetailState } from "./callLogArtifacts";
 import { closeCallLogArtifactWriter, writeCallArtifactAsync } from "./callLogArtifactWriter";
-import { isWriteLockError, scheduleWriteRetry } from "./usageWriteRetry";
+import { isWriteLockError } from "./usageWriteRetry";
+import { retryLockedDbWrite } from "./deferredLockedDbWrite";
 import {
   toNumber,
   toStringOrNull,
@@ -449,7 +450,7 @@ async function saveCallLogOperation(entry: any): Promise<void> {
       logCallLogSaveFailure(error);
       return;
     }
-    const retry = scheduleWriteRetry(() => {
+    const retry = retryLockedDbWrite(() => {
       insertCallLogRow(prepared);
       inserted = true;
     }, logCallLogSaveFailure);

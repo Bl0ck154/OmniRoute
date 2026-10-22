@@ -12,7 +12,8 @@ import { sanitizeTimingMs } from "@omniroute/open-sse/utils/timingMs.ts";
 import { getDbInstance, isCloud, isBuildPhase } from "./db/core";
 import { ensureProxyLogsColumns } from "./db/schemaColumns";
 import { normalizeProxyHostForLog } from "./proxyLogHost";
-import { isWriteLockError, scheduleWriteRetry } from "./usage/usageWriteRetry";
+import { isWriteLockError } from "./usage/usageWriteRetry";
+import { retryLockedDbWrite } from "./usage/deferredLockedDbWrite";
 
 // Re-exported for existing callers; the helper lives in a zero-import leaf so DB modules
 // can use it without loading this module (which hydrates from SQLite at import time).
@@ -407,10 +408,10 @@ export function flushProxyLogsSync() {
     }
     const generation = proxyLogGeneration;
     const originalDb = db;
-    void scheduleWriteRetry(() => {
+    void retryLockedDbWrite(() => {
       if (generation !== proxyLogGeneration) return;
       writeProxyBatch(batch, originalDb);
-    }, logProxyBatchFailure);
+    }, logProxyBatchFailure, { detachTimer: true });
   }
 }
 

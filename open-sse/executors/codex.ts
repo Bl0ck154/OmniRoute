@@ -50,7 +50,7 @@ import { CORS_HEADERS } from "../utils/cors.ts";
 import { projectCodexPublicError } from "../utils/codexPublicError.ts";
 import { classifyProviderSafetyError } from "../utils/providerSafety.ts";
 import { errorResponse } from "../utils/error.ts";
-import { buildSyntheticResponsesFailedEvent } from "../utils/responsesSequence.ts";
+import { buildSyntheticResponsesFailedEvent, buildSyntheticResponsesFailureId } from "../utils/responsesSequence.ts";
 import { hasCodexSsePeekProgress } from "./codex/ssePeekProgress.ts";
 import * as overloadedOutput from "./codex/sseOverloadedOutput.ts";
 import { normalizeCodexResponsesInput } from "../utils/responsesInputNormalization.ts";

@@ -793,7 +793,7 @@ export async function dispatchWithCooldownRetry(opts: {
           lookupLock: (provider, connectionId, target) => {
             const rawModel = parseModel(target?.modelStr ?? "").model || "";
             if (!rawModel) return null;
-            return lookupComboModelLockout(provider, connectionId, rawModel);
+            return getModelLockoutInfo(provider, connectionId, rawModel);
           },
           computeWaitMs: (retryAfter) => computeClosestRetryAfter(retryAfter).waitMs,
         });

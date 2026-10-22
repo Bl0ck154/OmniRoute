@@ -10,6 +10,8 @@ export interface CredentialSelectionOptions {
   allowRateLimitedConnections?: boolean;
   bypassQuotaPolicy?: boolean;
   forcedConnectionId?: string | null;
+  /** Fork: ordered API-key preferences, applied only after hard eligibility filtering. */
+  preferredConnectionIds?: string[] | null;
   excludeConnectionIds?: string[] | null;
   sessionKey?: string | null;
   sessionAffinityTtlMs?: number | null;

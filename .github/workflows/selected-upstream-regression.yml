@@ -72,6 +72,7 @@ jobs:
             tests/unit/request-logger-url-secret-masking.test.ts \
             tests/unit/stream-continuation-responses.test.ts \
             tests/unit/usage/usageWriteRetry.test.ts \
+            tests/unit/deferred-locked-db-write.test.ts \
             tests/unit/db-fork-preferred-connections-194-to-213.test.ts \
             tests/unit/vscode-token-routes.test.ts \
             tests/unit/codex-tools-schema-value-shapes.test.ts \

@@ -4,7 +4,7 @@ import {
 } from "@omniroute/open-sse/config/providerRegistry";
 import { getSearchProvider } from "@omniroute/open-sse/config/searchRegistry.ts";
 import { getProviderModels, PROVIDER_ID_TO_ALIAS } from "@omniroute/open-sse/config/providerModels.ts";
-import { ensureCursorAutoCatalogEntry } from "@/lib/providerModels/cursorAutoCatalog";
+import { ensureCursorAutoCatalogEntry, ensureCursorGrokEffortAliases } from "@/lib/providerModels/cursorAutoCatalog";
 import {
   getCustomModels,
   getSyncedAvailableModels,
