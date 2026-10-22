@@ -185,6 +185,7 @@ const unrestrictedState: ApiKeyAccessFormState = {
   dailyUsageLimitUsd: "",
   weeklyUsageLimitUsd: "",
   chaosModeEnabled: false,
+  forcedModel: "",
 };
 
 test("initial state matches the legacy modal: unrestricted key (combo/* means all combos)", () => {
@@ -378,6 +379,7 @@ test("PATCH body matches the legacy handler: unrestricted key", () => {
     dailyUsageLimitUsd: null,
     weeklyUsageLimitUsd: null,
     chaosModeEnabled: false,
+    forcedModel: null,
   });
 });
 
@@ -417,6 +419,7 @@ test("PATCH body matches the legacy handler: restricted models + combos", () => 
     dailyUsageLimitUsd: null,
     weeklyUsageLimitUsd: null,
     chaosModeEnabled: false,
+    forcedModel: null,
   });
 });
 
@@ -455,6 +458,7 @@ test("PATCH body matches the legacy handler: connections restricted", () => {
     dailyUsageLimitUsd: null,
     weeklyUsageLimitUsd: null,
     chaosModeEnabled: false,
+    forcedModel: null,
   });
 });
 
@@ -502,6 +506,7 @@ test("PATCH body matches the legacy handler: limits + schedule", () => {
     dailyUsageLimitUsd: 25.5,
     weeklyUsageLimitUsd: 150,
     chaosModeEnabled: false,
+    forcedModel: null,
   });
 });
 
@@ -540,6 +545,7 @@ test("PATCH body matches the legacy handler: behaviour toggles", () => {
     dailyUsageLimitUsd: null,
     weeklyUsageLimitUsd: null,
     chaosModeEnabled: true,
+    forcedModel: null,
   });
 });
 
@@ -599,6 +605,7 @@ test("PATCH body matches the legacy handler after edits (sanitize, clamp, filter
     dailyUsageLimitUsd: null,
     weeklyUsageLimitUsd: null,
     chaosModeEnabled: false,
+    forcedModel: null,
   });
 });
 

@@ -37,6 +37,7 @@ export interface ApiKeyPermissionsUpdate {
   compressionEnabled?: boolean;
   allowAutoCombos?: boolean;
   catalogScope?: "all" | "combos" | "models";
+  forcedModel?: string | null;
 }
 
 export function normalizeApiKeyPermissionsUpdate(
@@ -82,5 +83,6 @@ export function normalizeApiKeyPermissionsUpdate(
     compressionEnabled: update.compressionEnabled,
     allowAutoCombos: update.allowAutoCombos,
     catalogScope: update.catalogScope,
+    forcedModel: update.forcedModel,
   };
 }

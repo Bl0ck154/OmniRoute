@@ -122,6 +122,7 @@ export interface ApiKeyAccessData {
   compressionEnabled?: boolean | null;
   allowAutoCombos?: boolean | null;
   catalogScope?: CatalogScope | null;
+  forcedModel?: string | null;
   disableNonPublicModels?: boolean | null;
   allowUsageCommand?: boolean | null;
   usageLimitEnabled?: boolean | null;
@@ -169,6 +170,8 @@ export interface ApiKeyAccessFormState {
   compressionEnabled: boolean;
   allowAutoCombos: boolean;
   catalogScope: CatalogScope;
+  /** Per-key enforced routing target; "" = not pinned. */
+  forcedModel: string;
   disableNonPublicModels: boolean;
   allowUsageCommand: boolean;
   usageLimitEnabled: boolean;
@@ -306,6 +309,7 @@ type BehaviourStateField =
   | "compressionEnabled"
   | "allowAutoCombos"
   | "catalogScope"
+  | "forcedModel"
   | "disableNonPublicModels"
   | "allowUsageCommand"
   | "usageLimitEnabled"
@@ -321,6 +325,7 @@ function initialBehaviourState(
     compressionEnabled: apiKey?.compressionEnabled !== false,
     allowAutoCombos: apiKey?.allowAutoCombos !== false,
     catalogScope: apiKey?.catalogScope ?? "all",
+    forcedModel: apiKey?.forcedModel ?? "",
     disableNonPublicModels: apiKey?.disableNonPublicModels === true,
     allowUsageCommand: apiKey?.allowUsageCommand === true,
     usageLimitEnabled: apiKey?.usageLimitEnabled === true,
@@ -498,6 +503,7 @@ export function buildApiKeyAccessPayload(
     dailyUsageLimitUsd: parseUsdLimitInput(formState.dailyUsageLimitUsd),
     weeklyUsageLimitUsd: parseUsdLimitInput(formState.weeklyUsageLimitUsd),
     chaosModeEnabled: formState.chaosModeEnabled,
+    forcedModel: formState.forcedModel.trim() || null,
   };
 }
 
@@ -742,7 +748,14 @@ function useModelPolicySetters(setFormState: FormStateSetter) {
     [setFormState]
   );
 
-  return { blockClaudeCodeFamily, setCatalogScope, setDisableNonPublicModels };
+  const setForcedModel = useCallback(
+    (forcedModel: string) => {
+      setFormState((prev) => ({ ...prev, forcedModel }));
+    },
+    [setFormState]
+  );
+
+  return { blockClaudeCodeFamily, setCatalogScope, setDisableNonPublicModels, setForcedModel };
 }
 
 /** Swap a preferred connection with its neighbour; out-of-range moves are a no-op. */
