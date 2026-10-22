@@ -88,4 +88,5 @@ jobs:
       - name: UI provider availability (Vitest / jsdom)
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core
+        if: success() || failure()
         run: npm run typecheck:core

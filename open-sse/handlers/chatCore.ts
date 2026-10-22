@@ -135,7 +135,7 @@ import { applyServerOwnedToolLoopIfNeeded, derivePostInjectionRequestIdentity } 
 // Upstream v3.8.53 extracted this executor to a dependency-object leaf, but the
 // fork still requires live closure rebinding of translatedBody mid-flight.
 import { getExecutionConnectionId } from "./chatCore/executionCredentials.ts";
-import { resolveAccountSemaphoreMaxConcurrency } from "./chatCore/executorHelpers.ts";
+import { resolveAccountSemaphoreMaxConcurrency, buildClaudePromptCacheLogMeta } from "./chatCore/executorHelpers.ts";
 import { materializeDeduplicatedExecutionResult, stripNextMiddlewareControlHeaders } from "./chatCore/responseHeaders.ts";
 import { readNonStreamingResponseBody } from "./chatCore/nonStreamingResponseBody.ts";
 import { wrapReadableStreamWithFinalize } from "./chatCore/streamFinalize.ts";
