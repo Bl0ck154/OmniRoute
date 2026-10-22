@@ -131,6 +131,21 @@ import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.t
 import { runProviderExecutionPipeline } from "./chatCore/providerExecutionPipeline.ts";
 import { prepareUpstreamBody } from "./chatCore/upstreamBody.ts";
 import { maybeSyncClaudeExtraUsageState } from "./chatCore/telemetryHelpers.ts";
+// Backwards-compatible dependencies of the fork's inline non-streaming path.
+import { meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
+import { createRoutingEvent, emitRoutingEvent } from "../services/routing/index.ts";
+import { buildPostCallGuardrailContext } from "./chatCore/postCallGuardrailContext.ts";
+import { buildNonStreamingResponseHeaders } from "./chatCore/nonStreamingResponseHeaders.ts";
+import { maybeWrapForcedNonStreamingResponsesJson } from "./chatCore/responsesJsonToSse.ts";
+import { finalizeToolLoopError } from "./chatCore/nonStreamingFinalization.ts";
+import { markCodexScopeRateLimited } from "./chatCore/codexFailover.ts";
+import { deleteSessionAccountAffinity } from "@/lib/db/sessionAccountAffinity";
+import { MEMORY_BUILTIN_TOOL_NAMES } from "@/lib/skills/memoryBuiltins";
+import { storeSemanticCacheResponse } from "./chatCore/semanticCacheStore.ts";
+import { routingFinishReason } from "./chatCore/routingFinishReason.ts";
+import { extractFacts } from "@/lib/memory/extraction";
+import { followUpLegInput } from "./chatCore/serverOwnedToolLoopWire.ts";
+
 import { applyServerOwnedToolLoopIfNeeded, derivePostInjectionRequestIdentity } from "./chatCore/serverOwnedToolLoopWire.ts";
 // Compatibility imports for the fork's original inline provider executor.
 // Upstream v3.8.53 extracted this executor to a dependency-object leaf, but the
