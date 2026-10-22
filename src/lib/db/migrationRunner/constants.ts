@@ -167,12 +167,18 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     toName: "inspector_custom_hosts",
   },
   {
-    // Fork migration originally shipped in slot 170 before upstream claimed
-    // 170_log_export_destinations. Upstream later also claimed 191-193, so keep the
-    // fork migration in 194 and remap already-applied 170 rows there.
+    // Fork migration first shipped as 170, then as 194 in fork 3.8.51/3.8.52.
+    // Upstream owns 170_log_export_destinations and 194_proxy_logs_attempt_timing.
+    // Rehome both historical fork ledger versions to 213 BEFORE upstream's 194 runs.
     fromVersion: "170",
     fromName: "api_key_preferred_connections",
-    toVersion: "194",
+    toVersion: "213",
+    toName: "api_key_preferred_connections",
+  },
+  {
+    fromVersion: "194",
+    fromName: "api_key_preferred_connections",
+    toVersion: "213",
     toName: "api_key_preferred_connections",
   },
   {
@@ -195,6 +201,18 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     fromName: "radar_local_model_state",
     toVersion: "153",
     toName: "radar_local_model_state",
+  },
+  {
+    // npm omniroute@3.8.50 was built from main at dea6bb8 (per its provenance
+    // attestation), which shipped model_capabilities as 163. 70f5d4cbf then moved it
+    // to 169 so 163_radar_feed_cache_generated_at could keep its slot. Without this
+    // entry, a database first migrated by that npm build keeps its 163 ledger row,
+    // so the release's 163 is treated as applied and never runs: radar_feed_cache
+    // never gets generated_at, and every boot logs the renumbering CRITICAL.
+    fromVersion: "163",
+    fromName: "model_capabilities",
+    toVersion: "169",
+    toName: "model_capabilities",
   },
   {
     fromVersion: "056",
@@ -266,8 +284,8 @@ export const PHYSICAL_SCHEMA_SENTINELS = [
 ] as const;
 
 export const INITIAL_SCHEMA_SENTINELS = ["provider_connections", "combos", "call_logs"] as const;
-// "178" added by #13717: migration 178 currently hard-fails on sql.js/no-FTS5
+// "178" (#13717) and "203" (#15707) recreate memory_fts and hard-fail on sql.js/no-FTS5
 // drivers. If #13331 (adds "180") lands before this, reconcile to the union
-// ({"022","023","178","180"}) and update the assertion in
+// ({"022","023","178","180","203"}) and update the assertion in
 // tests/unit/db-migrationrunner-constants-split.test.ts accordingly.
-export const OPTIONAL_FTS5_MIGRATION_VERSIONS = new Set(["022", "023", "178"]);
+export const OPTIONAL_FTS5_MIGRATION_VERSIONS = new Set(["022", "023", "178", "203"]);

@@ -8,6 +8,7 @@ import {
   formatRetryAfter,
   getEarliestRateLimitedUntil,
   getModelLockoutInfo,
+  scanTransientModelLock,
 } from "../accountFallback.ts";
 import {
   getCachedProviderConnectionById,
@@ -19,8 +20,14 @@ import {
   errorResponseWithComboDiagnostics,
   unavailableResponse,
 } from "../../utils/error.ts";
+import { estimateSizeFast } from "../../utils/estimateSize.ts";
+import { jsonLength } from "../../utils/jsonSize.ts";
 import { COMBO_FAILURE_THRESHOLD, recordComboFailure } from "./failureTracker.ts";
-import { buildNoUpstreamResponseDiagnostics } from "./pinRecovery.ts";
+import {
+  buildAllTargetsCoolingDownResponse,
+  buildNoUpstreamResponseDiagnostics,
+  formatPreDispatchExclusions,
+} from "./pinRecovery.ts";
 import { collectQuotaWindowExclusions, formatQuotaSkipMessage } from "./quotaSkipDiagnostics.ts";
 import { recordComboRequest } from "../comboMetrics.ts";
 import { notifyWebhookEvent } from "../../../src/lib/webhookDispatcher.ts";
@@ -29,6 +36,7 @@ import {
   formatComboOutcomes,
   buildRedactedSummary,
   resolveComboTerminalStatus,
+  resolveComboTerminalCode,
 } from "./comboErrorAggregation.ts";
 import {
   resolveComboCooldownWaitDecision,
@@ -52,10 +60,34 @@ import {
   resolveDelayMs,
   requestScopedReplayKey,
 } from "./comboPredicates.ts";
-import { evaluateExecuteTargetGates } from "./executeTargetGates.ts";
+import { collectCircuitOpenExclusions, evaluateExecuteTargetGates } from "./executeTargetGates.ts";
 import { executeTargetAttempt } from "./executeTargetAttempt.ts";
+import type { ResolvedComboTarget } from "./types.ts";
 import { buildComboDiag } from "./executeTargetClassify.ts";
+import { attemptCompatRejectedFallback } from "./comboCompatFallback.ts";
+import { isProviderInCooldown } from "../providerCooldownTracker.ts";
 import type { AttemptLoopDeps, AttemptLoopState, ExecuteTargetResult } from "./attemptLoopTypes.ts";
+import { getStrategyTraits } from "./strategyRegistry.ts";
+import { resolveSkippedConnectionCooldownTerminal } from "./skippedConnectionCooldown.ts";
+
+/** A second in-flight copy of a body larger than this sits in the TLS send buffer. */
+const HEDGE_MAX_BODY_BYTES = 256 * 1024;
+
+/**
+ * Hedging sends the body twice. The fast estimate rejects oversized values
+ * without allocating a JSON string. `jsonLength` then confirms the exact
+ * serialized size; a cycle or BigInt makes it throw, and that unknown size
+ * must not hedge — recording 0 bytes would send the body twice anyway.
+ */
+function isBodySmallEnoughToHedge(body: unknown): boolean {
+  try {
+    const estimated = estimateSizeFast(body, HEDGE_MAX_BODY_BYTES);
+    if (!Number.isFinite(estimated) || estimated > HEDGE_MAX_BODY_BYTES) return false;
+    return jsonLength(body) <= HEDGE_MAX_BODY_BYTES;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Resolve the earliest known connection cooldown across every target's eligible
@@ -165,6 +197,12 @@ export type DispatchWithCooldownRetryExtra = {
   comboCooldownBudgetLeftMs: { current: number };
   evaluateGates: typeof evaluateExecuteTargetGates;
   executeAttempt: typeof executeTargetAttempt;
+  /**
+   * #6238 last-resort tier: the targets the compat pre-filter rejected. Probed
+   * only when no compat-kept target was ever dispatched — the same guard the
+   * round-robin path applies before its terminal error.
+   */
+  compatRejectedTargets: ResolvedComboTarget[];
 };
 
 export async function dispatchWithCooldownRetry(opts: {
@@ -194,6 +232,7 @@ export async function dispatchWithCooldownRetry(opts: {
       state.transientRateLimitedProviders = new Set<string>();
       state.skippedForCircuitOpen = false;
       state.earliestCircuitOpenRetryMs = 0;
+      state.skippedConnectionCooldownUntil = undefined;
       if (setTry > 0) {
         deps.log.info(
           "COMBO",
@@ -217,6 +256,10 @@ export async function dispatchWithCooldownRetry(opts: {
       }
 
       deps.startTime = Date.now();
+      // Fallbacks within this set try: one per ordered target abandoned before
+      // the one that serves the request. Abandoning the FIRST target counts
+      // too — it equals the index of the target that ends up serving, i.e. the
+      // value exposed as `X-OmniRoute-Fallback-Attempts`.
       state.fallbackCount = 0;
       state.recordedAttempts = 0;
       state.comboErrors = [];
@@ -287,8 +330,12 @@ export async function dispatchWithCooldownRetry(opts: {
       state.abortControllers = new Map<number, AbortController>();
       const rejectedModelKeys = (state.requestScopedRejectedModelKeys ??= new Set<string>());
       const zeroLatencyOptimizationsEnabled = deps.config.zeroLatencyOptimizationsEnabled === true;
+      // A hedged target sends the same body a second time. Bodies past this
+      // size sit in the native TLS send buffer until the network drains them,
+      // and a slow upstream holds both copies for the whole headers wait.
+      const bodySmallEnoughToHedge = isBodySmallEnoughToHedge(deps.body);
       const hasProtectedPriorityTarget =
-        deps.strategy === "priority" &&
+        getStrategyTraits(deps.strategy).honorsFallbackOnlyTargets &&
         state.orderedTargets.some((target) => target.fallbackOnlyOnQuotaExhaustion === true);
 
       const executeTarget = async (i: number): Promise<ExecuteTargetResult> => {
@@ -360,6 +407,7 @@ export async function dispatchWithCooldownRetry(opts: {
         if (
           zeroLatencyOptimizationsEnabled &&
           deps.config.hedging &&
+          bodySmallEnoughToHedge &&
           !hasProtectedPriorityTarget &&
           i + 1 < state.orderedTargets.length
         ) {
@@ -440,9 +488,9 @@ export async function dispatchWithCooldownRetry(opts: {
         );
       }
 
-      // #10681: finalize the decision trace (success).
+      // A resolved fatal response also sets anySuccess to stop dispatching.
+      // Record its actual HTTP status, not an unconditional success.
       finalizeComboTrace(deps.traceInvocationId, state.orderedTargets);
-      finishComboTrace(deps.traceInvocationId, { status: 200 });
       if (anySuccess) {
         // G1: clear the safety timer on the happy path so a successful combo does
         // not leave a 10-minute timer alive per request.
@@ -450,7 +498,9 @@ export async function dispatchWithCooldownRetry(opts: {
           clearTimeout(loopSafetyTimer);
           loopSafetyTimer = null;
         }
-        return await globalPromise;
+        const response = await globalPromise;
+        finishComboTrace(deps.traceInvocationId, { status: response.status });
+        return response;
       }
 
       // #10681: finalize the decision trace (global timeout).
@@ -578,12 +628,63 @@ export async function dispatchWithCooldownRetry(opts: {
       finishComboTrace(deps.traceInvocationId, { status: 503 });
       if (!state.lastStatus) {
         if (state.recordedAttempts === 0) {
+          // #6238: every compat-kept target was skipped as unavailable and NONE
+          // was ever attempted (recordedAttempts === 0). Before crystallizing
+          // 503, probe the targets the compat pre-filter rejected — a
+          // compat-rejected-but-healthy provider is a valid last-resort
+          // fallback tier, not a permanently dropped target. Mirrors the
+          // round-robin guard; a null result keeps the existing error path.
+          if (extra.compatRejectedTargets.length > 0) {
+            const compatFallbackResult = await attemptCompatRejectedFallback(
+              extra.compatRejectedTargets,
+              deps.body,
+              {
+                handleSingleModel: deps.handleSingleModelWithTimeout,
+                isModelAvailable: deps.isModelAvailable,
+                isProviderInCooldown: (target) =>
+                  deps.resilienceSettings.providerCooldown.enabled &&
+                  Boolean(target.provider && target.provider !== "unknown") &&
+                  isProviderInCooldown(
+                    target.provider as string,
+                    target.connectionId as string | undefined,
+                    deps.resilienceSettings
+                  ),
+                log: deps.log,
+                strategy: deps.strategy,
+              }
+            );
+            if (compatFallbackResult) {
+              recordComboRequest(deps.combo.name, null, {
+                success: true,
+                latencyMs: Date.now() - deps.startTime,
+                fallbackCount: state.fallbackCount,
+                strategy: deps.strategy,
+              });
+              return compatFallbackResult;
+            }
+          }
           notifyWebhookEvent("request.failed", {
             combo: deps.combo.name,
             reason: "ALL_TARGETS_SKIPPED",
             latencyMs,
             fallbackCount: state.fallbackCount,
           });
+          // Every target sat behind an OPEN breaker: say so, with the providers and
+          // the time until the next probe, instead of the generic skip whose recovery
+          // hint points at quota and top-ups the breaker has nothing to do with.
+          const circuitOpen = state.skippedForCircuitOpen
+            ? collectCircuitOpenExclusions(state.orderedTargets)
+            : null;
+          const circuitOpenResponse = circuitOpen
+            ? buildAllTargetsCoolingDownResponse(circuitOpen)
+            : null;
+          if (circuitOpenResponse) {
+            deps.log.warn(
+              "COMBO",
+              `All targets skipped: circuit breaker open — ${formatPreDispatchExclusions(circuitOpen!)}`
+            );
+            return circuitOpenResponse;
+          }
           const quotaSkip = formatQuotaSkipMessage(
             collectQuotaWindowExclusions(state.orderedTargets)
           );
@@ -651,7 +752,12 @@ export async function dispatchWithCooldownRetry(opts: {
       // classes (e.g. a quality failure + a sibling's 401) normalizes to a
       // 5xx-class status reflecting an infra/provider problem, not a client
       // error. See comboErrorAggregation.ts::resolveComboTerminalStatus.
-      const status = resolveComboTerminalStatus(state.comboErrors, state.lastStatus);
+      const terminal = resolveSkippedConnectionCooldownTerminal(
+        resolveComboTerminalStatus(state.comboErrors, state.lastStatus),
+        state
+      );
+      const status = terminal.status;
+      state.earliestRetryAfter = terminal.retryAfter ?? state.earliestRetryAfter;
       // #10314: build the terminal message from the structured per-target
       // outcomes (each distinct class+reason listed separately) instead of
       // mashing a single state.lastError with raw `[model (status)]` markers. Connection
@@ -727,7 +833,7 @@ export async function dispatchWithCooldownRetry(opts: {
         deps.log.warn("COMBO", `All models failed | ${msg} (${retryHuman})`);
         return withQuotaExhaustionClassification(
           unavailableResponse(status, msg, state.earliestRetryAfter, retryHuman),
-          state.observedFailure ? state.allObservedFailuresQuota : null
+          terminal.quotaExhausted
         );
       }
 
@@ -759,7 +865,8 @@ export async function dispatchWithCooldownRetry(opts: {
         errorResponseWithComboDiagnostics(
           status,
           msg,
-          buildComboDiag(state, deps.traceInvocationId, terminalReason, retryAfterSeconds)
+          buildComboDiag(state, deps.traceInvocationId, terminalReason, retryAfterSeconds),
+          { code: resolveComboTerminalCode(state.comboErrors, status) }
         ),
         state.observedFailure ? state.allObservedFailuresQuota : null
       );

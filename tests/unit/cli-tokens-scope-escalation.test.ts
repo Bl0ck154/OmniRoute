@@ -165,12 +165,15 @@ test("a dashboard session wins over a manage key sent alongside it", async () =>
   assert.equal(res.status, 200);
 });
 
-test("with login disabled the instance is open and admin can be minted", async () => {
+test("login-disabled mode cannot anonymously mint a persistent admin token", async () => {
+  // This fork deliberately guards /api/cli/tokens with alwaysRequireAuth
+  // regardless of the dashboard login setting; a public dashboard must not
+  // become a machine-credential escalation point.
   await updateSettings({ requireLogin: false });
   try {
     const res = await mintWith({}, { name: "open-instance-admin", scope: "admin" });
-    assert.equal(res.status, 200);
-    assert.equal((await res.json()).scope, "admin");
+    assert.equal(res.status, 401);
+    assert.equal(liveAdminTokenNamed("open-instance-admin").length, 0);
   } finally {
     await updateSettings({ requireLogin: true });
   }

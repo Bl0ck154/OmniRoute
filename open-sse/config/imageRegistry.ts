@@ -5,133 +5,57 @@
  * Each provider has its own request format and endpoint.
  */
 
+import { resolveRegisteredFeatureFlag } from "@/shared/utils/featureFlagResolverBridge.ts";
+import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
+import { getModelsByProviderId } from "./providerModels.ts";
+import { KIE_IMAGE_MODELS } from "./providers/registry/kie/imageModels.ts";
 import { LMARENA_DIRECT_IMAGE_MODELS } from "./providers/registry/lmarena/directModels.ts";
 import { SEGMIND_IMAGE_PROVIDER } from "./providers/registry/segmind/imageModels.ts";
-import { KIE_IMAGE_MODELS } from "./providers/registry/kie/imageModels.ts";
 import { MAGNIFIC_IMAGE_PROVIDER } from "./providers/registry/magnific/index.ts";
 import { STABILITY_AI_IMAGE_MODELS } from "./providers/registry/stability-ai/imageModels.ts";
 import { CHEAPERINFERENCE_IMAGE_PROVIDER } from "./providers/registry/cheaperinference/imageModels.ts";
-import {
-  ADOBE_FIREFLY_IMAGE_ROUTING_ALIASES,
-  toRegistryImageModels,
-} from "../services/adobeFireflyModels.ts";
+import { ADOBE_FIREFLY_IMAGE_ROUTING_ALIASES, toRegistryImageModels } from "../services/adobeFireflyModels.ts";
 import { AI_HORDE_IMAGE_PROVIDER } from "./providers/registry/aihorde/imageModels.ts";
 
-interface ImageModelEntry {
-  id: string;
-  /** Public catalog id when the callable upstream id would collide with another model surface. */
-  catalogId?: string;
-  name: string;
-  inputModalities?: string[];
-  // See STABILITY_AI_IMAGE_MODELS for why this exists: some models accept "text"
-  // but mechanically require an image regardless.
-  imageRequired?: boolean;
-  description?: string;
-  isMarket?: boolean;
-  supportedSizes?: string[];
-  mediaCapabilities?: Record<string, unknown>;
-}
+import {
+  type ImageModelEntry,
+  type ImageProviderConfig,
+  type ImageModelAliasEntry,
+  type ImageCatalogModelEntry,
+  XAI_IMAGE_CONFIG,
+  XAI_API_KEY_IMAGE_PROVIDER,
+  XAI_SUBSCRIPTION_IMAGE_PROVIDERS,
+  IMAGE_MODEL_ALIASES,
+  IMAGE_PROVIDERS as UPSTREAM_IMAGE_PROVIDERS,
+} from "./imageRegistryData.ts";
 
-interface ImageProviderConfig {
-  id: string;
-  baseUrl: string;
-  fallbackUrl?: string;
-  proUrl?: string;
-  statusUrl?: string;
-  alias?: string;
-  authType: string;
-  authHeader: string;
-  format: string;
-  models: ImageModelEntry[];
-  routingAliases?: readonly string[];
-  supportedSizes: string[];
-}
-
-interface ImageModelAliasEntry {
-  provider: string;
-  model: string;
-  name: string;
-  listInCatalog: boolean;
-  inputModalities?: string[];
-  imageRequired?: boolean;
-  description?: string;
-  mediaCapabilities?: Record<string, unknown>;
-}
-
-interface ImageCatalogModelEntry {
-  id: string;
-  name: string;
-  provider: string;
-  supportedSizes: string[];
-  inputModalities: string[];
-  description?: string;
-  mediaCapabilities?: Record<string, unknown>;
-}
-
-const IMAGE_MODEL_ALIASES: Record<string, ImageModelAliasEntry> = {
-  "gemini-3.1-flash-image-preview": {
-    provider: "antigravity",
-    model: "gemini-3.1-flash-image",
-    name: "Gemini 3.1 Flash Image",
-    listInCatalog: false,
-  },
-  "flux-kontext": {
-    provider: "black-forest-labs",
-    model: "flux-kontext-pro",
-    name: "FLUX Kontext Pro",
-    listInCatalog: true,
-    inputModalities: ["text", "image"],
-  },
-  "flux-kontext-max": {
-    provider: "black-forest-labs",
-    model: "flux-kontext-max",
-    name: "FLUX Kontext Max",
-    listInCatalog: true,
-    inputModalities: ["text", "image"],
-  },
-  "flux-2-max": {
-    provider: "black-forest-labs",
-    model: "flux-2-max",
-    name: "FLUX.2 Max",
-    listInCatalog: true,
-    inputModalities: ["text", "image"],
-  },
-  "flux-2-pro": {
-    provider: "black-forest-labs",
-    model: "flux-2-pro",
-    name: "FLUX.2 Pro",
-    listInCatalog: true,
-    inputModalities: ["text", "image"],
-  },
-  "flux-2-flex": {
-    provider: "black-forest-labs",
-    model: "flux-2-flex",
-    name: "FLUX.2 Flex",
-    listInCatalog: true,
-    inputModalities: ["text", "image"],
-  },
-  "flux-2-dev": {
-    provider: "together",
-    model: "black-forest-labs/FLUX.2-dev",
-    name: "FLUX.2 Dev",
-    listInCatalog: true,
-    inputModalities: ["text", "image"],
-  },
-  kontext: {
-    provider: "black-forest-labs",
-    model: "flux-kontext-pro",
-    name: "FLUX Kontext Pro",
-    listInCatalog: false,
-    inputModalities: ["text", "image"],
-  },
-  "pollinations/kontext": {
-    provider: "black-forest-labs",
-    model: "flux-kontext-pro",
-    name: "FLUX Kontext Pro",
-    listInCatalog: false,
-    inputModalities: ["text", "image"],
-  },
+export {
+  type ImageModelEntry,
+  type ImageProviderConfig,
+  type ImageModelAliasEntry,
+  type ImageCatalogModelEntry,
+  XAI_IMAGE_CONFIG,
+  XAI_API_KEY_IMAGE_PROVIDER,
+  XAI_SUBSCRIPTION_IMAGE_PROVIDERS,
 };
+
+export function isGrokSubscriptionImagesEnabled(): boolean {
+  try {
+    return resolveRegisteredFeatureFlag("GROK_SUBSCRIPTION_IMAGES_ENABLED");
+  } catch (error) {
+    console.error(
+      "[imageRegistry] Failed to resolve GROK_SUBSCRIPTION_IMAGES_ENABLED, defaulting to disabled:",
+      error instanceof Error ? error.message : error
+    );
+    const envValue = process.env.GROK_SUBSCRIPTION_IMAGES_ENABLED;
+    return envValue === "true" || envValue === "1" || envValue === "yes";
+  }
+}
+
+function visibleImageProviders(): Record<string, ImageProviderConfig> {
+  if (!isGrokSubscriptionImagesEnabled()) return IMAGE_PROVIDERS;
+  return { ...IMAGE_PROVIDERS, ...XAI_SUBSCRIPTION_IMAGE_PROVIDERS };
+}
 
 function resolveImageModelAlias(modelStr) {
   const alias = IMAGE_MODEL_ALIASES[modelStr];
@@ -150,7 +74,7 @@ function resolveSameProviderBareAlias(providerId, model) {
 }
 
 function findImageModelConfig(providerId, modelId) {
-  const provider = IMAGE_PROVIDERS[providerId];
+  const provider = visibleImageProviders()[providerId];
   if (!provider) return null;
   return (
     provider.models.find((model) => model.id === modelId || model.catalogId === modelId) || null
@@ -169,6 +93,9 @@ function resolveAliasImageRequired(alias, modelConfig) {
 }
 
 export const IMAGE_PROVIDERS: Record<string, ImageProviderConfig> = {
+  // Upstream v3.8.53 adds providers absent from the old fork inline catalog.
+  // Keep its new entries while preserving fork-specific settings for colliding IDs.
+  ...UPSTREAM_IMAGE_PROVIDERS,
   agnes: {
     id: "agnes",
     baseUrl: "https://apihub.agnes-ai.com/v1/images/generations",
@@ -957,9 +884,10 @@ export const IMAGE_PROVIDERS: Record<string, ImageProviderConfig> = {
  * Get image provider config by ID
  */
 export function getImageProvider(providerId) {
-  if (IMAGE_PROVIDERS[providerId]) return IMAGE_PROVIDERS[providerId];
+  const providers = visibleImageProviders();
+  if (providers[providerId]) return providers[providerId];
   if (!providerId) return null;
-  for (const config of Object.values(IMAGE_PROVIDERS)) {
+  for (const config of Object.values(providers)) {
     if (config.alias === providerId) return config;
   }
   return null;
@@ -970,7 +898,7 @@ export function getImageProvider(providerId) {
  * Returns { provider, model }
  */
 export function parseImageModel(modelStr) {
-  if (!modelStr) return { provider: null, model: null };
+  if (!modelStr || hasUnsafeModelIdSyntax(modelStr)) return { provider: null, model: null };
 
   const directAlias = resolveImageModelAlias(modelStr);
   if (directAlias) {
@@ -978,7 +906,7 @@ export function parseImageModel(modelStr) {
   }
 
   // Try each provider prefix
-  for (const [providerId, config] of Object.entries(IMAGE_PROVIDERS)) {
+  for (const [providerId, config] of Object.entries(visibleImageProviders())) {
     if (modelStr.startsWith(providerId + "/")) {
       const model = modelStr.slice(providerId.length + 1);
       const aliased =
@@ -1001,7 +929,7 @@ export function parseImageModel(modelStr) {
   }
 
   // No provider prefix — try to find the model in every provider, excluding cookie-auth (web) bridges
-  for (const [providerId, config] of Object.entries(IMAGE_PROVIDERS)) {
+  for (const [providerId, config] of Object.entries(visibleImageProviders())) {
     const modelConfig = config.models.find(
       (model) => model.id === modelStr || model.catalogId === modelStr
     );
@@ -1040,7 +968,7 @@ function imageAliasCatalogEntry(
 ): ImageCatalogModelEntry | null {
   if (!target.listInCatalog) return null;
 
-  const providerConfig = IMAGE_PROVIDERS[target.provider];
+  const providerConfig = visibleImageProviders()[target.provider];
   const modelConfig = findImageModelConfig(target.provider, target.model);
   return {
     id: alias,
@@ -1053,7 +981,7 @@ function imageAliasCatalogEntry(
 }
 
 export function getAllImageModels(): ImageCatalogModelEntry[] {
-  const providerModels = Object.entries(IMAGE_PROVIDERS).flatMap(([providerId, config]) =>
+  const providerModels = Object.entries(visibleImageProviders()).flatMap(([providerId, config]) =>
     imageProviderCatalogEntries(providerId, config)
   );
   const aliasModels = Object.entries(IMAGE_MODEL_ALIASES).flatMap(([alias, target]) => {
@@ -1079,6 +1007,7 @@ export function getImageModelAliases() {
 export function isRegisteredImageModel(providerId, modelId) {
   return Boolean(findImageModelConfig(providerId, modelId));
 }
+
 export function getImageModelEntry(modelStr) {
   if (!modelStr) return null;
 
@@ -1107,6 +1036,17 @@ export function getImageModelEntry(modelStr) {
     imageRequired: modelConfig.imageRequired,
     description: modelConfig.description || undefined,
   };
+}
+
+/**
+ * Image-registry model whose provider/model pair the chat catalog does not also list, so
+ * /v1/chat/completions cannot serve it (#6457). Dual-purpose models (e.g. Codex GPT-5.5)
+ * are in both and stay chat-capable.
+ */
+export function isImageOnlyModel(modelStr: string): boolean {
+  const entry = getImageModelEntry(modelStr);
+  if (!entry) return false;
+  return !getModelsByProviderId(entry.provider).some((model) => model.id === entry.model);
 }
 
 /** Image input is mandatory only for edit-only models (`["image"]`, no `"text"`). Dual-modality models also accept pure t2i. */

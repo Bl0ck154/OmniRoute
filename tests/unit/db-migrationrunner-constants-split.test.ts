@@ -63,15 +63,15 @@ describe("migrationRunner/constants — exact small-table snapshots", () => {
 
   it("OPTIONAL_FTS5_MIGRATION_VERSIONS includes dependent FTS migrations", () => {
     assert.ok(OPTIONAL_FTS5_MIGRATION_VERSIONS instanceof Set);
-    assert.deepEqual([...OPTIONAL_FTS5_MIGRATION_VERSIONS].sort(), ["022", "023", "178"]);
+    assert.deepEqual([...OPTIONAL_FTS5_MIGRATION_VERSIONS].sort(), ["022", "023", "178", "203"]);
   });
 });
 
 // ── large tables — count + shape + spot-checks (corruption guard) ─────────────
 
 describe("migrationRunner/constants — large-table integrity", () => {
-  it("RENAMED_MIGRATION_COMPATIBILITY has 33 well-formed entries", () => {
-    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 33);
+  it("RENAMED_MIGRATION_COMPATIBILITY has 34 well-formed entries", () => {
+    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 34);
     for (const e of RENAMED_MIGRATION_COMPATIBILITY) {
       assert.equal(typeof e.fromVersion, "string");
       assert.equal(typeof e.fromName, "string");
@@ -131,27 +131,45 @@ describe("migrationRunner/constants — large-table integrity", () => {
       {
         fromVersion: "170",
         fromName: "api_key_preferred_connections",
-        toVersion: "194",
+        toVersion: "213",
         toName: "api_key_preferred_connections",
       }
     );
-    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-7), {
+    assert.deepEqual(
+      RENAMED_MIGRATION_COMPATIBILITY.find(
+        (e) => e.fromVersion === "194" && e.fromName === "api_key_preferred_connections"
+      ),
+      {
+        fromVersion: "194",
+        fromName: "api_key_preferred_connections",
+        toVersion: "213",
+        toName: "api_key_preferred_connections",
+      }
+    );
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.find((e) => e.fromVersion === "134" && e.fromName === "ccr_blocks"), {
       fromVersion: "134",
       fromName: "ccr_blocks",
       toVersion: "139",
       toName: "ccr_blocks",
     });
-    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-6), {
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.find((e) => e.fromVersion === "139" && e.fromName === "job_registry"), {
       fromVersion: "139",
       fromName: "job_registry",
       toVersion: "146",
       toName: "job_registry",
     });
-    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-5), {
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.find((e) => e.fromVersion === "143" && e.fromName === "radar_local_model_state"), {
       fromVersion: "143",
       fromName: "radar_local_model_state",
       toVersion: "153",
       toName: "radar_local_model_state",
+    });
+    // npm 3.8.50 shipped model_capabilities as 163; it now lives at 169
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.find((e) => e.fromVersion === "163" && e.fromName === "model_capabilities"), {
+      fromVersion: "163",
+      fromName: "model_capabilities",
+      toVersion: "169",
+      toName: "model_capabilities",
     });
     // #12036: renamed migrations 056/073/077/101 appended as compatibility renames
     assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-4), {

@@ -73,7 +73,7 @@ describe("feature-flags-settings count update", () => {
     // default off) to 77; STREAM_READINESS_STALL_RETRY (#14669, default off) to 78;
     // OPENCODE_POOL_RESELECT (default off) to 79; PROXY_POOL_SHARED_EGRESS_ORDER
     // (#14657, default off) to 80.
-    assert.equal(FEATURE_FLAG_DEFINITIONS.length, 81);
+    assert.equal(FEATURE_FLAG_DEFINITIONS.length, 103);
   });
 });
 
@@ -119,7 +119,7 @@ describe("i18n key parity for SERVER_OWNED_TOOL_LOOP_ENABLED", () => {
     const flagDef = definitions.SERVER_OWNED_TOOL_LOOP_ENABLED as
       Record<string, unknown> | undefined;
     assert.ok(flagDef, "definitions should contain SERVER_OWNED_TOOL_LOOP_ENABLED");
-    assert.equal(flagDef.label, "Server-Owned Tool Loop");
+    assert.equal(flagDef.label, "Loop de ferramentas controlado pelo servidor");
     assert.equal(typeof flagDef.description, "string");
     assert.ok(
       ((flagDef.description as string) || "").length > 0,

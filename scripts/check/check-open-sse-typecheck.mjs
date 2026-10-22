@@ -18,10 +18,10 @@
 //   node scripts/check/check-open-sse-typecheck.mjs
 //   node scripts/check/check-open-sse-typecheck.mjs --update   # re-freeze baseline
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { runScopedTypecheck } from "./run-scoped-typecheck.mjs";
 import { diffAgainstBaseline, parseTscOutput } from "./typecheckBaseline.mjs";
 
 export { diffAgainstBaseline, parseTscOutput } from "./typecheckBaseline.mjs";
@@ -30,21 +30,6 @@ const ROOT = process.cwd();
 const TSCONFIG = path.join(ROOT, "open-sse", "tsconfig.json");
 const BASELINE_PATH = path.join(ROOT, "config/quality/open-sse-typecheck-baseline.json");
 const UPDATE = process.argv.includes("--update");
-
-function runTsc() {
-  try {
-    const stdout = execFileSync(
-      process.platform === "win32" ? "npx.cmd" : "npx",
-      ["tsc", "--pretty", "false", "--noEmit", "-p", TSCONFIG],
-      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, cwd: ROOT }
-    );
-    return stdout;
-  } catch (err) {
-    // tsc exits non-zero when there are type errors — stdout still has the report.
-    if (err.stdout) return String(err.stdout);
-    throw err;
-  }
-}
 
 function loadBaseline() {
   if (!fs.existsSync(BASELINE_PATH)) return {};
@@ -62,7 +47,7 @@ function main() {
   }
 
   console.log("[open-sse-typecheck] Running tsc scoped to open-sse/ workspace…");
-  const stdout = runTsc();
+  const stdout = runScopedTypecheck(ROOT, TSCONFIG);
   const live = parseTscOutput(stdout);
   const baseline = loadBaseline();
   const { regressions, improvements } = diffAgainstBaseline(live, baseline);
@@ -92,6 +77,21 @@ function main() {
   }
 
   if (regressions.length > 0) {
+    // Keep the actual compiler diagnostics visible: a TS code/count alone
+    // conceals the missing names. Do not weaken the baseline or exit status.
+    const affectedFiles = new Set(regressions.map((r) => r.file.replaceAll("\\", "/")));
+    const diagnostics = stdout
+      .split(/\r?\n/)
+      .filter((line) => {
+        const normalized = line.replaceAll("\\", "/");
+        return normalized.includes("error TS") &&
+          [...affectedFiles].some((file) => normalized.includes(file));
+      })
+      .slice(0, 110);
+    if (diagnostics.length) {
+      process.stderr.write("[open-sse-typecheck] Concrete TypeScript errors:\n" +
+        diagnostics.join("\n") + "\n");
+    }
     process.stderr.write(
       `[open-sse-typecheck] FAIL — ${regressions.length} new/regressed TypeScript error(s) ` +
         `under open-sse/ workspace not covered by the frozen baseline:\n` +

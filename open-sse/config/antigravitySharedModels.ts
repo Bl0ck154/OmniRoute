@@ -202,6 +202,34 @@ export const ANTIGRAVITY_SHARED_MODELS = Object.freeze([
     supportsReasoning: true,
     toolCalling: true,
   },
+  // Gemini 4 Argon tiers (advertised by live `:fetchAvailableModels` on CLI 1.3.4+)
+  {
+    id: "gemini-4-argon-high",
+    name: "Gemini 4 Argon (High)",
+    contextLength: 1048576,
+    maxOutputTokens: 65535,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "gemini-4-argon-medium",
+    name: "Gemini 4 Argon (Medium)",
+    contextLength: 1048576,
+    maxOutputTokens: 65535,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
+  {
+    id: "gemini-4-argon-low",
+    name: "Gemini 4 Argon (Low)",
+    contextLength: 1048576,
+    maxOutputTokens: 65535,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
 ]);
 
 /**

@@ -110,25 +110,35 @@ test("Codex client version env override still wins", async () => {
   });
 });
 
-test("test 7: live-empty GitHub catalog path does not call persist", () => {
+// contract changed by #15132: the Codex route now prefers the saved account inventory
+// (cache) over the GitHub manifest when live discovery fails, so the GitHub fallback moved
+// AFTER the cache branch, and the live branch persists via persistDiscoveredModels() +
+// buildResponse() instead of buildApiDiscoveryResponse(). The invariant is unchanged: only
+// the live branch may persist; the GitHub-catalog fallback must never write the cache.
+function assertGithubFallbackDoesNotPersist() {
   const src = fs.readFileSync(
     path.join(process.cwd(), "src/app/api/providers/[id]/models/route.ts"),
     "utf8"
   );
-  // The githubCatalogModels fallback must use buildResponse, not buildApiDiscoveryResponse.
   const idx = src.indexOf("Codex live catalog unavailable — using GitHub model catalog");
   assert.ok(idx > 0);
-  const start = src.lastIndexOf("if (githubCatalogModels", idx);
-  const end = src.indexOf("if (cachedDiscoveryModels", idx);
+  const start = src.lastIndexOf("if (githubCatalogModels && githubCatalogModels.length > 0)", idx);
+  const end = src.indexOf("Codex live and GitHub catalogs unavailable", idx);
   assert.ok(start > 0 && end > start);
   const window = src.slice(start, end);
   assert.match(window, /buildResponse\s*\(/);
   assert.doesNotMatch(window, /buildApiDiscoveryResponse\s*\(/);
+  assert.doesNotMatch(window, /persistDiscoveredModels\s*\(/);
 
-  const liveIdx = src.lastIndexOf("if (liveModels && liveModels.length > 0)");
-  assert.ok(liveIdx > 0 && liveIdx < start);
-  const liveWindow = src.slice(liveIdx, start);
-  assert.match(liveWindow, /buildApiDiscoveryResponse\s*\(/);
+  const liveIdx = src.lastIndexOf("if (liveModels && liveModels.length > 0)", start);
+  const cacheIdx = src.lastIndexOf("Codex live catalog unavailable — using cached catalog", start);
+  assert.ok(liveIdx > 0 && liveIdx < cacheIdx && cacheIdx < start);
+  const liveWindow = src.slice(liveIdx, cacheIdx);
+  assert.match(liveWindow, /persistDiscoveredModels\s*\(/);
+}
+
+test("test 7: live-empty GitHub catalog path does not call persist", () => {
+  assertGithubFallbackDoesNotPersist();
 });
 
 test("Codex client version locksteps Dockerfile @openai/codex and env override", () => {
@@ -152,14 +162,18 @@ test("test 7: live-empty GitHub catalog path does not call persist", () => {
   const idx = src.indexOf("Codex live catalog unavailable — using GitHub model catalog");
   assert.ok(idx > 0);
   const start = src.lastIndexOf("if (githubCatalogModels", idx);
-  const end = src.indexOf("if (cachedDiscoveryModels", idx);
+  // Upstream v3.8.53 moved the cache case BEFORE GitHub, so bound this branch
+  // by its adjacent local-fallback response, not a later cache conditional.
+  const end = src.indexOf('source: "local_catalog"', idx);
   assert.ok(start > 0 && end > start);
   const window = src.slice(start, end);
   assert.match(window, /buildResponse\s*\(/);
-  assert.doesNotMatch(window, /buildApiDiscoveryResponse\s*\(/);
+  assert.doesNotMatch(window, /persistDiscoveredModels\s*\(/);
 
   const liveIdx = src.lastIndexOf("if (liveModels && liveModels.length > 0)");
   assert.ok(liveIdx > 0 && liveIdx < start);
   const liveWindow = src.slice(liveIdx, start);
-  assert.match(liveWindow, /buildApiDiscoveryResponse\s*\(/);
+  // v3.8.53 explicitly persists verified live discovery before the response;
+  // GitHub/local fallback must never write speculative candidates to disk.
+  assert.match(liveWindow, /await persistDiscoveredModels\s*\(/);
 });

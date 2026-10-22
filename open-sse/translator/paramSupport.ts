@@ -34,6 +34,20 @@ type StripRule = {
 
 const MAX_OUTPUT_TOKEN_KEYS = ["max_tokens", "max_completion_tokens", "max_output_tokens"] as const;
 
+// GitHub Copilot rejects `temperature` (HTTP 400 "Unsupported parameter:
+// 'temperature' is not supported with this model") for GPT-5.4 and newer GPT-5.x
+// (gpt-5.5, gpt-5.6-sol/terra/luna, gpt-5.10, ...) and for GPT-6.x — including
+// ids without a minor version such as gpt-6-astra. Anchored so gpt-5, gpt-5.3-codex
+// and malformed ids like gpt-5.4invalid keep their temperature. A leading
+// `provider/` prefix is ignored. Shared with GithubExecutor.transformRequest.
+const GITHUB_NO_TEMPERATURE_MODEL = /^gpt-(?:5\.(?:[4-9]|[1-9]\d+)|6(?:\.\d+)?)(?:-|$)/i;
+
+export function isGithubTemperatureUnsupportedModel(model: string | null | undefined): boolean {
+  if (typeof model !== "string" || !model) return false;
+  const bare = model.slice(model.lastIndexOf("/") + 1);
+  return GITHUB_NO_TEMPERATURE_MODEL.test(bare);
+}
+
 const STRIP_RULES: StripRule[] = [
   // claude-opus-4 series: temperature is deprecated (Anthropic returns 400). #1748
   { match: /claude-opus-4/i, drop: ["temperature"] },
@@ -66,6 +80,8 @@ const STRIP_RULES: StripRule[] = [
   // (format:"openai") does not accept the Claude-style `thinking` body field
   // and returns 400 "Unsupported parameter(s): thinking". Upstream #2268.
   { provider: "nvidia", match: /minimax-m2\.7/i, drop: ["thinking"] },
+  // Mistral GLM 5.2 rejects Claude-style thinking payloads.
+  { provider: "mistral", match: /(?:^|\/)zai-glm-5(?:[.-])2\b/i, drop: ["thinking", "reasoning"] },
   // NVIDIA NIM: OpenAI-compatible wrapper 400s on `prompt_cache_key` (Codex CLI
   // injects it natively for its own prompt caching). NIM has no documented
   // support for this field (providerSupportsCaching already treats nvidia as

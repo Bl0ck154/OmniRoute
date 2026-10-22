@@ -759,7 +759,11 @@ test("executeChatWithBreaker preserves account TLS scope when a proxy bypasses t
       comboExecutionKey: null,
     });
 
-    assert.equal(result.tlsFingerprintUsed, true);
+    if (!result.tlsFingerprintUsed) {
+      const failed = "result" in result ? result.result : null;
+      const diagnostic = await failed?.response?.text().catch(() => "<unreadable response>");
+      assert.fail("TLS bypass lost tracking: providerStatus=" + failed?.status + " providerError=" + failed?.error + " response=" + diagnostic);
+    }
     assert.equal(observedProxy, null);
     assert.equal(observedScope, credentials.connectionId);
   } finally {
@@ -838,7 +842,11 @@ test("handleNoCredentials names the API key's connection allowlist as the reason
   // is indistinguishable from "never configured" — the reporter had a key that
   // passed /test and synced 82 models, and no message ever mentioned the allowlist.
   const blocked = handleNoCredentials(
-    { blockedByKeyPolicy: true, blockedCount: 2 },
+    {
+      blockedByKeyPolicy: true,
+      blockedCount: 2,
+      connectionRestrictionSources: ["api_key_allowlist"],
+    },
     null,
     "nvidia",
     "nvidia/nemotron",
