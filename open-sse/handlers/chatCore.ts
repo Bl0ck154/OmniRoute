@@ -128,6 +128,7 @@ import { checkToolCallingRequiredButUnsupported } from "./chatCore/toolCallingRe
 import { buildExecutorClientHeaders } from "./chatCore/executorClientHeaders.ts";
 import { runNonStreamingResponse } from "./chatCore/nonStreamingResponse.ts";
 import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.ts";
+import { runProviderExecutionPipeline } from "./chatCore/providerExecutionPipeline.ts";
 import {
   supportsMaxTokens,
   getResolvedModelCapabilities,
