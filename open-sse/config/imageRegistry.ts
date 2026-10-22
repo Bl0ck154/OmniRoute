@@ -17,7 +17,7 @@ import {
   XAI_API_KEY_IMAGE_PROVIDER,
   XAI_SUBSCRIPTION_IMAGE_PROVIDERS,
   IMAGE_MODEL_ALIASES,
-  IMAGE_PROVIDERS,
+  IMAGE_PROVIDERS as UPSTREAM_IMAGE_PROVIDERS,
 } from "./imageRegistryData.ts";
 
 export {
@@ -28,7 +28,6 @@ export {
   XAI_IMAGE_CONFIG,
   XAI_API_KEY_IMAGE_PROVIDER,
   XAI_SUBSCRIPTION_IMAGE_PROVIDERS,
-  IMAGE_PROVIDERS,
 };
 
 export function isGrokSubscriptionImagesEnabled(): boolean {
@@ -85,6 +84,9 @@ function resolveAliasImageRequired(alias, modelConfig) {
 }
 
 export const IMAGE_PROVIDERS: Record<string, ImageProviderConfig> = {
+  // Upstream v3.8.53 adds providers absent from the old fork inline catalog.
+  // Keep its new entries while preserving fork-specific settings for colliding IDs.
+  ...UPSTREAM_IMAGE_PROVIDERS,
   agnes: {
     id: "agnes",
     baseUrl: "https://apihub.agnes-ai.com/v1/images/generations",
