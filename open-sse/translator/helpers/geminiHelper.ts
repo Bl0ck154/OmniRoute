@@ -2,6 +2,7 @@
 
 import { safeParseJSON } from "./jsonUtil.ts";
 import { coerceSchemaValueShapes } from "./schemaValueShapes.ts";
+import { createSchemaBudget, createSchemaMeter, type SchemaBudget, type SchemaMeter } from "./schemaBudget.ts";
 
 type JsonRecord = Record<string, unknown>;
 

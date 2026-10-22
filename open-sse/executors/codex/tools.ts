@@ -3,6 +3,7 @@
 
 import { stripUnsupportedRegexPatterns } from "../../translator/helpers/schemaCoercion.ts";
 import { coerceSchemaValueShapes } from "../../translator/helpers/schemaValueShapes.ts";
+import { readToolStrict } from "../../translator/helpers/toolStrict.ts";
 
 // Responses-API hosted tool types that OpenAI/Codex executes server-side.
 // These arrive shaped as `{ type, ...params }` with no `function` object and no `name` —

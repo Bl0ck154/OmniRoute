@@ -127,6 +127,7 @@ import { getUnsupportedParams, REGISTRY } from "../config/providerRegistry.ts";
 import { checkToolCallingRequiredButUnsupported } from "./chatCore/toolCallingRequiredCheck.ts";
 import { buildExecutorClientHeaders } from "./chatCore/executorClientHeaders.ts";
 import { runNonStreamingResponse } from "./chatCore/nonStreamingResponse.ts";
+import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.ts";
 import {
   supportsMaxTokens,
   getResolvedModelCapabilities,

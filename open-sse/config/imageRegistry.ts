@@ -8,6 +8,7 @@
 import { resolveRegisteredFeatureFlag } from "@/shared/utils/featureFlagResolverBridge.ts";
 import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { getModelsByProviderId } from "./providerModels.ts";
+import { KIE_IMAGE_MODELS } from "./providers/registry/kie/imageModels.ts";
 import {
   type ImageModelEntry,
   type ImageProviderConfig,
