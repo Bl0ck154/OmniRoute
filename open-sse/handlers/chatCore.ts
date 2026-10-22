@@ -130,6 +130,7 @@ import { runNonStreamingResponse } from "./chatCore/nonStreamingResponse.ts";
 import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.ts";
 import { runProviderExecutionPipeline } from "./chatCore/providerExecutionPipeline.ts";
 import { prepareUpstreamBody } from "./chatCore/upstreamBody.ts";
+import { applyServerOwnedToolLoopIfNeeded, derivePostInjectionRequestIdentity } from "./chatCore/serverOwnedToolLoopWire.ts";
 // Compatibility imports for the fork's original inline provider executor.
 // Upstream v3.8.53 extracted this executor to a dependency-object leaf, but the
 // fork still requires live closure rebinding of translatedBody mid-flight.
