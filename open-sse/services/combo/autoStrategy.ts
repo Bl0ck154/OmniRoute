@@ -43,7 +43,7 @@ import {
   type ScoringWeights,
 } from "../autoCombo/scoring.ts";
 import type { RoutingHint } from "../manifestAdapter";
-import { getCachedProviderConnections } from "../../../src/lib/db/readCache";
+import { getCachedProviderPoolConnections } from "../providerConnectionPool.ts";
 import {
   getSyncedAvailableModels,
   getCustomModels,
@@ -75,6 +75,13 @@ export const QUOTA_SOFT_DEPRIORITIZE_FACTOR = Number(
 export const STATUS_SOFT_DEPRIORITIZE_FACTOR = Number(
   process.env.STATUS_SOFT_DEPRIORITIZE_FACTOR ?? "0.5"
 );
+
+// #15347: unreadable-quota soft-deprioritization factor.
+// A candidate whose provider has a quota fetcher that returned nothing readable
+// (quotaUnreadable) already scores 0 on the quota axis; this multiplier makes it strictly
+// lower than even a real exhausted reading with otherwise identical factors, without
+// blocking or evicting it. Routing then prefers providers whose usage we can actually see.
+export const UNREADABLE_QUOTA_SOFT_DEPRIORITIZE_FACTOR = 0.5;
 
 // G2: Module-level registry of active combo execution candidates.
 // Maps executionKey → Map<stepId, candidate mutable ref>.
@@ -259,7 +266,7 @@ export async function applyRequestTagRouting(
   await Promise.all(
     providerIds.map(async (providerId) => {
       try {
-        const connections = await getCachedProviderConnections({
+        const connections = await getCachedProviderPoolConnections({
           provider: providerId,
           isActive: true,
         });
@@ -406,6 +413,10 @@ export function scoreAutoTargets(
       if ("statusPenalty" in candidate && candidate.statusPenalty === true) {
         score *= STATUS_SOFT_DEPRIORITIZE_FACTOR;
       }
+      // #15347: malformed quota snapshot — penalise, never block.
+      if ("quotaUnreadable" in candidate && candidate.quotaUnreadable === true) {
+        score *= UNREADABLE_QUOTA_SOFT_DEPRIORITIZE_FACTOR;
+      }
       return {
         target,
         factors,
@@ -477,6 +488,10 @@ export async function expandAutoComboCandidatePool(
   if (Array.isArray(localAutoConfig?.candidatePool) && localAutoConfig.candidatePool.length > 0)
     return eligibleTargets;
 
+  // #15546: `auto/subscription` promises plan-included capacity only. An empty
+  // pool must stay empty (fail closed) rather than widen to the paid catalog.
+  if (localAutoConfig?.failClosedWhenEmpty === true) return eligibleTargets;
+
   // #COMBO-REF: if the combo references other combos via kind:"combo-ref" entries,
   // the resolved eligibleTargets already represent the operator's intended pool.
   // Expanding to ALL providers would defeat the purpose of the combo-ref constraint
@@ -494,7 +509,7 @@ export async function expandAutoComboCandidatePool(
   if (Array.isArray(explicitModels) && explicitModels.length > 0) return eligibleTargets;
 
   try {
-    const allConnections = await getCachedProviderConnections({ isActive: true });
+    const allConnections = await getCachedProviderPoolConnections({ isActive: true });
     const providerIds = [
       ...new Set(
         (allConnections as Array<{ provider?: unknown }>)
@@ -528,11 +543,19 @@ export async function expandAutoComboCandidatePool(
       ]);
       const customModels = sanitizeAutoCustomModels(rawCustomModels);
       const syncedModels = filterChatSelectableModels(providerId, syncedModelsRaw);
+      // Custom rows include speech / transcription / image models imported from a
+      // media provider's local catalog or added by hand; they are not chat targets.
+      const chatCustomModels = filterChatSelectableModels(providerId, customModels);
       const hiddenModels = hiddenModelsMap.get(providerId);
       const userVisibleIds = new Set<string>();
       for (const m of syncedModels) if (m.id && !hiddenModels?.has(m.id)) userVisibleIds.add(m.id);
-      for (const m of customModels) if (m.id && !hiddenModels?.has(m.id)) userVisibleIds.add(m.id);
-      const hasUserModels = userVisibleIds.size > 0;
+      for (const m of chatCustomModels)
+        if (m.id && !hiddenModels?.has(m.id)) userVisibleIds.add(m.id);
+      // A provider whose custom rows are all non-chat still has user models, so it
+      // must not fall back to its static chat catalog.
+      const hasUserModels =
+        userVisibleIds.size > 0 ||
+        customModels.some((m: { id?: string }) => m.id && !hiddenModels?.has(m.id));
       const expandIds = hasUserModels
         ? Array.from(userVisibleIds)
         : getProviderModels(providerId).map((m) => m.id);

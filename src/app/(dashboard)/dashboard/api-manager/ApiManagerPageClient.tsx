@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, memo, useRef, useId } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, useId } from "react";
+import Link from "next/link";
 import { Card, Button, Input, Modal, CardSkeleton } from "@/shared/components";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useLocale, useTranslations } from "next-intl";
-import { getProviderDisplayName } from "@/lib/display/names";
-import { compareTr, matchesSearch } from "@/shared/utils/turkishText";
-import { ENDPOINT_CATEGORIES } from "@/shared/constants/endpointCategories";
+import { matchesSearch } from "@/shared/utils/turkishText";
 import ApiKeyFilterBar from "./components/ApiKeyFilterBar";
 import {
   isKeyActive,
@@ -17,65 +16,18 @@ import {
   formatProviderModelPermissionSummary,
   formatUsdCost,
   restoreProviderScopeSelection,
-  toLocalDateTimeInputValue,
   toggleKeyVisibility,
 } from "./apiManagerPageUtils";
 import type { KeyStatus, KeyType } from "./apiManagerPageUtils";
 import { readActiveOnlyPreference, writeActiveOnlyPreference } from "./apiManagerPageStorage";
-import { buildApiKeyCreateScopes, mergeApiKeyPermissionScopes } from "./apiManagerScopes";
-import { SELF_ACCOUNT_QUOTA_SCOPE, SELF_USAGE_SCOPE } from "@/shared/constants/selfServiceScopes";
+import { buildApiKeyCreateScopes } from "./apiManagerScopes";
 import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
 import { hasProviderQuotaBypassScope } from "@/shared/constants/apiKeyPolicyScopes";
-import { UsageLimitSettings } from "./components/UsageLimitSettings";
-import { ChaosModeAccessToggle } from "./components/ChaosModeAccessToggle";
-import { BypassProviderQuotaToggle } from "./components/BypassProviderQuotaToggle";
-import { ApiKeyCompressionToggle } from "./components/ApiKeyCompressionToggle";
-import { ApiKeyAutoCombosToggle } from "./components/ApiKeyAutoCombosToggle";
-import { ApiKeyCatalogScopeSelect } from "./components/ApiKeyCatalogScopeSelect";
-import type { CatalogScope } from "./components/ApiKeyCatalogScopeSelect";
-import { AllowedCombosSection } from "./components/AllowedCombosSection";
-import ProviderModelPermissionList from "./components/ProviderModelPermissionList";
-import ProviderConnectionPermissionList, {
-  type ProviderConnection,
-} from "./components/ProviderConnectionPermissionList";
 import RoutingEntryLink from "@/shared/components/routing/RoutingEntryLink";
 import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
 
 // Constants for validation
 const MAX_KEY_NAME_LENGTH = 200;
-const MAX_SELECTED_MODELS = 500;
-const CLAUDE_CODE_DEFAULT_MODEL_ID = "cc/*";
-const CLAUDE_CODE_DEFAULT_MODEL_NAME = "Claude Code default";
-const CLAUDE_CODE_DEFAULT_FAMILIES = [
-  { id: "other", label: "other" },
-  { id: "fable", label: "fable" },
-  { id: "opus", label: "opus" },
-  { id: "sonnet", label: "sonnet" },
-  { id: "haiku", label: "haiku" },
-] as const;
-type ClaudeCodeFamilyId = (typeof CLAUDE_CODE_DEFAULT_FAMILIES)[number]["id"];
-type ClaudeCodeBlockableFamilyId = Exclude<ClaudeCodeFamilyId, "other">;
-const CLAUDE_CODE_FAMILY_BLOCK_PATTERNS: Record<ClaudeCodeBlockableFamilyId, string[]> = {
-  fable: ["claude-fable*", "fable"],
-  opus: ["claude-opus*", "opus"],
-  sonnet: ["claude-sonnet*", "sonnet"],
-  haiku: ["claude-haiku*", "haiku"],
-};
-const CLAUDE_CODE_BLOCK_PATTERN_SET = new Set(
-  Object.values(CLAUDE_CODE_FAMILY_BLOCK_PATTERNS).flat()
-);
-
-// Debounce hook for search optimization
-function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-
-  return debouncedValue;
-}
 
 // Sanitize user input to prevent XSS
 function sanitizeInput(input: string): string {
@@ -143,7 +95,7 @@ interface ApiKey {
   streamDefaultMode?: StreamDefaultMode;
   compressionEnabled?: boolean;
   allowAutoCombos?: boolean;
-  catalogScope?: CatalogScope;
+  catalogScope?: string;
   disableNonPublicModels?: boolean;
   allowUsageCommand?: boolean;
   chaosModeEnabled?: boolean;
@@ -160,56 +112,6 @@ interface KeyUsageStats {
   lastUsed: string | null;
 }
 
-interface Model {
-  id: string;
-  owned_by: string;
-  name?: string;
-}
-
-interface ComboOption {
-  id?: string;
-  name: string;
-  models?: unknown[];
-}
-
-/** Tuple type for models grouped by provider: [providerName, models[]] */
-type ProviderGroup = [provider: string, models: Model[]];
-
-function isClaudeCodeModel(model: Model): boolean {
-  return (
-    model.owned_by === "claude" || model.id.startsWith("cc/") || model.id.startsWith("claude/")
-  );
-}
-
-function withClaudeCodeDefaultModel(models: Model[]): Model[] {
-  if (!models.some(isClaudeCodeModel)) return models;
-  if (models.some((model) => model.id === CLAUDE_CODE_DEFAULT_MODEL_ID)) return models;
-  return [
-    {
-      id: CLAUDE_CODE_DEFAULT_MODEL_ID,
-      name: CLAUDE_CODE_DEFAULT_MODEL_NAME,
-      owned_by: "claude",
-    },
-    ...models,
-  ];
-}
-
-function getBlockedClaudeCodeFamilies(blockedModels: string[]): ClaudeCodeBlockableFamilyId[] {
-  return (Object.keys(CLAUDE_CODE_FAMILY_BLOCK_PATTERNS) as ClaudeCodeBlockableFamilyId[]).filter(
-    (familyId) =>
-      CLAUDE_CODE_FAMILY_BLOCK_PATTERNS[familyId].some((pattern) => blockedModels.includes(pattern))
-  );
-}
-
-function isClaudeCodeFamilyModel(modelId: string, familyId: ClaudeCodeBlockableFamilyId): boolean {
-  const normalized = modelId.toLowerCase();
-  return (
-    normalized === familyId ||
-    normalized.includes(`/${familyId}`) ||
-    normalized.includes(`-${familyId}`)
-  );
-}
-
 export default function ApiManagerPageClient() {
   const t = useTranslations("apiManager");
   const tc = useTranslations("common");
@@ -217,10 +119,6 @@ export default function ApiManagerPageClient() {
   const newKeyNameInputId = useId();
   const createKeyFormRef = useRef<HTMLDivElement | null>(null);
   const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [allModels, setAllModels] = useState<Model[]>([]);
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [allCombos, setAllCombos] = useState<ComboOption[]>([]);
-  const [allConnections, setAllConnections] = useState<ProviderConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
@@ -229,9 +127,6 @@ export default function ApiManagerPageClient() {
   const [newKeyAccountQuotaEnabled, setNewKeyAccountQuotaEnabled] = useState(false);
   const [newKeyAllowUsageCommand, setNewKeyAllowUsageCommand] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const [editingKey, setEditingKey] = useState<ApiKey | null>(null);
-  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-  const [searchModel, setSearchModel] = useState("");
   const [pageError, setPageError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -333,136 +228,28 @@ export default function ApiManagerPageClient() {
     return () => window.clearTimeout(timeout);
   }, [showAddModal, nameError, scrollCreateKeyFormToTop]);
 
-  const fetchModels = async () => {
-    setModelsLoaded(false);
-    try {
-      const res = await fetch("/v1/models");
-      if (res.ok) {
-        const data = await res.json();
-        setAllModels(Array.isArray(data.data) ? data.data : []);
-        return;
-      }
-
-      // Fallback for dashboard API-key editing: /v1/models can be protected by
-      // API-key catalog auth, but the dashboard still needs a stable catalog so
-      // users can edit allowedModels. Preserve combo pseudo-models too: /v1/models
-      // lists active combos as owned_by="combo", while /api/models?all=true only
-      // returns the static provider model inventory.
-      const [fallbackRes, combosRes] = await Promise.all([
-        fetch("/api/models?all=true"),
-        fetch("/api/combos"),
-      ]);
-      if (fallbackRes.ok) {
-        const [fallbackData, combosData] = await Promise.all([
-          fallbackRes.json(),
-          combosRes.ok ? combosRes.json() : Promise.resolve({ combos: [] }),
-        ]);
-        const fallbackModels = Array.isArray(fallbackData.models) ? fallbackData.models : [];
-        const comboModels = (Array.isArray(combosData.combos) ? combosData.combos : [])
-          .filter(
-            (combo: any) =>
-              combo?.isActive !== false &&
-              combo?.isHidden !== true &&
-              typeof combo?.name === "string" &&
-              combo.name.trim().length > 0
-          )
-          .map((combo: any) => ({
-            id: combo.name,
-            owned_by: "combo",
-            name: combo.name,
-          }));
-        const modelEntries = fallbackModels
-          .map((m: any) => ({
-            id: typeof m.fullModel === "string" ? m.fullModel : `${m.provider}/${m.model}`,
-            owned_by: typeof m.provider === "string" ? m.provider : "unknown",
-            name: typeof m.alias === "string" ? m.alias : m.model || m.fullModel,
-          }))
-          .filter((m: Model) => typeof m.id === "string" && m.id.length > 0);
-        const seen = new Set<string>();
-        setAllModels(
-          [...comboModels, ...modelEntries].filter((m: Model) => {
-            if (seen.has(m.id)) return false;
-            seen.add(m.id);
-            return true;
-          })
-        );
-      } else {
-        setAllModels([]);
-      }
-    } catch (error) {
-      console.log("Error fetching models:", error);
-      setAllModels([]);
-    } finally {
-      setModelsLoaded(true);
-    }
-  };
-
-  const fetchCombos = async () => {
-    try {
-      const res = await fetch("/api/combos");
-      if (res.ok) {
-        const data = await res.json();
-        const combos = Array.isArray(data.combos) ? data.combos : [];
-        setAllCombos(
-          combos.filter((combo: any) => typeof combo?.name === "string" && combo.name.trim())
-        );
-      }
-    } catch (error) {
-      console.log("Error fetching combos:", error);
-    }
-  };
-
-  const fetchConnections = async () => {
-    try {
-      const res = await fetch("/api/providers");
-      if (res.ok) {
-        const data = await res.json();
-        setAllConnections(data.connections || []);
-      }
-    } catch (error) {
-      console.log("Error fetching connections:", error);
-    }
-  };
-
   const fetchUsageStats = async (apiKeys: ApiKey[]) => {
     if (apiKeys.length === 0) return;
     try {
-      // Fetch analytics (accurate aggregated counts) and recent call-logs
-      // (for lastUsed timestamps) in parallel.
-      // The previous approach matched call-logs by key.id === log.apiKeyId,
-      // but these use different ID schemes and never matched, yielding 0.
-      const [analyticsRes, logsRes] = await Promise.all([
-        fetch("/api/usage/analytics?range=all"),
-        fetch("/api/usage/call-logs?limit=1000"),
-      ]);
-      const analytics = analyticsRes.ok ? await analyticsRes.json() : null;
-      const byApiKey: any[] = analytics?.byApiKey || [];
-      const logs = logsRes.ok ? await logsRes.json() : [];
+      // view=apiKeys returns only per-key lifetime totals and last use, computed
+      // server-side in one query; the full analytics report blocks the server for
+      // seconds on large usage histories.
+      const res = await fetch("/api/usage/analytics?range=all&view=apiKeys");
+      const totals: Array<{
+        apiKeyId: string;
+        requests: number;
+        cost: number;
+        lastUsed: string | null;
+      }> = res.ok ? (await res.json()).byApiKey || [] : [];
+      const totalsById = new Map(totals.map((entry) => [entry.apiKeyId, entry]));
       const stats: Record<string, KeyUsageStats> = {};
       for (const key of apiKeys) {
-        // Match analytics entry by unique API Key ID (isolates usage to this specific key instance)
-        const matches = byApiKey.filter((entry: any) => entry.apiKeyId === key.id);
-        const totalRequests = matches.reduce(
-          (sum: number, entry: any) => sum + (Number(entry.requests) || 0),
-          0
-        );
-        const totalCost = matches.reduce((sum: number, entry: any) => {
-          const cost = Number(entry.cost);
-          return sum + (Number.isFinite(cost) ? cost : 0);
-        }, 0);
-
-        // Match call logs by unique ID as well for the lastUsed timestamp
-        // Prefer an exact apiKeyId match; fall back to name match for legacy
-        // logs that predate per-key IDs (apiKeyId absent).
-        const lastUsed =
-          (logs || []).find(
-            (log: any) => log.apiKeyId === key.id || (!log.apiKeyId && log.apiKeyName === key.name)
-          )?.timestamp || null;
-
+        const entry = totalsById.get(key.id);
+        const cost = Number(entry?.cost);
         stats[key.id] = {
-          totalRequests,
-          totalCost,
-          lastUsed,
+          totalRequests: Number(entry?.requests) || 0,
+          totalCost: Number.isFinite(cost) ? cost : 0,
+          lastUsed: entry?.lastUsed || null,
         };
       }
       setUsageStats(stats);
@@ -552,7 +339,7 @@ export default function ApiManagerPageClient() {
   // (react-hooks/set-state-in-effect).
   useEffect(() => {
     void (async () => {
-      await Promise.all([fetchData(), fetchModels(), fetchCombos(), fetchConnections()]);
+      await fetchData();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- initial dashboard load only
   }, []);
@@ -598,7 +385,6 @@ export default function ApiManagerPageClient() {
 
   const quotaKeys = filteredKeys.filter(isQuotaKey);
   const normalKeys = filteredKeys.filter((k) => !isQuotaKey(k));
-  const permissionModels = useMemo(() => withClaudeCodeDefaultModel(allModels), [allModels]);
 
   const quotaGroupsForKey = (k: ApiKey): string[] => {
     if (!Array.isArray(k.allowedQuotas)) return [];
@@ -728,12 +514,6 @@ export default function ApiManagerPageClient() {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const handleOpenPermissions = (key: ApiKey) => {
-    if (!key || !key.id) return;
-    setEditingKey(key);
-    setShowPermissionsModal(true);
   };
 
   const handleCopyExistingKey = async (keyId: string) => {
@@ -1229,50 +1009,50 @@ export default function ApiManagerPageClient() {
                       )}
                       {/* Existing badges */}
                       {isModelRestricted ? (
-                        <button
-                          onClick={() => handleOpenPermissions(key)}
+                        <Link
+                          href={`/dashboard/api-manager/${encodeURIComponent(key.id)}/access?tab=models`}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-medium hover:bg-amber-500/20 transition-colors"
                         >
                           <span className="material-symbols-outlined text-[14px]">lock</span>
                           {formatProviderModelPermissionSummary(providerCount, modelCount, t, tc)}
-                        </button>
+                        </Link>
                       ) : (
-                        <button
-                          onClick={() => handleOpenPermissions(key)}
+                        <Link
+                          href={`/dashboard/api-manager/${encodeURIComponent(key.id)}/access?tab=models`}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors"
                         >
                           <span className="material-symbols-outlined text-[14px]">lock_open</span>
                           {t("allModels")}
-                        </button>
+                        </Link>
                       )}
                       {hasConnectionRestrictions && (
-                        <button
-                          onClick={() => handleOpenPermissions(key)}
+                        <Link
+                          href={`/dashboard/api-manager/${encodeURIComponent(key.id)}/access?tab=connections`}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 text-xs font-medium hover:bg-blue-500/20 transition-colors"
                         >
                           <span className="material-symbols-outlined text-[14px]">cable</span>
                           {key.allowedConnections!.length} conn
-                        </button>
+                        </Link>
                       )}
                       {hasExclusiveLeaseScope && (
-                        <button
-                          onClick={() => handleOpenPermissions(key)}
+                        <Link
+                          href={`/dashboard/api-manager/${encodeURIComponent(key.id)}/access`}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 text-xs font-medium hover:bg-purple-500/20 transition-colors"
                         >
                           <span className="material-symbols-outlined text-[14px]">
                             key_vertical
                           </span>
                           {t("exclusiveLease")}
-                        </button>
+                        </Link>
                       )}
                       {hasComboRestrictions && (
-                        <button
-                          onClick={() => handleOpenPermissions(key)}
+                        <Link
+                          href={`/dashboard/api-manager/${encodeURIComponent(key.id)}/access?tab=combos`}
                           className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-teal-500/10 text-teal-600 dark:text-teal-400 text-xs font-medium hover:bg-teal-500/20 transition-colors"
                         >
                           <span className="material-symbols-outlined text-[14px]">hub</span>
                           {key.allowedCombos!.length} combos
-                        </button>
+                        </Link>
                       )}
                       {noLogEnabled && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-500/10 text-violet-600 dark:text-violet-400 text-[11px] font-medium">
@@ -1406,13 +1186,13 @@ export default function ApiManagerPageClient() {
                     >
                       <span className="material-symbols-outlined text-[18px]">refresh</span>
                     </button>
-                    <button
-                      onClick={() => handleOpenPermissions(key)}
-                      className="p-2 hover:bg-primary/10 rounded text-text-muted hover:text-primary opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
+                    <Link
+                      href={`/dashboard/api-manager/${encodeURIComponent(key.id)}/access`}
+                      className="p-2 hover:bg-primary/10 rounded text-text-muted hover:text-primary opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all inline-flex items-center justify-center"
                       title={t("editPermissions")}
                     >
                       <span className="material-symbols-outlined text-[18px]">tune</span>
-                    </button>
+                    </Link>
                     <button
                       onClick={() => handleDeleteKey(key.id)}
                       className="p-2 hover:bg-red-500/10 rounded text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"
@@ -1684,27 +1464,6 @@ export default function ApiManagerPageClient() {
           </Button>
         </div>
       </Modal>
-
-      {/* Permissions Modal */}
-      {editingKey && (
-        <PermissionsModal
-          key={editingKey.id}
-          isOpen={showPermissionsModal}
-          onClose={() => {
-            setShowPermissionsModal(false);
-            setEditingKey(null);
-          }}
-          apiKey={editingKey}
-          modelsByProvider={filteredModelsByProvider}
-          allModels={permissionModels}
-          modelsLoaded={modelsLoaded}
-          allCombos={allCombos}
-          allConnections={allConnections}
-          searchModel={searchModel}
-          onSearchChange={setSearchModel}
-          onSave={handleUpdatePermissions}
-        />
-      )}
     </div>
   );
 }

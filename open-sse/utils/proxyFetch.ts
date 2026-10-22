@@ -9,18 +9,23 @@ import {
   getDedicatedCodexImageDispatcher,
   getProxyRetryDispatcher,
   getRetryDispatcher,
+  isLocalEgressHostname,
   isRelayType,
-  normalizeProxyUrl,
+  isUpstreamHttp2Enabled,
   proxyConfigToUrl,
   proxyUrlForLogs,
 } from "./proxyDispatcher.ts";
+import { maybeReapDispatcherPool } from "./proxyDispatcherReap.ts";
 import tlsClient, { type TlsFetchOptions, guardTlsFirstByte } from "./tlsClient.ts";
 import { withUpstreamStatusCapture } from "./upstreamStatusCapture.ts";
 import { stampOwnListenerSelfHop } from "./selfHop.ts";
+import { tlsFingerprintProviderAllowed } from "./tlsFingerprintExclusions.ts";
 import { describeFallbackFailure, redactProxyDetailsInMessage } from "./proxyFetchRedaction.ts";
 import { recordFinalTransportOutcome, recordProxiedSuccess } from "./proxyTransportOutcome.ts";
 import { sanitizeTransportError } from "./proxyTransportError.ts";
 import { isProxyReachable } from "@/lib/proxyHealth";
+import { isDirectBypassHost } from "./proxyDirectBypass.ts";
+import { noProxyMatch, resolveEnvProxyUrl } from "./proxyEnv.ts";
 import {
   isControlPlaneProxyDirectFallbackEnabled,
   isFeatureFlagEnabled,
@@ -28,7 +33,7 @@ import {
 import {
   directFetchWithBoundedResponseStart,
   isDirectResponseStartTimeout,
-  resolveDirectHeadersTimeoutMs,
+  directHeadersTimeoutResolver,
 } from "./directResponseStartTimeout.ts";
 
 // #9100: relay egress (Vercel / Deno / Cloudflare edge functions) used to go
@@ -42,14 +47,14 @@ import {
 // pipelines POST (SSE is POST), so a single socket would serialize every
 // concurrent stream; 4 sockets give 4 parallel streams. h2 relays are
 // unaffected — streams multiplex over one socket, so the pool stays at a single
-// connection while streams drain. `allowH2: true` keeps that h2 fast path for
-// Vercel / Deno / Cloudflare.
+// connection while streams drain. HTTP/2 stays enabled by default for
+// Vercel / Deno / Cloudflare; operators can opt out when needed.
 const RELAY_POOL_AGENT_OPTIONS = {
   keepAliveTimeout: 30_000,
   keepAliveMaxTimeout: 60_000,
   pipelining: 4,
   connections: 4,
-  allowH2: true,
+  allowH2: isUpstreamHttp2Enabled(),
 } as const;
 const RELAY_POOL_AGENT = new Agent(RELAY_POOL_AGENT_OPTIONS);
 
@@ -61,7 +66,7 @@ const RELAY_RETRY_AGENT = new Agent({
   keepAliveMaxTimeout: 1,
   pipelining: 0,
   connections: 1,
-  allowH2: true,
+  allowH2: isUpstreamHttp2Enabled(),
 });
 
 // A hung relay must fail BEFORE the client/agent timeout (typically 30s) so the
@@ -88,21 +93,6 @@ const RETRY_BACKOFF_MS = Math.max(Number(process.env.OMNIROUTE_RETRY_BACKOFF_MS)
 
 function isTlsFingerprintEnabled() {
   return process.env.ENABLE_TLS_FINGERPRINT === "true";
-}
-
-function tlsFingerprintProviderAllowed(
-  provider: string | null | undefined,
-  proxied: boolean
-): boolean {
-  const configured = process.env.TLS_FINGERPRINT_PROVIDERS?.trim();
-  // Preserve the legacy direct-only opt-in. The new proxied transport requires
-  // an explicit allowlist so enabling TLS cannot silently change proxy traffic.
-  if (!configured) return !proxied;
-  if (!provider) return false;
-  const normalizedProvider = provider.trim().toLowerCase();
-  return configured
-    .split(",")
-    .some((candidate) => candidate.trim().toLowerCase() === normalizedProvider);
 }
 
 /**
@@ -397,6 +387,8 @@ const TLS_ALLOWED_OPTION_KEYS: Record<string, true> = {
   method: true,
   redirect: true,
   signal: true,
+  // Next.js cache/revalidation metadata. It is not forwarded to wreq.
+  next: true,
 };
 
 function isWreqBodySupported(body: unknown): boolean {
@@ -417,7 +409,7 @@ function isTlsRequestEligible(
   return Object.keys(options).every((key) => TLS_ALLOWED_OPTION_KEYS[key] === true);
 }
 
-function isTlsFallbackReplaySafe(
+function isAmbiguousFailureReplaySafe(
   input: RequestInfo | URL,
   options: FetchWithDispatcherOptions
 ): boolean {
@@ -494,69 +486,9 @@ const originalFetchWithDispatcher = originalFetch as FetchWithDispatcher;
 const proxyContext = patchState.proxyContext;
 const tlsFingerprintContext = patchState.tlsFingerprintContext;
 
-function noProxyMatch(targetUrl) {
-  const noProxy = process.env.NO_PROXY || process.env.no_proxy;
-  if (!noProxy) return false;
-
-  let target;
-  try {
-    target = new URL(targetUrl);
-  } catch {
-    return false;
-  }
-
-  const hostname = target.hostname.toLowerCase();
-  const port = target.port || (target.protocol === "https:" ? "443" : "80");
-  const patterns = noProxy
-    .split(",")
-    .map((p) => p.trim().toLowerCase())
-    .filter(Boolean);
-
-  return patterns.some((pattern) => {
-    if (pattern === "*") return true;
-
-    const [patternHost, patternPort] = pattern.split(":");
-    if (patternPort && patternPort !== port) return false;
-
-    if (!patternHost) return false;
-
-    // Support wildcard matching (e.g. 192.168.* or *.local).
-    // Uses a linear glob scan instead of dynamic RegExp to avoid ReDoS.
-    if (patternHost.includes("*")) {
-      const parts = patternHost.split("*");
-      let pos = 0;
-      let ok = hostname.startsWith(parts[0]);
-      if (ok) {
-        pos = parts[0].length;
-        for (let i = 1; i < parts.length && ok; i++) {
-          const seg = parts[i];
-          if (i === parts.length - 1) {
-            ok = seg === "" || (hostname.endsWith(seg) && hostname.length - seg.length >= pos);
-          } else {
-            const idx = seg ? hostname.indexOf(seg, pos) : pos;
-            if (idx === -1) {
-              ok = false;
-            } else {
-              pos = idx + seg.length;
-            }
-          }
-        }
-      }
-      if (ok) return true;
-    }
-
-    if (patternHost.startsWith(".")) {
-      return hostname.endsWith(patternHost) || hostname === patternHost.slice(1);
-    }
-    return hostname === patternHost || hostname.endsWith(`.${patternHost}`);
-  });
-}
-
 /**
- * True loopback only — NOT the broader private-network set `isLocalAddress`
- * covers. A LAN peer (192.168.x, a local Ollama box) is still reached over a
- * real network and keeps the outbound bound-and-replay policy; a loopback
- * target is this very process.
+ * A loopback target is this process. Private-network peers are not loopback:
+ * they must retain the outbound bound-and-replay policy.
  */
 function isLoopbackHost(hostname: string): boolean {
   const host = hostname
@@ -567,53 +499,6 @@ function isLoopbackHost(hostname: string): boolean {
   return host === "localhost" || host === "::1" || host === "127.0.0.1" || host.startsWith("127.");
 }
 
-function isLocalAddress(hostname: string): boolean {
-  const host = hostname
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .replace(/^::ffff:/i, "");
-  if (host === "localhost" || host === "0.0.0.0" || host === "127.0.0.1" || host === "::1") {
-    return true;
-  }
-  if (host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".internal")) return true;
-  // RFC1918 + loopback + link-local (169.254, incl. cloud metadata 169.254.169.254)
-  // + CGNAT (100.64/10). 127/8 covers all loopback, not just 127.0.0.1.
-  if (host.startsWith("192.168.")) return true;
-  if (host.startsWith("10.")) return true;
-  if (host.startsWith("127.")) return true;
-  if (host.startsWith("169.254.")) return true;
-  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return true;
-  // IPv6 ULA (fc00::/7 → fc/fd prefix) and link-local (fe80::/10)
-  if (/^f[cd][0-9a-f]*:/i.test(host) || host.startsWith("fe80:")) return true;
-  return false;
-}
-
-function resolveEnvProxyUrl(targetUrl) {
-  if (noProxyMatch(targetUrl)) return null;
-
-  let protocol;
-  try {
-    protocol = new URL(targetUrl).protocol;
-  } catch {
-    return null;
-  }
-
-  const proxyUrl =
-    protocol === "https:"
-      ? process.env.HTTPS_PROXY ||
-        process.env.https_proxy ||
-        process.env.ALL_PROXY ||
-        process.env.all_proxy
-      : process.env.HTTP_PROXY ||
-        process.env.http_proxy ||
-        process.env.ALL_PROXY ||
-        process.env.all_proxy;
-
-  if (!proxyUrl) return null;
-  return normalizeProxyUrl(proxyUrl, "environment proxy");
-}
-
 export function resolveProxyForRequest(targetUrl) {
   let target;
   try {
@@ -622,8 +507,8 @@ export function resolveProxyForRequest(targetUrl) {
     target = null;
   }
 
-  // Always bypass proxy for local/LAN addresses
-  if (target && isLocalAddress(target.hostname.toLowerCase())) {
+  // Always bypass proxy for local/LAN addresses and operator-listed provider-node hosts
+  if (target && isDirectBypassHost(target.hostname)) {
     return { source: "direct", proxyUrl: null };
   }
 
@@ -826,6 +711,7 @@ export function hasAmbientProxyContext(): boolean {
   const store = proxyContext.getStore();
   return Boolean(store) && store !== DIRECT_PROXY_CONTEXT;
 }
+export const isDirectFetchContext = () => proxyContext.getStore() === DIRECT_PROXY_CONTEXT;
 
 /**
  * Like {@link runWithProxyContext}, but if the assigned proxy is unreachable or fails
@@ -886,7 +772,7 @@ async function patchedFetchUnrecorded(
     if (
       isTlsFingerprintEnabled() &&
       activeTlsClient.available &&
-      tlsFingerprintProviderAllowed(tlsStore?.provider, false) &&
+      tlsFingerprintProviderAllowed(tlsStore?.provider, false, targetUrl) &&
       isTlsRequestEligible(input, options)
     ) {
       try {
@@ -909,7 +795,7 @@ async function patchedFetchUnrecorded(
           typeof error === "object" &&
           "sessionHadCookies" in error &&
           error.sessionHadCookies === true;
-        if (!isTlsFallbackReplaySafe(input, options) || sessionHadCookies) {
+        if (!isAmbiguousFailureReplaySafe(input, options) || sessionHadCookies) {
           throw sanitizeTransportError(
             error,
             sessionHadCookies
@@ -934,6 +820,7 @@ async function patchedFetchUnrecorded(
       return _nativeFetch(input, options);
     }
     // Direct undici path: bound response-start, fresh-socket retry, and body guard.
+    const directOptions = { ...options, signal: getEffectiveSignal(input, options) };
     const hasNonReplayableBody = requestHasNonReplayableBody(input, options);
     // Never replay image generation: the first request may still complete upstream.
     const maxAttempts = hasNonReplayableBody || dedicatedCodexImageRequest ? 1 : 2;
@@ -942,16 +829,9 @@ async function patchedFetchUnrecorded(
     const _nativeFallback =
       (deps.nativeFetch as FetchWithDispatcher | undefined) ?? originalFetchWithDispatcher;
 
-    // A loopback self-request (model sync, auto-discovery, internal routes) must
-    // NOT inherit the outbound-egress policy below. That policy bounds
-    // response-start and then REPLAYS the request on a fresh no-keep-alive
-    // dispatcher, which is designed for a dead keep-alive socket to a remote
-    // host (#10214). Against our own listener there is no such socket to
-    // detect: the replay just doubles how long a slow internal request occupies
-    // one of our OWN inbound slots (30s bound + 30s replay). When a provider
-    // stalls, those self-requests pile up against the chat admission limit and
-    // starve live traffic until Cloudflare cuts the client at its 120s proxy
-    // read timeout (HTTP 524). Send loopback straight through the native fetch.
+    // Loopback self-requests must not inherit remote-egress response-start replay:
+    // replaying against our own listener only doubles inbound-slot occupancy and
+    // can starve live traffic until Cloudflare's 120s read timeout (#10214).
     let isLoopbackTarget = false;
     try {
       isLoopbackTarget = isLoopbackHost(new URL(targetUrl).hostname);
@@ -975,6 +855,10 @@ async function patchedFetchUnrecorded(
     }
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
+        let hostnameForDispatcher: string | undefined;
+        try {
+          hostnameForDispatcher = new URL(targetUrl).hostname;
+        } catch {}
         return await directFetchWithBoundedResponseStart(
           input,
           {
@@ -992,10 +876,11 @@ async function patchedFetchUnrecorded(
             : resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout, attempt, !!options.signal)
         );
       } catch (dispatcherError) {
+        if (isCallerAbort(dispatcherError, directOptions.signal)) throw dispatcherError;
         if (isDirectResponseStartTimeout(dispatcherError)) {
-          if (attempt === 0 && maxAttempts > 1) {
+          if (attempt === 0 && maxAttempts > 1 && canReplayResponseStartTimeout) {
             console.warn(
-              `[ProxyFetch] Direct response-start timeout (${directHeadersTimeoutMs}ms) on pooled dispatcher — retrying on fresh no-keep-alive dispatcher: ${targetHostForLogs}`
+              `[ProxyFetch] Direct response-start timeout (${timeoutFor(0)}ms) on pooled dispatcher — retrying on fresh no-keep-alive dispatcher: ${targetHostForLogs}`
             );
             lastDispatcherError = dispatcherError;
             continue;
@@ -1076,6 +961,11 @@ async function patchedFetchUnrecorded(
           console.warn(
             `[ProxyFetch] Undici dispatcher failed, falling back to native fetch (after retry): ${describeFetchCause(dispatcherError)}`
           );
+          // Reap the failed pool on PROXY_UNREACHABLE so the next request
+          // rebuilds it with fresh sockets.
+          if (isProxyUnreachableError(dispatcherError)) {
+            maybeReapDispatcherPool(targetHostForLogs, isLocalEgressHostname(targetHostForLogs));
+          }
           try {
             return await _nativeFallback(input, options);
           } catch (nativeError) {
@@ -1216,7 +1106,7 @@ async function patchedFetchUnrecorded(
     typeof tlsStore?.sessionScope === "string" &&
     tlsStore.sessionScope.trim().length > 0 &&
     activeTlsClient.available &&
-    tlsFingerprintProviderAllowed(tlsStore?.provider, true) &&
+    tlsFingerprintProviderAllowed(tlsStore?.provider, true, targetUrl) &&
     isTlsRequestEligible(input, options) &&
     isWreqProxySupported(proxyUrl)
   ) {
@@ -1240,7 +1130,7 @@ async function patchedFetchUnrecorded(
         typeof error === "object" &&
         "sessionHadCookies" in error &&
         error.sessionHadCookies === true;
-      if (!isTlsFallbackReplaySafe(input, options) || sessionHadCookies) {
+      if (!isAmbiguousFailureReplaySafe(input, options) || sessionHadCookies) {
         throw sanitizeTransportError(
           error,
           sessionHadCookies

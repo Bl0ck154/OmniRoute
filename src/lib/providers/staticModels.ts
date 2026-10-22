@@ -171,6 +171,9 @@ export function getStaticModelsForProvider(provider: string): LocalCatalogModel[
     return searchFallback;
   }
 
+  // "Import from /models" posts these rows to POST /api/provider-models, so each
+  // apiFormat must be a value providerModelMutationSchema accepts — "audio" /
+  // "images" were rejected with 400 and nothing got imported.
   const specialtyModels: LocalCatalogModel[] = [];
   const appendModels = (
     models: Array<{ id: string; name?: string }>,
@@ -212,7 +215,7 @@ export function getStaticModelsForProvider(provider: string): LocalCatalogModel[
   const imageProvider = getImageProvider(provider);
   if (imageProvider && !hasChatRegistry) {
     appendModels(imageProvider.models, {
-      apiFormat: "images",
+      apiFormat: "images-generations",
       supportedEndpoints: ["images"],
     });
   }
@@ -228,7 +231,7 @@ export function getStaticModelsForProvider(provider: string): LocalCatalogModel[
   const speechProvider = getSpeechProvider(provider);
   if (speechProvider) {
     appendModels(speechProvider.models, {
-      apiFormat: "audio",
+      apiFormat: "audio-speech",
       supportedEndpoints: ["audio-speech"],
     });
   }
@@ -236,7 +239,7 @@ export function getStaticModelsForProvider(provider: string): LocalCatalogModel[
   const transcriptionProvider = getTranscriptionProvider(provider);
   if (transcriptionProvider) {
     appendModels(transcriptionProvider.models, {
-      apiFormat: "audio",
+      apiFormat: "audio-transcriptions",
       supportedEndpoints: ["audio-transcriptions"],
     });
   }

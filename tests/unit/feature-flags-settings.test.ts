@@ -297,6 +297,17 @@ describe("featureFlagDefinitions", () => {
     assert.strictEqual(def.requiresRestart, false);
   });
 
+  it("defines the operator egress push as a network boolean flag disabled by default", () => {
+    // Guards the push default: the operator-egress route answers 404 and pool reads
+    // stay journal-only unless opted in.
+    const def = FEATURE_FLAG_DEFINITIONS.find((d) => d.key === "PROXY_OPERATOR_EGRESS_ENABLED");
+    assert.ok(def, "PROXY_OPERATOR_EGRESS_ENABLED should exist");
+    assert.strictEqual(def.category, "network");
+    assert.strictEqual(def.type, "boolean");
+    assert.strictEqual(def.defaultValue, "false");
+    assert.strictEqual(def.requiresRestart, false);
+  });
+
   it("defines blocked-resets-streak as a health boolean flag disabled by default", () => {
     // Guards the #10654 default: a target-refused probe stays neutral unless opted in.
     const def = FEATURE_FLAG_DEFINITIONS.find(
