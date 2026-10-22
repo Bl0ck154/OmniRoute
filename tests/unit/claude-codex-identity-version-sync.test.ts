@@ -168,10 +168,12 @@ test("test 7: live-empty GitHub catalog path does not call persist", () => {
   assert.ok(start > 0 && end > start);
   const window = src.slice(start, end);
   assert.match(window, /buildResponse\s*\(/);
-  assert.doesNotMatch(window, /buildApiDiscoveryResponse\s*\(/);
+  assert.doesNotMatch(window, /persistDiscoveredModels\s*\(/);
 
   const liveIdx = src.lastIndexOf("if (liveModels && liveModels.length > 0)");
   assert.ok(liveIdx > 0 && liveIdx < start);
   const liveWindow = src.slice(liveIdx, start);
-  assert.match(liveWindow, /buildApiDiscoveryResponse\s*\(/);
+  // v3.8.53 explicitly persists verified live discovery before the response;
+  // GitHub/local fallback must never write speculative candidates to disk.
+  assert.match(liveWindow, /await persistDiscoveredModels\s*\(/);
 });

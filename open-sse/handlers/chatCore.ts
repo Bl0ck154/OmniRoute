@@ -129,6 +129,33 @@ import { buildExecutorClientHeaders } from "./chatCore/executorClientHeaders.ts"
 import { runNonStreamingResponse } from "./chatCore/nonStreamingResponse.ts";
 import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.ts";
 import { runProviderExecutionPipeline } from "./chatCore/providerExecutionPipeline.ts";
+import { prepareUpstreamBody } from "./chatCore/upstreamBody.ts";
+// Compatibility imports for the fork's original inline provider executor.
+// Upstream v3.8.53 extracted this executor to a dependency-object leaf, but the
+// fork still requires live closure rebinding of translatedBody mid-flight.
+import { getExecutionConnectionId } from "./chatCore/executionCredentials.ts";
+import { resolveAccountSemaphoreMaxConcurrency } from "./chatCore/executorHelpers.ts";
+import { materializeDeduplicatedExecutionResult, stripNextMiddlewareControlHeaders } from "./chatCore/responseHeaders.ts";
+import { readNonStreamingResponseBody } from "./chatCore/nonStreamingResponseBody.ts";
+import { wrapReadableStreamWithFinalize } from "./chatCore/streamFinalize.ts";
+import { normalizeExecutorResult, executeWithUpstreamStartTimeout, resolveConnectionTimeoutMs } from "./chatCore/upstreamTimeouts.ts";
+import { getCodexClientSessionId } from "../config/codexIdentity.ts";
+import { noteCodexTurnStateProvenance, readCodexTurnStateHeader } from "../config/codexTurnState.ts";
+import { STREAM_RECOVERY } from "../config/constants.ts";
+import { createRecoverableStream, makeContinuationBody } from "../services/streamRecovery.ts";
+import { persistCodexChildQuotaResponse } from "../services/codexAccount/index.ts";
+import { withRateLimit, resolveRequestQueueMaxWaitMs } from "../services/rateLimitManager.ts";
+import { acquireMany as acquireConcurrencyGates } from "../services/accountSemaphore.ts";
+import { rethrowAdmissionError, remainingQueueBudgetMs } from "./chatCore/queueBudget.ts";
+import { deduplicate } from "../services/requestDedup.ts";
+import { getModelScopeRetryDelayMs } from "../services/modelscopePolicy.ts";
+import { incrementRequestCount } from "../services/geminiRateLimitTracker.ts";
+import { runWithCapture } from "../utils/providerRequestLogging.ts";
+import { resolveProviderId } from "@/shared/constants/providers";
+import { buildContinuationLogHooks } from "./chatCore/recoveryTraceLogging.ts";
+import { formatStreamRecoveryRetryWarning } from "./chatCore/streamErrorResult.ts";
+import { injectSystemPromptPostTranslation } from "../services/systemPrompt.ts";
+
 import {
   supportsMaxTokens,
   getResolvedModelCapabilities,
