@@ -77,6 +77,21 @@ function main() {
   }
 
   if (regressions.length > 0) {
+    // Keep the actual compiler diagnostics visible: a TS code/count alone
+    // conceals the missing names. Do not weaken the baseline or exit status.
+    const affectedFiles = new Set(regressions.map((r) => r.file.replaceAll("\\", "/")));
+    const diagnostics = stdout
+      .split(/\r?\n/)
+      .filter((line) => {
+        const normalized = line.replaceAll("\\", "/");
+        return normalized.includes("error TS") &&
+          [...affectedFiles].some((file) => normalized.includes(file));
+      })
+      .slice(0, 110);
+    if (diagnostics.length) {
+      process.stderr.write("[open-sse-typecheck] Concrete TypeScript errors:\n" +
+        diagnostics.join("\n") + "\n");
+    }
     process.stderr.write(
       `[open-sse-typecheck] FAIL — ${regressions.length} new/regressed TypeScript error(s) ` +
         `under open-sse/ workspace not covered by the frozen baseline:\n` +

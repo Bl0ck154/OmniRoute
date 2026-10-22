@@ -4280,7 +4280,7 @@ async function handleChatCoreInner({
       // ── Phase 9.2: Save for idempotency ──
       // Reuse the key resolved by checkIdempotencyCache() above (single derivation per
       // request). (#3821-review LEDGER-6)
-      saveIdempotency(idempotencyKey, translatedResponse, 200);
+      await saveIdempotencyWithConfiguredWindow(idempotencyKey, translatedResponse, 200);
       reqLogger.logConvertedResponse(translatedResponse);
       persistAttemptLogs({
         status: 200,
