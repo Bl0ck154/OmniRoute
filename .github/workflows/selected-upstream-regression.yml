@@ -81,6 +81,8 @@ jobs:
             tests/unit/openai-claude-tool-controls-4171.test.ts \
             tests/unit/openai-tool-call-id-normalization.test.ts \
             tests/unit/param-support-claude-diagnostics.test.ts \
+            tests/unit/chatcore-streaming-pipeline.test.ts \
+            tests/unit/order-forge-image-artifact-sink.test.ts \
             tests/unit/stream-keeps-generated-images.test.ts \
             tests/unit/http-client-abort-guard-empty-response-16347.test.ts \
             tests/unit/release-version-workspace-consistency.test.ts \

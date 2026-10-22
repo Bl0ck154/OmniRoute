@@ -4528,6 +4528,13 @@ async function handleChatCoreInner({
     providerResponse,
     finalBody,
     effectiveServiceTier,
+    // The stream helper registers these before returning its result. Without
+    // this bridge, a client disconnect during asynchronous response setup is
+    // missed by the parent controller's late-bound callbacks.
+    registerStreamFinalizers: (onStreamError, onDisconnectFinalizer) => {
+      onPipelineStreamError = onStreamError;
+      onClientDisconnectFinalize = onDisconnectFinalizer;
+    },
     onSuccessfulStreamPayload: (responseBody) => {
       if (!orderForgeImageArtifactCapture) return;
       try {
