@@ -167,12 +167,18 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     toName: "inspector_custom_hosts",
   },
   {
-    // Fork migration originally shipped in slot 170 before upstream claimed
-    // 170_log_export_destinations. Upstream later also claimed 191-193, so keep the
-    // fork migration in 194 and remap already-applied 170 rows there.
+    // Fork migration first shipped as 170, then as 194 in fork 3.8.51/3.8.52.
+    // Upstream owns 170_log_export_destinations and 194_proxy_logs_attempt_timing.
+    // Rehome both historical fork ledger versions to 213 BEFORE upstream's 194 runs.
     fromVersion: "170",
     fromName: "api_key_preferred_connections",
-    toVersion: "194",
+    toVersion: "213",
+    toName: "api_key_preferred_connections",
+  },
+  {
+    fromVersion: "194",
+    fromName: "api_key_preferred_connections",
+    toVersion: "213",
     toName: "api_key_preferred_connections",
   },
   {

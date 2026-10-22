@@ -619,9 +619,16 @@ function isSchemaAlreadyApplied(
       // would answer for another migration's schema and skip it.
       return hasColumn(db, "proxy_logs", "attempt_number");
     case "194":
-      // Fork compatibility: api_key_preferred_connections originally shipped as
-      // migration 170 before upstream claimed that slot for log_export_destinations.
-      // Existing fork databases already have this column and must not re-run ALTER TABLE.
+      // Upstream 194 is proxy_logs_attempt_timing. The fork's historical
+      // 194_api_key_preferred_connections ledger entry is remapped to 213.
+      // Never misidentify the fork column as proof of upstream's 194.
+      return (
+        hasColumn(db, "proxy_logs", "headers_ms") &&
+        hasColumn(db, "proxy_logs", "first_chunk_ms")
+      );
+    case "213":
+      // The fork's preferred-connections column could already exist from
+      // migration 170 or 194 on previous custom releases.
       return hasColumn(db, "api_keys", "preferred_connections");
     default:
       return false;

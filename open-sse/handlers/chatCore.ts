@@ -126,7 +126,6 @@ import { getUnsupportedParams, REGISTRY } from "../config/providerRegistry.ts";
 
 import { checkToolCallingRequiredButUnsupported } from "./chatCore/toolCallingRequiredCheck.ts";
 import { buildExecutorClientHeaders } from "./chatCore/executorClientHeaders.ts";
-import { executeProviderRequest as executeProviderRequestLeaf } from "./chatCore/executeProviderRequest.ts";
 import { runNonStreamingResponse } from "./chatCore/nonStreamingResponse.ts";
 import {
   supportsMaxTokens,
@@ -2944,20 +2943,13 @@ async function handleChatCoreInner({
 
     return execute();
   };
-  // The pre-decomposition inline executeProviderRequest closed over the LIVE
-  // `translatedBody` binding: every mid-flight rebinding (pipeline wire update,
-  // tool-loop follow-up, thinking-signature recovery) was visible to the next
-  // dispatch. The deps object above only holds a snapshot, so the leg leaves
-  // must push each rebinding back through this setter to keep the wire send
-  // reading the current body.
+  // Fork-compatible live translatedBody binding: the inline request executor above
+  // reads the current variable after every tool-loop or fallback mutation.
+  // Upstream's extracted executeProviderRequestLeaf requires a dependency snapshot
+  // absent in this fork; switching to that code would break mid-flight updates.
   const syncExecuteTranslatedBody = (next: unknown) => {
     translatedBody = next as typeof translatedBody;
-    executeProviderRequestDeps.translatedBody = next as Record<string, unknown>;
   };
-  const executeProviderRequest = (
-    modelToCall: string = effectiveModel,
-    allowDedup: boolean = false
-  ) => executeProviderRequestLeaf(executeProviderRequestDeps, modelToCall, allowDedup);
 
   // Snapshot + message count helpers extracted to chatCore/providerRequestRegistration.ts
   // (chatCore slice 2).
