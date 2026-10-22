@@ -162,7 +162,9 @@ test("test 7: live-empty GitHub catalog path does not call persist", () => {
   const idx = src.indexOf("Codex live catalog unavailable — using GitHub model catalog");
   assert.ok(idx > 0);
   const start = src.lastIndexOf("if (githubCatalogModels", idx);
-  const end = src.indexOf("if (cachedDiscoveryModels", idx);
+  // Upstream v3.8.53 moved the cache case BEFORE GitHub, so bound this branch
+  // by its adjacent local-fallback response, not a later cache conditional.
+  const end = src.indexOf('source: "local_catalog"', idx);
   assert.ok(start > 0 && end > start);
   const window = src.slice(start, end);
   assert.match(window, /buildResponse\s*\(/);

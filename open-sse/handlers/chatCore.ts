@@ -239,7 +239,7 @@ import { applyPostTranslationCompression } from "./chatCore/postTranslationCompr
 import { isJsonRecord } from "./chatCore/nonStreamingResponseParse.ts";
 import { recordNonStreamingUsageStats } from "./chatCore/nonStreamingUsageStats.ts";
 import { getModelNormalizeToolCallId, getModelPreserveOpenAIDeveloperRole } from "@/lib/db/models";
-import { extractSessionAffinityKey } from "@/sse/services/auth";
+import { extractSessionAffinityKey, getProviderCredentials } from "@/sse/services/auth";
 import { createManagedLeaseFence } from "./chatCore/managedLeaseFence.ts";
 
 import { getCacheControlSettings } from "@/lib/cacheControlSettings";

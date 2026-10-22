@@ -36,7 +36,14 @@ test("empty model id falls back to the estimated guess without throwing", () => 
 
 test("table hits are untouched", () => {
   assert.equal(Object.keys(KNOWN_MODEL_PRICING).length, 23);
-  assert.deepEqual(getModelPricing("openai", "gpt-4o"), KNOWN_MODEL_PRICING["gpt-4o"]);
-  assert.deepEqual(getModelPricing("longcat", "LongCat-2.0"), KNOWN_MODEL_PRICING["longcat-2.0"]);
+  // New upstream 3.8.53 adds an explicit non-estimated marker to known catalog hits.
+  assert.deepEqual(getModelPricing("openai", "gpt-4o"), {
+    ...KNOWN_MODEL_PRICING["gpt-4o"],
+    isEstimated: false,
+  });
+  assert.deepEqual(getModelPricing("longcat", "LongCat-2.0"), {
+    ...KNOWN_MODEL_PRICING["longcat-2.0"],
+    isEstimated: false,
+  });
   assert.equal(getModelPricing("longcat", "LongCat-2.0").freeQuotaLimit, 10000000);
 });
