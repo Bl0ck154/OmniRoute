@@ -150,7 +150,10 @@ for (const [model, supportsMidSystem] of [
         onDisconnect() {},
         comboName: null,
       });
-      assert.equal(result.success, true);
+      if (!result.success) {
+        const diagnostic = await result.response?.text().catch(() => "<unreadable response>");
+        assert.fail("Claude passthrough failed for " + model + " turn " + turn + ": " + result.status + " " + diagnostic);
+      }
       await result.response.text();
       assert.equal(captured.length, turn, "each turn should produce exactly one upstream POST");
     }

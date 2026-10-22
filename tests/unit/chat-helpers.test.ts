@@ -759,7 +759,11 @@ test("executeChatWithBreaker preserves account TLS scope when a proxy bypasses t
       comboExecutionKey: null,
     });
 
-    assert.equal(result.tlsFingerprintUsed, true);
+    if (!result.tlsFingerprintUsed) {
+      const failed = "result" in result ? result.result : null;
+      const diagnostic = await failed?.response?.text().catch(() => "<unreadable response>");
+      assert.fail("TLS bypass lost tracking: providerStatus=" + failed?.status + " providerError=" + failed?.error + " response=" + diagnostic);
+    }
     assert.equal(observedProxy, null);
     assert.equal(observedScope, credentials.connectionId);
   } finally {
