@@ -228,8 +228,6 @@ type GeminiToolNameOptions = {
 // Returns the trimmed non-empty level, or null when no level was supplied — an
 // empty/whitespace string is treated as "no level" so it can never disagree
 // with the extraction that later writes the field onto the request.
-type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
-
 function extractExplicitThinkingLevel(body: Record<string, unknown>): GeminiThinkingLevel | null {
   const gc = body.generationConfig as Record<string, unknown> | undefined;
   const tc = gc?.thinkingConfig as Record<string, unknown> | undefined;

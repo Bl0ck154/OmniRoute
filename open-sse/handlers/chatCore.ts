@@ -3002,6 +3002,20 @@ async function handleChatCoreInner({
     translatedBody = next as typeof translatedBody;
   };
 
+  // Bridge the fork inline executor's permissive result into upstream 3.8.53's
+  // required attempt envelope. The actual response/transport is unchanged;
+  // only metadata used by the pipeline and receipt is normalized.
+  const executeProviderRequestForLeg = async (modelToCall: string, allowDedup: boolean) => {
+    const result = await executeProviderRequest(modelToCall, allowDedup);
+    return {
+      ...result,
+      url: typeof result.url === "string" ? result.url : "",
+      headers: result.headers ?? normalizeHeaders(result.response.headers),
+      transformedBody:
+        result.transformedBody ?? result.body ?? finalBody ?? translatedBody,
+    };
+  };
+
   // Snapshot + message count helpers extracted to chatCore/providerRequestRegistration.ts
   // (chatCore slice 2).
   const registeredProviderRequest = buildRegisteredProviderRequest(
@@ -3737,7 +3751,7 @@ async function handleChatCoreInner({
             },
           },
           sendProviderAttempt: (modelToCall, allowDedup) =>
-            executeProviderRequest(modelToCall, allowDedup),
+            executeProviderRequestForLeg(modelToCall, allowDedup),
         });
       };
 
@@ -3752,7 +3766,7 @@ async function handleChatCoreInner({
         allowAccountRotation: !managedLease && comboStrategy !== "context-relay",
         allowModelFallback: true,
         executeProviderRequest: (modelToCall, allowDedup) =>
-          executeProviderRequest(modelToCall, allowDedup),
+          executeProviderRequestForLeg(modelToCall, allowDedup),
         runProviderExecution: runNonStreamingPipeline,
         setRequestWireState: ({ translatedBody: nextBody, effectiveModel: nextModel }) => {
           translatedBody = nextBody as typeof translatedBody;
@@ -3926,7 +3940,7 @@ async function handleChatCoreInner({
             followUpLegInput(
               {
                 executeProviderRequest: (modelToCall, allowDedup) =>
-                  executeProviderRequest(modelToCall, allowDedup),
+                  executeProviderRequestForLeg(modelToCall, allowDedup),
                 runProviderExecution: runNonStreamingPipeline,
                 setRequestWireState: ({ translatedBody: nextBody, effectiveModel: nextModel }) => {
                   translatedBody = nextBody as typeof translatedBody;
