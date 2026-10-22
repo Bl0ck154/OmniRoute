@@ -130,6 +130,11 @@ import { runNonStreamingResponse } from "./chatCore/nonStreamingResponse.ts";
 import { runNonStreamingProviderLeg } from "./chatCore/nonStreamingProviderLeg.ts";
 import { runProviderExecutionPipeline } from "./chatCore/providerExecutionPipeline.ts";
 import { prepareUpstreamBody } from "./chatCore/upstreamBody.ts";
+import type { ChatCoreExecutorResult } from "./chatCore/executeProviderRequest.ts";
+import type { NonStreamingProviderLegResult } from "@/lib/skills/toolLoopTypes.ts";
+import { invalidateCodexQuotaCache } from "../services/codexQuotaFetcher.ts";
+import { invalidateQuotaCacheOnStatus as invalidateGenericQuotaCacheOnStatus } from "../services/genericQuotaFetcher.ts";
+import { isStreamRecoveryExplicitlyConfigured } from "@/lib/resilience/settings";
 import { maybeSyncClaudeExtraUsageState } from "./chatCore/telemetryHelpers.ts";
 // Backwards-compatible dependencies of the fork's inline non-streaming path.
 import { meteredBudgetCost } from "@/lib/usage/meteredBudgetPolicy";
@@ -4436,542 +4441,12 @@ async function handleChatCoreInner({
     }
   }
 
-  // Streaming response
-  // #3089 — some "reasoning" openai-compatible upstreams ignore a stream:true
-  // request and return a complete application/json chat-completion body instead
-  // of an SSE stream. The readiness check below only recognizes SSE `data:`
-  // frames, so that body produced a spurious STREAM_EARLY_EOF / HTTP 502 even
-  // though it carried valid content/reasoning_content. Detect a JSON (non-SSE)
-  // upstream body and synthesize an equivalent OpenAI SSE stream so the
-  // streaming pipeline (and the client) get a valid stream.
-  providerResponse = await maybeConvertJsonBodyToSse(providerResponse, { log, provider, model });
-  const streamReadinessPolicy = resolveStreamReadinessTimeout({
-    baseTimeoutMs: STREAM_READINESS_TIMEOUT_MS,
-    provider,
-    model,
-    body: (finalBody || translatedBody) as Record<string, unknown> | null | undefined,
-    maxTimeoutMs: agentGoalPolicy.detected
-      ? Math.max(STREAM_READINESS_MAX_TIMEOUT_MS, agentGoalPolicy.readinessMaxTimeoutMs)
-      : STREAM_READINESS_MAX_TIMEOUT_MS,
-  });
-  if (streamReadinessPolicy.timeoutMs !== streamReadinessPolicy.baseTimeoutMs) {
-    log?.debug?.(
-      "STREAM",
-      `adaptive readiness timeout=${streamReadinessPolicy.timeoutMs}ms base=${streamReadinessPolicy.baseTimeoutMs}ms reason=${streamReadinessPolicy.reasons.join(",")}`
-    );
-  }
-
-  let streamReadiness = await ensureStreamReadiness(providerResponse, {
-    timeoutMs: streamReadinessPolicy.timeoutMs,
-    maxTimeoutMs: streamReadinessPolicy.maxTimeoutMs,
-    provider,
-    model,
-    log,
-  });
-  // A stall is an upstream issue, not an account fault — the executor loop
-  // already ended at headers, so this bounded retry is the only recovery left.
-  const fallback = await maybeFallbackAfterReadiness({
-    streamReadiness,
-    clientAborted: streamController.signal.aborted,
-    failedConnectionId: getCurrentConnectionId(),
-    failedBody: providerResponse,
-    currentModel,
-    streamReadinessPolicy,
-    provider,
-    model,
-    log,
-    reqLogger,
-    providerUrl,
-    providerHeaders,
-    finalBody,
-    translatedBody,
-    executeProviderRequest,
-    providerRequestCapture,
-  });
-  streamReadiness = fallback.readiness;
-  providerResponse = fallback.providerResponse;
-  finalBody = fallback.finalBody;
-  if (streamReadiness.ok === false) {
-    const { response: failureResponse, reason } = streamReadiness;
-    const { classificationReason, upstreamDiagnostic } = streamReadiness;
-    trackPendingRequest(model, provider, pendingConnId, false, undefined, pendingRequestId);
-    appendRequestLog({
-      model,
-      provider,
-      connectionId,
-      status: `FAILED ${failureResponse.status}`,
-    }).catch(() => {});
-    persistAttemptLogs({
-      status: failureResponse.status,
-      error: reason,
-      providerRequest: finalBody || translatedBody,
-      clientResponse: buildErrorBody(
-        failureResponse.status,
-        classificationReason,
-        upstreamDiagnostic ? { error: { message: upstreamDiagnostic } } : undefined
-      ),
-      claudeCacheMeta: claudePromptCacheLogMeta,
-      cacheSource: "upstream",
-    });
-    persistFailureUsage(failureResponse.status, streamReadiness.code);
-    // Do NOT call onStreamFailure — a stream stall is an upstream issue,
-    // not an account/quota failure. Marking the account unavailable here
-    // would lock out legitimate accounts when the upstream hangs.
-    return {
-      success: false,
-      status: failureResponse.status,
-      error: reason,
-      classificationError: classificationReason,
-      errorType: streamReadiness.type,
-      errorCode: streamReadiness.code,
-      response: failureResponse,
-    };
-  }
-  providerResponse = streamReadiness.response;
-
-  // Flush-empty retry (opt-in `FLUSH_EMPTY_RETRY_ENABLED`, default off): when the
-  // upstream turn carries no usable content (reasoning-only 200, or a
-  // zero-valuable-chunk turn that the empty-stream guard would turn into a 502),
-  // issue bounded retries through the normal credential path BEFORE anything is
-  // exposed to the client — in particular before `onRequestSuccess` below.
-  // Empty turns are stochastic upstream misses, not account faults, so no
-  // cooldown and no forced exclusion: the round-robin picker may rotate
-  // fingerprint slots opportunistically, a single slot simply replays the same
-  // account. Budget: `STREAM_RECOVERY.EMPTY_TURN_RETRY_MAX` retries, then fall
-  // back to the current behavior. Translate-path streams only (mirror of the
-  // empty-stream guard); flag off = byte-for-byte unchanged. Bounded reader
-  // (abandon past the cap, never a full `text()` read); the original
-  // reconstructed response is piped, only the bounded copy is classified.
-  // Known TTFT cost when armed: a small valid turn under the cap is fully
-  // buffered before the first client byte (flag off by default, so the
-  // streaming path is untouched unless opted in).
-  if (stream && providerResponse.ok && providerResponse.body) {
-    let flushEmptyRetryArmed = false;
-    try {
-      flushEmptyRetryArmed = isFeatureFlagEnabled("FLUSH_EMPTY_RETRY_ENABLED");
-    } catch {
-      flushEmptyRetryArmed = false;
-    }
-    const isTranslatePath =
-      targetFormat === FORMATS.OPENAI_RESPONSES ||
-      needsTranslation(targetFormat, clientResponseFormat);
-    if (flushEmptyRetryArmed && isTranslatePath) {
-      for (
-        let emptyTurnRetries = 0;
-        emptyTurnRetries <= STREAM_RECOVERY.EMPTY_TURN_RETRY_MAX;
-        emptyTurnRetries++
-      ) {
-        const verdict = judgeBufferedTurn(
-          await readBoundedResponseOutcome(
-            providerResponse,
-            FLUSH_EMPTY_RETRY_MAX_BYTES,
-            streamReadinessPolicy.timeoutMs
-          ),
-          targetFormat,
-          clientResponseFormat,
-          clientRawRequest?.signal?.aborted === true
-        );
-        if (verdict.kind === "pass") {
-          const v = formatBufferedVerdictLog(verdict, correlationId, traceId);
-          log?.[v.level]?.("FLUSH_EMPTY_RETRY", v.line);
-          noteBufferedVerdictOutcome(verdict, null, false);
-          break;
-        }
-        if (emptyTurnRetries >= STREAM_RECOVERY.EMPTY_TURN_RETRY_MAX) {
-          log?.warn?.(
-            "FLUSH_EMPTY_RETRY",
-            "retry budget exhausted, falling back to current behavior"
-          );
-          noteBufferedVerdictOutcome(verdict, null, true);
-          break;
-        }
-        log?.warn?.(
-          "FLUSH_EMPTY_RETRY",
-          `${verdict.reason}, bounded retry through the normal credential path`
-        );
-        noteBufferedVerdictOutcome(verdict, { level: "warn", line: verdict.reason }, false);
-        const nextCreds = await getProviderCredentials(
-          provider,
-          null,
-          null,
-          currentModel
-        ).catch(() => null);
-        if (!nextCreds?.connectionId) break;
-        const retryConnectionId = String(nextCreds.connectionId);
-        Object.assign(credentials, nextCreds);
-        log?.info?.("FLUSH_EMPTY_RETRY", `retrying on ${retryConnectionId}`);
-        await providerResponse.body?.cancel().catch(() => {});
-        let retryResult: unknown = null;
-        try {
-          retryResult = await executeProviderRequest(currentModel, false);
-        } catch {
-          break;
-        }
-        const retryResponse = (retryResult as { response?: Response })?.response;
-        if (!retryResponse?.ok || !retryResponse.body) {
-          if (retryResponse) await retryResponse.body?.cancel().catch(() => {});
-          break;
-        }
-        const prepared = await maybeConvertJsonBodyToSse(retryResponse, {
-          log,
-          provider,
-          model,
-        });
-        const ready = prepared.ok
-          ? await ensureStreamReadiness(prepared, {
-              timeoutMs: streamReadinessPolicy.timeoutMs,
-              maxTimeoutMs: streamReadinessPolicy.maxTimeoutMs,
-              provider,
-              model,
-              log,
-            })
-          : null;
-        const preparedStream = ready && ready.ok ? ready.response : null;
-        if (!preparedStream) {
-          await retryResponse.body?.cancel().catch(() => {});
-          break;
-        }
-        // Swap BEFORE re-classifying so the next loop iteration reads the retry.
-        providerResponse = preparedStream;
-        finalBody = providerRequestCapture.body(
-          (retryResult as { transformedBody?: unknown })?.transformedBody ?? translatedBody
-        );
-        reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
-      }
-    }
-  }
-
-  // Notify success - caller can clear error status if needed
-  if (onRequestSuccess) {
-    await onRequestSuccess();
-  }
-
-  const responseHeaders = assembleStreamingResponseHeaders({
-    providerHeaders: providerResponse.headers,
-    provider,
-    model,
-    pendingRequestId,
-    compressionResponseMeta,
-    comboStrategy,
-    fallbackAttempts,
-    isCombo, // #14116: foreign-account quota-header strip (only meaningful when true)
-    requestedConnectionId: forcedConnectionId || null,
-    selectedConnectionId: credentials?.connectionId ?? null,
-  });
-
-  // The streaming headers (turn-state included, when present) are committed to
-  // the client from here on — record which connection minted the blob so a
-  // later cross-account echo can be stripped (Codex failover guard). The
-  // in-place failover update means `credentials` is the winning account.
-  if (provider === "codex" && readCodexTurnStateHeader(providerResponse.headers)) {
-    noteCodexTurnStateProvenance(
-      getCodexClientSessionId(clientRawRequest?.headers),
-      credentials?.connectionId
-    );
-  }
-
-  // Create transform stream with logger for streaming response
-  let transformStream;
-  const responseToolNameMap = mergeResponseToolNameMap(
-    toolNameMap,
-    (finalBody as Record<string, unknown> | null | undefined) ?? null
-  );
-
-  let streamCompletionRecorded = false;
-  let streamFailureCompletionRecorded = false;
-
-  // Callback to save call log when stream completes (include responseBody when provided by stream)
-  const onStreamComplete = ({
-    status: streamStatus,
-    usage: streamUsage,
-    responseBody: streamResponseBody,
-    providerPayload,
-    clientPayload,
-    reasoningMeta: streamReasoningMeta,
-    error: streamError,
-    errorCode: streamErrorCode,
-    ttft,
-    itlMs: streamItlMs,
-    interrupted: _streamInterrupted,
-  }) => {
-    const normalizedStreamStatus = streamStatus || 200;
-    if (streamCompletionRecorded) return;
-    streamCompletionRecorded = true;
-    if (normalizedStreamStatus !== 200) {
-      if (streamFailureCompletionRecorded) return;
-      streamFailureCompletionRecorded = true;
-    }
-    const cacheUsageLogMeta = buildCacheUsageLogMeta(streamUsage);
-    const streamConnectionId = getCurrentConnectionId();
-
-    if (normalizedStreamStatus === 200 && orderForgeImageArtifactCapture) {
-      try {
-        const artifacts = persistOrderForgeImageArtifacts({
-          capture: orderForgeImageArtifactCapture,
-          responseBody: clientPayload ?? streamResponseBody ?? providerPayload,
-        });
-        for (const artifact of artifacts) {
-          log?.info?.(
-            "ETSY_IMAGE_ARTIFACT",
-            `stored artifactId=${artifact.artifactId || "none"} correlationId=${artifact.correlationId} imageCallId=${artifact.imageCallId} format=${artifact.format} bytes=${artifact.sizeBytes} sha256=${artifact.sha256}`
-          );
-        }
-      } catch (error) {
-        log?.error?.(
-          "ETSY_IMAGE_ARTIFACT",
-          `store failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-
-    if (normalizedStreamStatus === 200) {
-      void maybeSyncClaudeExtraUsageState({
-        provider,
-        connectionId: streamConnectionId,
-        providerSpecificData: credentials?.providerSpecificData,
-        log,
-      });
-    }
-
-    if (normalizedStreamStatus === 200 && streamResponseBody) {
-      captureStreamReasoningForReplay({
-        streamResponseBody,
-        clientResponseFormat,
-        responseToolNameMap,
-        providerRequestBody: finalBody || translatedBody || body,
-        translatedBody,
-        reasoningReplayHistory,
-        provider,
-        model,
-        reasoningCacheScope,
-        videoTranscriptSensitive: videoBridgeObserved,
-      });
-    }
-    effectiveServiceTier = resolveReportedServiceTier(streamResponseBody) ?? effectiveServiceTier;
-
-    // Context Editing telemetry (streaming): the reconstructed stream body now carries
-    // context_management.applied_edits from the final message_delta snapshot. Mirror the
-    // non-streaming hook so streaming context-clear savings also surface under engine
-    // "context-editing" in compression analytics. Best-effort, Claude-only.
-    if (normalizedStreamStatus === 200) {
-      recordContextEditingTelemetryHook({
-        contextEditingEnabled,
-        provider,
-        responseBody: streamResponseBody,
-        skillRequestId,
-        log,
-      });
-    }
-
-    streamFailure.finalizeStreamRequestLog({
-      pendingRequestId,
-      model,
-      provider,
-      connectionId: streamConnectionId,
-      providerResponse: providerPayload ?? streamResponseBody ?? undefined,
-      clientResponse: clientPayload ?? streamResponseBody ?? undefined,
-      status: normalizedStreamStatus,
-      error: streamError,
-      errorCode: streamErrorCode,
-    });
-
-    // Track cache token metrics for streaming responses
-    if (streamUsage && typeof streamUsage === "object") {
-      attachCompressionUsageReceiptAfterAnalytics(streamUsage as Record<string, unknown>, "stream");
-      // Track Gemini token consumption for TPM rate-limit pre-check
-      if (provider === "gemini") {
-        const promptTokens =
-          typeof (streamUsage as Record<string, unknown>).prompt_tokens === "number"
-            ? ((streamUsage as Record<string, unknown>).prompt_tokens as number)
-            : 0;
-        if (promptTokens > 0) incrementTokenUsage(model, promptTokens);
-      }
-    }
-    recordStreamingUsageStats(streamUsage, {
-      provider,
-      model,
-      streamStatus: normalizedStreamStatus,
-      startTime,
-      ttft,
-      streamErrorCode,
-      connectionId: streamConnectionId,
-      apiKeyInfo,
-      allowedConnections,
-      appendRequestLog,
-      applyProviderFailureClassification,
-      assertManagedLeaseFence,
-      attachCompressionUsageReceiptAfterAnalytics,
-      body,
-      bodyForCacheWrite,
-      buildCacheUsageLogMeta,
-      buildCostCtx,
-      buildErrorBody,
-      calculateCostDetailed,
-      calibrationEstimatedInputTokens,
-      claudePromptCacheLogMeta,
-      clientRawRequest,
-      clientRequestedResponsesStream,
-      clientResponseFormat,
-      comboStrategy,
-      compressionResponseMeta,
-      connectionId,
-      contextEditingEnabled,
-      copilotCompatibleReasoning,
-      createErrorResult,
-      credentials,
-      currentModel,
-      customToolNames,
-      describeMalformedNonStream,
-      detectMalformedNonStream,
-      echoModel,
-      echoModelInObject,
-      effectiveModel,
-      effectiveServiceTier,
-      emitRequestGamificationEvent,
-      endpointPath,
-      executeProviderRequest,
-      executeRefreshCredentials,
-      extractSessionAffinityKey,
-      extractUsageFromResponse,
-      fallbackAttempts,
-      finalBody,
-      finalizePendingScope,
-      getCurrentConnectionId,
-      getManagedLeaseFenceErrorCode,
-      getModelNormalizeToolCallId,
-      getModelPreserveOpenAIDeveloperRole,
-      getSafeErrorMetadata,
-      getSkillsModelIdForFormat,
-      guardrailRegistry,
-      handleCredentialsRefreshed,
-      handleToolCallExecution,
-      idempotencyKey,
-      incrementTokenUsage,
-      injectionResult,
-      isClaudeCodeCompatible,
-      isCombo,
-      isJsonRecord,
-      isLocalStreamLifecycleError,
-      isResponsesEndpoint,
-      isSemaphoreCapacityError,
-      isServerOwnedToolLoopEnabled,
-      log,
-      logAuditEvent,
-      managedLease,
-      managedLeaseFenceErrorResult,
-      markAccountSemaphoreBlocked,
-      memoryOwnerId,
-      memorySettings,
-      model,
-      normalizeHeaders,
-      normalizeUsage,
-      onRequestSuccess,
-      pendingConnId,
-      pendingRequestId,
-      pendingScope,
-      persistAttemptLogs,
-      persistFailureUsage,
-      pipelineRecovered,
-      pipelineSessionId,
-      preserveCacheControl,
-      provider,
-      providerHeaders,
-      providerRequestCapture,
-      providerResponse,
-      reasoningCacheScope,
-      reasoningReplayHistory,
-      recordChatCallCost,
-      recordContextEditingTelemetryHook,
-      recordCoreOwnedAntigravityQuotaState,
-      recordNonStreamingUsageStats,
-      reportMalformed200,
-      reqLogger,
-      requestToolIdentityMap,
-      resolveReportedServiceTier,
-      runMemoryExtractionGate,
-      runPluginOnResponseHook,
-      sanitizeErrorMessage,
-      sanitizeUpstreamDetails,
-      saveIdempotency: saveIdempotencyWithConfiguredWindow,
-      scheduleQuotaShareConsumption,
-      semanticCacheEnabled,
-      sessionAffinityKey,
-      shouldIsolateProbeFailures,
-      skillRequestId,
-      sourceFormat,
-      startTime,
-      stream,
-      targetFormat,
-      toolNameMap,
-      traceEnabled,
-      traceId,
-      trackPendingRequest,
-      translateRequest,
-      translatedBody,
-      triedModels,
-      updateFromHeaders,
-      updateFromResponseBody,
-      updatePendingScope,
-      updateProviderConnection,
-      videoBridgeObserved,
-      webFetchFallbackPlan,
-      webSearchFallbackPlan,
-      syncExecuteTranslatedBody,
-    });
-    if (nonStreamingOutcome) {
-      translatedBody = nonStreamingOutcome.carry.translatedBody;
-      currentModel = nonStreamingOutcome.carry.currentModel;
-      finalBody = nonStreamingOutcome.carry.finalBody;
-      providerResponse = nonStreamingOutcome.carry.providerResponse;
-      providerHeaders = nonStreamingOutcome.carry.providerHeaders;
-      effectiveServiceTier = nonStreamingOutcome.carry.effectiveServiceTier;
-      claudePromptCacheLogMeta = nonStreamingOutcome.carry.claudePromptCacheLogMeta;
-      reasoningReplayHistory = nonStreamingOutcome.carry.reasoningReplayHistory;
-      pipelineRecovered = nonStreamingOutcome.carry.pipelineRecovered;
-      return nonStreamingOutcome.response;
-    }
-  }
-
-    const finalStream = assembleStreamingPipeline({
-      providerResponse,
-      transformStream,
-      streamController,
-      createPiiTransform,
-      clientRawRequestHeaders: clientRawRequest?.headers,
-      clientResponseFormat,
-      echoModel,
-      responseHeaders,
-      // Same adaptive budget the pre-handoff readiness gate above just used —
-      // reasoning models that legitimately take a while to say anything keep
-      // that same patience for their first REAL content, not just their first
-      // lifecycle frame. See pipeWithDisconnect's own doc comment.
-      contentStallTimeoutMs: streamReadinessPolicy.timeoutMs,
-    });
-    let clientStream = finalStream;
-    if (orderForgeImageArtifactCapture) {
-      const [downstreamStream, artifactStream] = finalStream.tee();
-      clientStream = downstreamStream;
-      void drainOrderForgeImageArtifactStream(artifactStream).catch((error) => {
-        log?.error?.(
-          "ETSY_IMAGE_ARTIFACT",
-          `drain failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
-        );
-      });
-    }
-    const clientFacingStream = wrapReadableStreamWithFinalize(
-      clientStream,
-      releaseTurnExecution
-    );
-
-    // ── Gamification event (fire-and-forget) ──
-  await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
-
-  // ── Plugin onResponse hook (fire-and-forget) ──
-  await runPluginOnResponseHook({
-    requestId: traceId,
-    body,
-    model,
-    provider,
+  // The upstream streaming-tail module owns readiness, retry, translation,
+  // cache accounting and final response. The original mixed inline/extracted
+  // merge duplicated payload fields and referenced outcomes that never existed.
+  // Keep Order Forge's scoped image-capture hooks across this extraction.
+  const streamingTailOutcome = await runStreamingTail({
+    agentGoalPolicy,
     apiKeyInfo,
     attachCompressionUsageReceiptAfterAnalytics,
     body,
@@ -4992,13 +4467,12 @@ async function handleChatCoreInner({
     customToolNames,
     echoModel,
     effectiveModel,
-    effectiveServiceTier,
     endpointPath,
     executeProviderRequest,
     executor,
     fallbackAttempts,
-    finalBody,
     getCurrentConnectionId,
+    forcedConnectionId,
     isCombo,
     isDroidCLI,
     isResponsesEndpoint,
@@ -5007,6 +4481,7 @@ async function handleChatCoreInner({
     memoryOwnerId,
     memorySettings,
     model,
+    modelInfo,
     onRequestSuccess,
     onStreamFailure,
     pendingConnId,
@@ -5017,7 +4492,6 @@ async function handleChatCoreInner({
     provider,
     providerHeaders,
     providerRequestCapture,
-    providerResponse,
     providerUrl,
     reasoningCacheScope,
     reasoningReplayHistory,
@@ -5037,6 +4511,47 @@ async function handleChatCoreInner({
     traceId,
     translatedBody,
     videoBridgeObserved,
+    providerResponse,
+    finalBody,
+    effectiveServiceTier,
+    onSuccessfulStreamPayload: (responseBody) => {
+      if (!orderForgeImageArtifactCapture) return;
+      try {
+        const artifacts = persistOrderForgeImageArtifacts({
+          capture: orderForgeImageArtifactCapture,
+          responseBody,
+        });
+        for (const artifact of artifacts) {
+          log?.info?.(
+            "ETSY_IMAGE_ARTIFACT",
+            "stored artifactId=" + (artifact.artifactId || "none") +
+            " correlationId=" + artifact.correlationId +
+            " imageCallId=" + artifact.imageCallId +
+            " format=" + artifact.format +
+            " bytes=" + artifact.sizeBytes +
+            " sha256=" + artifact.sha256
+          );
+        }
+      } catch (error) {
+        log?.error?.(
+          "ETSY_IMAGE_ARTIFACT",
+          "store failed correlationId=" + orderForgeImageArtifactCapture.correlationId +
+          ": " + (error instanceof Error ? error.message : String(error))
+        );
+      }
+    },
+    wrapResponseStream: (source) => {
+      if (!orderForgeImageArtifactCapture) return source;
+      const [downstreamStream, artifactStream] = source.tee();
+      void drainOrderForgeImageArtifactStream(artifactStream).catch((error) => {
+        log?.error?.(
+          "ETSY_IMAGE_ARTIFACT",
+          "drain failed correlationId=" + orderForgeImageArtifactCapture.correlationId +
+          ": " + (error instanceof Error ? error.message : String(error))
+        );
+      });
+      return downstreamStream;
+    },
   });
   onPipelineStreamError = streamingTailOutcome.carry.onPipelineStreamError;
   onClientDisconnectFinalize = streamingTailOutcome.carry.onClientDisconnectFinalize;

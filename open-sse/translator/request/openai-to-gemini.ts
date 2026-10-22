@@ -228,7 +228,9 @@ type GeminiToolNameOptions = {
 // Returns the trimmed non-empty level, or null when no level was supplied — an
 // empty/whitespace string is treated as "no level" so it can never disagree
 // with the extraction that later writes the field onto the request.
-function extractExplicitThinkingLevel(body: Record<string, unknown>): string | null {
+type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
+
+function extractExplicitThinkingLevel(body: Record<string, unknown>): GeminiThinkingLevel | null {
   const gc = body.generationConfig as Record<string, unknown> | undefined;
   const tc = gc?.thinkingConfig as Record<string, unknown> | undefined;
   const tcSnake = gc?.thinking_config as Record<string, unknown> | undefined;
@@ -239,7 +241,11 @@ function extractExplicitThinkingLevel(body: Record<string, unknown>): string | n
     body.thinking_level,
   ];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim() !== "") return candidate.trim();
+    if (typeof candidate !== "string") continue;
+    const value = candidate.trim().toLowerCase();
+    if (value === "minimal" || value === "low" || value === "medium" || value === "high") {
+      return value;
+    }
   }
   return null;
 }
@@ -272,6 +278,7 @@ function openaiToGeminiBase(
   // 3.x migration guidance documents `thinkingBudget` as deprecated — so the
   // level wins and no budget is set. Only the string level is forwarded.
   const explicitThinkingLevel = extractExplicitThinkingLevel(body);
+  const rejectsThinkingConfig = geminiModelRejectsThinkingConfig(model);
   const toolNameMap = new Map<string, string>();
   const sanitizeToolName = (name: string) =>
     sanitizeGeminiToolName(name, {

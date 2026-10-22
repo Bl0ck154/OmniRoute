@@ -65,6 +65,11 @@ import { handleCursorAgentImageGeneration } from "./imageGeneration/providers/cu
 import { handleMinimaxImageGeneration } from "./imageGeneration/providers/minimax.ts";
 import { handleCloudflareAiImageGeneration } from "./imageGeneration/providers/cloudflareAi.ts";
 import { buildXaiImageRequest } from "./imageGeneration/providers/xaiImage.ts";
+import { IMAGE_FANOUT_MAX_N, SINGLE_IMAGE_FANOUT_FORMATS, resolveRequestedImageCount, fanOutSingleImageCalls } from "./imageGeneration/fanOut.ts";
+import { handleZenmuxImageGeneration } from "./imageGeneration/providers/zenmux.ts";
+import { handleMuseImageGeneration } from "./imageGeneration/providers/museImage.ts";
+import { handleGeminiAiImageGeneration } from "./imageGeneration/providers/geminiAiStudio.ts";
+import { handleBlackForestLabsImageGeneration } from "./imageGeneration/providers/blackForestLabs.ts";
 import { handleMaxaiImageGeneration } from "./imageGeneration/providers/maxaiImage.ts";
 import { handleAdobeFireflyImageGeneration } from "./imageGeneration/providers/adobeFirefly.ts";
 import { handleSyntxImageGeneration } from "./imageGeneration/providers/syntx.ts";

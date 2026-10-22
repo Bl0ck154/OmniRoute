@@ -379,6 +379,17 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
     const cacheUsageLogMeta = buildCacheUsageLogMeta(streamUsage);
     const streamConnectionId = getCurrentConnectionId();
 
+    // Fork extension: scoped Order Forge image artifacts are committed only
+    // from a successful fully-assembled stream (no partial/error persistence).
+    if (normalizedStreamStatus === 200 && typeof deps.onSuccessfulStreamPayload === "function") {
+      try {
+        deps.onSuccessfulStreamPayload(clientPayload ?? streamResponseBody ?? providerPayload);
+      } catch (error) {
+        log?.error?.("ETSY_IMAGE_ARTIFACT", "stream payload hook failed: " +
+          (error instanceof Error ? error.message : String(error)));
+      }
+    }
+
     if (normalizedStreamStatus === 200) {
       clearPostOutputFailureStreak(provider, streamConnectionId, modelInfo.model);
       void maybeSyncClaudeExtraUsageState({
@@ -781,7 +792,12 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
     // lifecycle frame. See pipeWithDisconnect's own doc comment.
     contentStallTimeoutMs: streamReadinessPolicy.timeoutMs,
   });
-  const clientFacingStream = wrapReadableStreamWithFinalize(finalStream, releaseTurnExecution);
+  // The fork may fork a privileged image-artifact drain without consuming the
+  // user-visible stream. The callback returns the original stream when absent.
+  const deliveryStream = typeof deps.wrapResponseStream === "function"
+    ? deps.wrapResponseStream(finalStream)
+    : finalStream;
+  const clientFacingStream = wrapReadableStreamWithFinalize(deliveryStream, releaseTurnExecution);
 
   // ── Gamification event (fire-and-forget) ──
   await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });
