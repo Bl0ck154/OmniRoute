@@ -9,6 +9,14 @@ import { resolveRegisteredFeatureFlag } from "@/shared/utils/featureFlagResolver
 import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { getModelsByProviderId } from "./providerModels.ts";
 import { KIE_IMAGE_MODELS } from "./providers/registry/kie/imageModels.ts";
+import { LMARENA_DIRECT_IMAGE_MODELS } from "./providers/registry/lmarena/directModels.ts";
+import { SEGMIND_IMAGE_PROVIDER } from "./providers/registry/segmind/imageModels.ts";
+import { MAGNIFIC_IMAGE_PROVIDER } from "./providers/registry/magnific/index.ts";
+import { STABILITY_AI_IMAGE_MODELS } from "./providers/registry/stability-ai/imageModels.ts";
+import { CHEAPERINFERENCE_IMAGE_PROVIDER } from "./providers/registry/cheaperinference/imageModels.ts";
+import { ADOBE_FIREFLY_IMAGE_ROUTING_ALIASES, toRegistryImageModels } from "../services/adobeFireflyModels.ts";
+import { AI_HORDE_IMAGE_PROVIDER } from "./providers/registry/aihorde/imageModels.ts";
+
 import {
   type ImageModelEntry,
   type ImageProviderConfig,

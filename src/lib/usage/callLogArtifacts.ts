@@ -333,7 +333,7 @@ export function writeCallArtifact(
     // so artifact bookkeeping is not treated as password hashing by static analysis.
     const fileChecksum = computeArtifactChecksum(serialized);
 
-    ensurePrivateArtifactDir(CALL_LOGS_DIR, path.dirname(absPath));
+    ensurePrivateArtifactDir(logsDir, path.dirname(absPath));
     // The mode is applied at creation and survives the atomic rename.
     fs.writeFileSync(tmpPath, serialized, { mode: PRIVATE_FILE_MODE });
     fs.renameSync(tmpPath, absPath);
