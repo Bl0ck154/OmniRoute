@@ -155,8 +155,25 @@ export function isRecoverableUpstreamTimeoutError(err) {
   // directResponseStartTimeout.ts and proxyFetch.ts (pooled relay), respectively.
   if (err === "DIRECT_RESPONSE_START_TIMEOUT" || err === "RELAY_TIMEOUT") return true;
   if (!err || typeof err !== "object") return false;
-  const code = /** @type {NodeJS.ErrnoException} */ (err).code;
-  return code === "DIRECT_RESPONSE_START_TIMEOUT" || code === "RELAY_TIMEOUT";
+  const error = /** @type {NodeJS.ErrnoException} */ (err);
+  if (error.code === "DIRECT_RESPONSE_START_TIMEOUT" || error.code === "RELAY_TIMEOUT") {
+    return true;
+  }
+
+  // #16817: open-sse/utils/stream.ts creates a plain Error with this exact
+  // name/message after response headers arrived but body bytes stalled.
+  // Restrict the guard to our emitted shape; broad BodyTimeoutError checks
+  // would conceal programmer errors or unrelated timeout subclasses.
+  if (
+    error instanceof Error &&
+    !(error instanceof TypeError) &&
+    error.name === "BodyTimeoutError" &&
+    error.code === undefined
+  ) {
+    const match = /^Response body read timeout after ([1-9]\d*)ms$/.exec(error.message);
+    return match !== null && Number.isSafeInteger(Number(match[1]));
+  }
+  return false;
 }
 
 /**
