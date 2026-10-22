@@ -254,7 +254,7 @@ import {
 } from "@/lib/usage/pendingRequestScope";
 import { recordChatCallCost, buildCostCtx } from "@/domain/costRules";
 import { attachOmniRouteMetaToResponse as attachRouteMeta } from "@/domain/omnirouteResponseMeta";
-import { calculateCostDetailed } from "@/lib/usage/costCalculator";
+import { calculateCostDetailed, calculateCost } from "@/lib/usage/costCalculator";
 import {
   createDisabledCompressionConfig,
   resolveCompressionSettings,

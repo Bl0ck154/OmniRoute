@@ -91,3 +91,6 @@ jobs:
       - name: Typecheck core
         if: success() || failure()
         run: npm run typecheck:core
+      - name: Typecheck open-sse
+        if: success() || failure()
+        run: npm run check:open-sse-typecheck
