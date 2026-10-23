@@ -317,7 +317,7 @@ function recordGeminiStreamUsage(
       : Math.max(0, (previous?.completion_tokens ?? 0) - previousThoughts);
   const reportedTotal =
     typeof usageMeta.totalTokenCount === "number" ? usageMeta.totalTokenCount : 0;
-  if (candidatesTokens === 0 && reportedTotal > 0 && usageMeta.candidatesTokenCount === undefined) {
+  if (candidatesTokens === 0 && reportedTotal > 0) {
     candidatesTokens = Math.max(0, reportedTotal - promptTokens - thoughtsTokens);
   }
   const completionTokens = candidatesTokens + thoughtsTokens;
@@ -393,6 +393,7 @@ export function geminiToOpenAIResponse(chunk, state) {
       // OpenAI's usage-only terminal chunk has choices: [].
       if (
         !promptFeedback &&
+        state.finishReason &&
         ["promptTokenCount", "candidatesTokenCount", "totalTokenCount", "cachedContentTokenCount"]
           .some((field) => typeof usageMeta[field] === "number")
       ) {
