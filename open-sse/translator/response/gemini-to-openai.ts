@@ -393,7 +393,7 @@ export function geminiToOpenAIResponse(chunk, state) {
       // OpenAI's usage-only terminal chunk has choices: [].
       if (
         !promptFeedback &&
-        state.finishReason &&
+        (state.finishReason || state.hasEmittedContent) &&
         ["promptTokenCount", "candidatesTokenCount", "totalTokenCount", "cachedContentTokenCount"]
           .some((field) => typeof usageMeta[field] === "number")
       ) {
