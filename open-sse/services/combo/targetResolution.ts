@@ -724,7 +724,10 @@ async function applyPromptCacheStage(
     isDeterministicStrategy ? "model" : "global",
     deps.relayOptions?.sessionId
   );
-  if (!promptCacheAffinity.applied) return orderedTargets;
+  // Even when the affinity ranking is unchanged, preserve account-bound targets.
+  // Returning the unexpanded list would let the credential pool choose a different
+  // account, defeating cache affinity for otherwise identical requests.
+  if (!promptCacheAffinity.applied) return promptCacheAffinityTargets;
   const protectedOriginal =
     shouldProtectOriginalFirst(stickyStuck, autoUsedExplicitRouter, strategy) && orderedTargets[0];
   const nextTargets = protectFirstTarget(promptCacheAffinity.targets, protectedOriginal);
