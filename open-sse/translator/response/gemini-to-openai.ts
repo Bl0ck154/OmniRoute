@@ -295,6 +295,47 @@ function emitFunctionCallPart(
   });
 }
 
+// The Gemini API may send the final usageMetadata in a candidate-less SSE event.
+// Keep cache reads in the normal OpenAI usage shape for both event layouts.
+function recordGeminiStreamUsage(
+  usageMeta: Record<string, unknown>,
+  state: GeminiToOpenAIState
+): void {
+  const previous = state.usage;
+  const promptTokens =
+    typeof usageMeta.promptTokenCount === "number"
+      ? usageMeta.promptTokenCount
+      : (previous?.prompt_tokens ?? 0);
+  const previousThoughts = previous?.completion_tokens_details?.reasoning_tokens ?? 0;
+  const thoughtsTokens =
+    typeof usageMeta.thoughtsTokenCount === "number"
+      ? usageMeta.thoughtsTokenCount
+      : previousThoughts;
+  let candidatesTokens =
+    typeof usageMeta.candidatesTokenCount === "number"
+      ? usageMeta.candidatesTokenCount
+      : Math.max(0, (previous?.completion_tokens ?? 0) - previousThoughts);
+  const reportedTotal =
+    typeof usageMeta.totalTokenCount === "number" ? usageMeta.totalTokenCount : 0;
+  if (candidatesTokens === 0 && reportedTotal > 0 && usageMeta.candidatesTokenCount === undefined) {
+    candidatesTokens = Math.max(0, reportedTotal - promptTokens - thoughtsTokens);
+  }
+  const completionTokens = candidatesTokens + thoughtsTokens;
+  const cachedTokens =
+    typeof usageMeta.cachedContentTokenCount === "number"
+      ? usageMeta.cachedContentTokenCount
+      : (previous?.prompt_tokens_details?.cached_tokens ?? 0);
+  state.usage = {
+    prompt_tokens: promptTokens,
+    completion_tokens: completionTokens,
+    total_tokens: reportedTotal || promptTokens + completionTokens,
+    ...(cachedTokens > 0 ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {}),
+    ...(thoughtsTokens > 0
+      ? { completion_tokens_details: { reasoning_tokens: thoughtsTokens } }
+      : {}),
+  };
+}
+
 // Convert Gemini response chunk to OpenAI format
 export function geminiToOpenAIResponse(chunk, state) {
   if (!chunk) return null;
@@ -345,6 +386,26 @@ export function geminiToOpenAIResponse(chunk, state) {
     }
 
     const promptFeedback = response.promptFeedback || chunk.promptFeedback;
+    const usageMeta = response.usageMetadata || chunk.usageMetadata;
+    if (usageMeta && typeof usageMeta === "object") {
+      recordGeminiStreamUsage(usageMeta, state);
+      // In streamGenerateContent the final event can contain usage without candidates.
+      // OpenAI's usage-only terminal chunk has choices: [].
+      if (
+        !promptFeedback &&
+        ["promptTokenCount", "candidatesTokenCount", "totalTokenCount", "cachedContentTokenCount"]
+          .some((field) => typeof usageMeta[field] === "number")
+      ) {
+        return [{
+          id: `chatcmpl-${state.messageId || response.responseId || "gemini"}`,
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: state.model || response.modelVersion || "gemini",
+          choices: [],
+          usage: state.usage,
+        }];
+      }
+    }
     if (!promptFeedback) return null;
 
     if (!state.messageId) {
@@ -648,48 +709,7 @@ export function geminiToOpenAIResponse(chunk, state) {
   // Usage metadata - extract before finish reason so we can include it
   const usageMeta = response.usageMetadata || chunk.usageMetadata;
   if (usageMeta && typeof usageMeta === "object") {
-    const cachedTokens =
-      typeof usageMeta.cachedContentTokenCount === "number" ? usageMeta.cachedContentTokenCount : 0;
-    const promptTokenCountRaw =
-      typeof usageMeta.promptTokenCount === "number" ? usageMeta.promptTokenCount : 0;
-    const thoughtsTokens =
-      typeof usageMeta.thoughtsTokenCount === "number" ? usageMeta.thoughtsTokenCount : 0;
-    let candidatesTokens =
-      typeof usageMeta.candidatesTokenCount === "number" ? usageMeta.candidatesTokenCount : 0;
-    const totalTokens =
-      typeof usageMeta.totalTokenCount === "number" ? usageMeta.totalTokenCount : 0;
-
-    // prompt_tokens = promptTokenCount (includes cached tokens, matching claude-to-openai.js behavior)
-    const promptTokens = promptTokenCountRaw;
-
-    // Fallback calculation if candidatesTokenCount is 0 but totalTokenCount exists
-    if (candidatesTokens === 0 && totalTokens > 0) {
-      candidatesTokens = totalTokens - promptTokenCountRaw - thoughtsTokens;
-      if (candidatesTokens < 0) candidatesTokens = 0;
-    }
-
-    // completion_tokens = candidatesTokenCount + thoughtsTokenCount (match Go code)
-    const completionTokens = candidatesTokens + thoughtsTokens;
-
-    state.usage = {
-      prompt_tokens: promptTokens,
-      completion_tokens: completionTokens,
-      total_tokens: totalTokens,
-    };
-
-    // Add prompt_tokens_details if cached tokens exist
-    if (cachedTokens > 0) {
-      state.usage.prompt_tokens_details = {
-        cached_tokens: cachedTokens,
-      };
-    }
-
-    // Add completion_tokens_details if reasoning tokens exist
-    if (thoughtsTokens > 0) {
-      state.usage.completion_tokens_details = {
-        reasoning_tokens: thoughtsTokens,
-      };
-    }
+    recordGeminiStreamUsage(usageMeta, state);
   }
 
   // Finish reason - include usage in final chunk
