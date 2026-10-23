@@ -38,6 +38,27 @@ for (const wrap of [false, true]) {
   });
 }
 
+test("candidate-less usage before the model finishes is retained without a premature terminal chunk", () => {
+  const state: any = { toolCalls: new Map() };
+  const early = geminiToOpenAIResponse(
+    {
+      modelVersion: "gemini-3.8-flash",
+      usageMetadata: { promptTokenCount: 5000, cachedContentTokenCount: 4096 },
+    },
+    state
+  );
+  assert.equal(early, null);
+  const final = geminiToOpenAIResponse(
+    {
+      responseId: "gemini-early-usage",
+      modelVersion: "gemini-3.8-flash",
+      candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }],
+    },
+    state
+  );
+  assert.equal(final?.at(-1)?.usage?.prompt_tokens_details?.cached_tokens, 4096);
+});
+
 test("candidate-less Gemini stream error is not mistaken for cache usage", () => {
   const state: any = { toolCalls: new Map() };
   const chunks = geminiToOpenAIResponse(
