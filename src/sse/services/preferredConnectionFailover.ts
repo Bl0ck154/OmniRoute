@@ -1,5 +1,8 @@
-export const ANTIGRAVITY_PREFERRED_FAILOVER_START_TIMEOUT_MS = 5_000;
-export const ANTIGRAVITY_GEMINI_38_PREFERRED_FAILOVER_START_TIMEOUT_MS = 12_000;
+import { DEFAULT_ANTIGRAVITY_RESILIENCE, type AntigravityResilienceSettings } from "@/lib/resilience/antigravitySettings";
+import { normalizeAntigravityHealthModel } from "@omniroute/open-sse/services/antigravityHealth";
+
+export const ANTIGRAVITY_PREFERRED_FAILOVER_START_TIMEOUT_MS = DEFAULT_ANTIGRAVITY_RESILIENCE.preferredTimeoutMs;
+export const ANTIGRAVITY_GEMINI_38_PREFERRED_FAILOVER_START_TIMEOUT_MS = DEFAULT_ANTIGRAVITY_RESILIENCE.gemini38PreferredTimeoutMs;
 
 type PreferredCredentialState = {
   selectedByApiKeyPreference?: boolean;
@@ -15,7 +18,8 @@ export function resolvePreferredConnectionUpstreamStartTimeoutMs(
   provider: string,
   credentials: PreferredCredentialState | null | undefined,
   requestHintMs?: number,
-  modelId?: string
+  modelId?: string,
+  settings: AntigravityResilienceSettings = DEFAULT_ANTIGRAVITY_RESILIENCE
 ): number | undefined {
   const requestHint =
     typeof requestHintMs === "number" && Number.isFinite(requestHintMs) && requestHintMs > 0
@@ -26,9 +30,9 @@ export function resolvePreferredConnectionUpstreamStartTimeoutMs(
     isAntigravity &&
     credentials?.selectedByApiKeyPreference === true &&
     credentials?.preferredFallbackAvailable === true
-      ? /^(?:antigravity\/)?gemini-3\.8-flash-tiered$/i.test((modelId ?? "").trim())
-        ? ANTIGRAVITY_GEMINI_38_PREFERRED_FAILOVER_START_TIMEOUT_MS
-        : ANTIGRAVITY_PREFERRED_FAILOVER_START_TIMEOUT_MS
+      ? /^gemini-3\.8-flash(?:-tiered|-high|-medium|-low)?$/i.test(normalizeAntigravityHealthModel(modelId ?? ""))
+        ? settings.gemini38PreferredTimeoutMs
+        : settings.preferredTimeoutMs
       : undefined;
 
   if (preferredFailoverCap === undefined) return requestHint;

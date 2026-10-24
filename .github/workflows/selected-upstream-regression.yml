@@ -86,7 +86,14 @@ jobs:
             tests/unit/http-client-abort-guard-empty-response-16347.test.ts \
             tests/unit/release-version-workspace-consistency.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
-            tests/unit/bug-8020-codex-peek-body-timeout.test.ts
+            tests/unit/bug-8020-codex-peek-body-timeout.test.ts \
+            tests/unit/antigravity-adaptive-health.test.ts \
+            tests/unit/antigravity-timeout-retry.test.ts \
+            tests/unit/antigravity-timing.test.ts \
+            tests/unit/preferred-connection-failover.test.ts \
+            tests/unit/codex-same-account-transport-retry-9708.test.ts \
+            tests/integration/antigravity-resilience-settings.test.ts \
+            tests/integration/antigravity-resilience-routing.test.ts
       - name: UI provider availability (Vitest / jsdom)
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core

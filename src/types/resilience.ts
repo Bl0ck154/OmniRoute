@@ -29,6 +29,21 @@ export interface RotationAccountState {
 }
 
 export interface ConnectionState {
+  /** Process-local model health; bounded, structured and free of upstream messages. */
+  antigravityHealth?: Array<{
+    model: string;
+    state: string;
+    reason: string | null;
+    samples: number;
+    timeouts: number;
+    transportFailures: number;
+    timeoutRatio: number;
+    consecutiveTimeouts: number;
+    cooldownRemainingMs: number;
+    backoffLevel: number;
+    recoverySuccesses: number;
+    inflight: number;
+  }>;
   id: string;
   provider: string;
   name: string | null;

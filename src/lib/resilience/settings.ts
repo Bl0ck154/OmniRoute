@@ -5,6 +5,7 @@ import {
 } from "@omniroute/open-sse/config/constants";
 
 import type { JsonRecord, ResilienceSettings, ResilienceSettingsPatch } from "./settings/types";
+import { DEFAULT_ANTIGRAVITY_RESILIENCE, normalizeAntigravitySettings } from "./antigravitySettings";
 import {
   asRecord,
   toInteger,
@@ -65,6 +66,7 @@ export const DEFAULT_REQUEST_QUEUE_MAX_DEPTH = (() => {
 })();
 
 export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
+  antigravity: DEFAULT_ANTIGRAVITY_RESILIENCE,
   requestQueue: {
     autoEnableApiKeyProviders: true,
     requestsPerMinute: DEFAULT_API_LIMITS.requestsPerMinute,
@@ -285,6 +287,7 @@ function buildLegacyFallback(settings: JsonRecord): ResilienceSettings {
         DEFAULT_RESILIENCE_SETTINGS.waitForCooldown.budgetMs
       ),
     },
+    antigravity: DEFAULT_ANTIGRAVITY_RESILIENCE,
     comboCooldownWait: DEFAULT_RESILIENCE_SETTINGS.comboCooldownWait,
     quotaShareConcurrencyLimit: DEFAULT_RESILIENCE_SETTINGS.quotaShareConcurrencyLimit,
     providerCooldown: DEFAULT_RESILIENCE_SETTINGS.providerCooldown,
@@ -326,6 +329,7 @@ export function resolveResilienceSettings(
   const fallback = buildLegacyFallback(record);
 
   return {
+    antigravity: normalizeAntigravitySettings(current.antigravity),
     requestQueue: normalizeRequestQueueSettings(current.requestQueue, fallback.requestQueue),
     connectionCooldown: {
       oauth: normalizeConnectionCooldownProfile(
@@ -387,6 +391,7 @@ export function mergeResilienceSettings(
   updates: ResilienceSettingsPatch
 ): ResilienceSettings {
   return {
+    antigravity: normalizeAntigravitySettings(updates.antigravity, current.antigravity),
     requestQueue: normalizeRequestQueueSettings(updates.requestQueue, current.requestQueue),
     connectionCooldown: {
       oauth: normalizeConnectionCooldownProfile(

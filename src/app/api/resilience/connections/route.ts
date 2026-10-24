@@ -20,6 +20,7 @@ import type {
 } from "@/types/resilience";
 import { readRotationSnapshot } from "@omniroute/open-sse/services/rotationAttribution";
 import { isRotationAttributionEnabled } from "@/shared/utils/featureFlags";
+import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth";
 
 // Explicit column whitelist -- getRawProviderConnections() DEFAULTS TO SELECT *,
 // so passing columns is MANDATORY to avoid leaking api_key, access_token,
@@ -107,6 +108,9 @@ function toConnectionState(
 
   return {
     id: String(row.id ?? ""),
+    antigravityHealth: provider === "antigravity" || provider === "agy"
+      ? antigravityHealth.snapshot(String(row.id ?? ""))
+      : [],
     provider,
     name: row.name != null && row.name !== "" ? String(row.name) : null,
     authType: String(row.authType ?? ""),

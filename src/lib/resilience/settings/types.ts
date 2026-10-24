@@ -236,6 +236,7 @@ export interface StreamThroughputWatchdogSettings {
 }
 
 export interface ResilienceSettings {
+  antigravity: import("../antigravitySettings").AntigravityResilienceSettings;
   requestQueue: RequestQueueSettings;
   connectionCooldown: Record<AuthCategory, ConnectionCooldownProfileSettings>;
   providerBreaker: Record<AuthCategory, ProviderBreakerProfileSettings>;
@@ -250,6 +251,7 @@ export interface ResilienceSettings {
 }
 
 export interface ResilienceSettingsPatch {
+  antigravity?: Partial<import("../antigravitySettings").AntigravityResilienceSettings>;
   requestQueue?: Partial<RequestQueueSettings>;
   connectionCooldown?: Partial<Record<AuthCategory, Partial<ConnectionCooldownProfileSettings>>>;
   providerBreaker?: Partial<Record<AuthCategory, Partial<ProviderBreakerProfileSettings>>>;

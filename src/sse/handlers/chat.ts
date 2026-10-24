@@ -83,6 +83,11 @@ import {
 import { dispatchChatWithAffinityEviction } from "./chatDispatch";
 import { resolveInternalUpstreamStartTimeoutMs } from "../services/internalUpstreamStartTimeout";
 import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
+import { getSettings } from "@/lib/db/settings";
+import { resolveAntigravitySettings, DEFAULT_ANTIGRAVITY_RESILIENCE } from "@/lib/resilience/antigravitySettings";
+import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth";
+import { withAntigravityTiming } from "@omniroute/open-sse/services/antigravityTiming";
+import { bindAntigravityHealthAttempt, holdAntigravityHealthThroughResponse } from "../services/antigravityHealthLifecycle";
 import { getCachedSettings, getCombosCacheVersion } from "@/lib/db/readCache";
 import { comboCheckProvider, ghComboGate } from "./chat/githubLiveCatalogFilter.ts";
 import { comboTargetPassesKeyModelPolicy } from "./chat/comboTargetKeyPolicy.ts";
@@ -1688,6 +1693,11 @@ async function handleSingleModelChat(
   // original early-EOF 502 so an exhausted sibling pool surfaces it verbatim (combo detection).
   let earlyEofOriginal: Response | null = null;
   const sameAccountTransportRetries = new Map<string, number>();
+  // Snapshot once per NEW request, bypassing inherited combo settings snapshots.
+  const antigravitySettings = provider === "antigravity" || provider === "agy"
+    ? resolveAntigravitySettings(await getSettings()) : DEFAULT_ANTIGRAVITY_RESILIENCE;
+  const timedOutConnectionIds = new Set<string>();
+  let lastAntigravityTimeoutResponse: Response | null = null;
   let accountFallbacks = 0;
   let selectedConnectionPlan: string | null = null;
   let sameAccountRetries = 0;
@@ -1716,7 +1726,9 @@ async function handleSingleModelChat(
   const agy = agyLease.startAntigravityLeaseRequest(provider, runtimeOptions.correlationId);
 
   requestAttemptLoop: while (true) {
-    const excludedConnectionIds = new Set<string>(agy.on ? agy.attempted : []);
+    const excludedConnectionIds = new Set<string>([
+      ...(agy.on ? agy.attempted : []), ...timedOutConnectionIds,
+    ]);
     let lastError = requestRetryLastError;
     let lastStatus = requestRetryLastStatus;
     let lastCooldownMs = requestRetryLastCooldownMs;
@@ -1724,6 +1736,7 @@ async function handleSingleModelChat(
     initialPreselectedCredentials = null;
 
     while (true) {
+      if (requestSignal?.aborted) return errorResponse(499, "Request aborted");
       const credentials =
         preselectedCredentials && excludedConnectionIds.size === 0 && !agy.on
           ? preselectedCredentials
@@ -1792,6 +1805,7 @@ async function handleSingleModelChat(
         "allExpired" in credentials ||
         !credentials.connectionId
       ) {
+        if (lastAntigravityTimeoutResponse) return lastAntigravityTimeoutResponse;
         if (earlyEofOriginal) return earlyEofOriginal;
         if (!credentials?.allRateLimited && agy.earliestRetryHintAtMs !== null)
           return agyLease.buildAntigravityPoolBusyResponse(agy.earliestRetryHintAtMs);
@@ -2024,11 +2038,30 @@ async function handleSingleModelChat(
         reselectPoolMember?: () => Promise<unknown>;
       } = { proxy: null };
       const proxyStartTime = Date.now();
+      const healthTicket = antigravitySettings.adaptiveHealthEnabled
+        ? antigravityHealth.begin(credentials.connectionId, effectiveModel,
+            hasForcedConnection || credentials.antigravityHealthFallback === true)
+        : undefined;
+      if (healthTicket === null) {
+        releaseOAuthSession();
+        agyLease.release(leaseId);
+        if (hasForcedConnection) return errorResponse(503, "Antigravity model recovery probe already in flight");
+        excludedConnectionIds.add(credentials.connectionId);
+        continue;
+      }
+      const antigravityHealthAttempt = healthTicket
+        ? bindAntigravityHealthAttempt(healthTicket, requestSignal) : undefined;
       // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
       if (telemetry) telemetry.startPhase("connect");
       let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
       try {
-        execution = await dispatchChatWithAffinityEviction(
+        execution = await withAntigravityTiming({
+          enabled: antigravitySettings.timingTelemetryEnabled,
+          connectionId: credentials.connectionId,
+          model: effectiveModel,
+          correlationId: runtimeOptions.correlationId,
+          emit: (event) => log.info("ANTIGRAVITY_TIMING", "Antigravity upstream phase", event),
+        }, () => dispatchChatWithAffinityEviction(
           {
             bypassCircuitBreaker: forceLiveComboTest || hasForcedConnection,
             breaker,
@@ -2074,23 +2107,38 @@ async function handleSingleModelChat(
               provider,
               credentials,
               requestUpstreamStartTimeoutMs,
-              effectiveModel
+              effectiveModel,
+              antigravitySettings
             ),
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
           },
           runtimeOptions
-        );
+        ));
       } catch (error) {
+        antigravityHealthAttempt?.finish("ignored");
         releaseOAuthSession();
         agyLease.release(leaseId);
         throw error;
       }
       if (telemetry) telemetry.endPhase();
       if ("localResourcePressureResult" in execution) {
+        antigravityHealthAttempt?.finish("ignored");
+        releaseOAuthSession();
         agyLease.release(leaseId);
         return execution.localResourcePressureResult.response;
       }
       const { result, tlsFingerprintUsed } = execution;
+      if (antigravityHealthAttempt) {
+        if (requestSignal?.aborted || result.status === 499) antigravityHealthAttempt.finish("ignored");
+        else if (result.success && requestBody.stream === true) {
+          result.response = holdAntigravityHealthThroughResponse(result.response, antigravityHealthAttempt);
+        } else if (result.success) antigravityHealthAttempt.finish("success");
+        else antigravityHealthAttempt.finish(
+          result.status === 504 && result.errorType === "upstream_timeout" &&
+            result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
+            ? "timeout" : result.status === 502 || result.status === 503 ? "transport" : "ignored"
+        );
+      }
       if (!result.success) releaseOAuthSession();
       // Hand the lease to the SSE body's terminal lifecycle; anything else frees it now.
       if (result.success && agyLease.isStreamingAntigravityResponse(result.response))
@@ -2294,13 +2342,15 @@ async function handleSingleModelChat(
         return withRoutingTelemetry(result.response, credentials?.connectionId);
       }
 
-      const isAntigravityPreResponseTimeout =
-        provider === "antigravity" &&
-        result.status === HTTP_STATUS.GATEWAY_TIMEOUT &&
-        (result.errorType === "upstream_timeout" ||
-          result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE);
+      const isAntigravityGatewayTimeout =
+        (provider === "antigravity" || provider === "agy") &&
+        result.status === HTTP_STATUS.GATEWAY_TIMEOUT;
 
-      if (isAntigravityPreResponseTimeout) {
+      if (isAntigravityGatewayTimeout) {
+        // Persist across cooldown-loop restarts; one logical request never sends
+        // again on an account that already spent its header/504 waiting budget.
+        timedOutConnectionIds.add(credentials.connectionId);
+        lastAntigravityTimeoutResponse = withRoutingTelemetry(result.response, credentials.connectionId);
         const { shouldFallback, cooldownMs } = await markAccountUnavailable(
           credentials.connectionId,
           result.status,
@@ -2308,13 +2358,17 @@ async function handleSingleModelChat(
           provider,
           model,
           providerProfile,
-          buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
+          buildExhaustionOptions(runtimeOptions.correlationId ?? null, {
+            isCombo,
+            structuredError: { code: result.errorCode, type: result.errorType },
+            healthAttempt: antigravityHealthAttempt,
+          })
         );
 
         if (shouldFallback && !hasForcedConnection) {
           log.warn(
             "AUTH",
-            `Antigravity connection ${accountId}... timed out before response headers, trying fallback connection`
+            "Antigravity upstream timeout, trying a distinct eligible connection"
           );
           if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
             lastCooldownMs = cooldownMs;
@@ -2333,7 +2387,9 @@ async function handleSingleModelChat(
               // best-effort: selection also excludes this connection for the current retry.
             }
           }
-          noteAccountFallback("pre_response_timeout");
+          noteAccountFallback(result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
+            ? "pre_response_timeout" : "http_504");
+          lastAntigravityTimeoutResponse = withRoutingTelemetry(result.response, credentials.connectionId);
           excludedConnectionIds.add(credentials.connectionId);
           lastError = result.error;
           lastStatus = result.status;
@@ -2519,6 +2575,7 @@ async function handleSingleModelChat(
         !comboName &&
         !forceLiveComboTest &&
         shouldRetrySameAccountTransport({
+          provider,
           status: result.status,
           errorText: errorStr,
           errorCode: result.errorCode,
