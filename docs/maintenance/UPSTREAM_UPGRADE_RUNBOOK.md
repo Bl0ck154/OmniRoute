@@ -1,6 +1,6 @@
 # Upgrade runbook: official OmniRoute → our patched fork
 
-**Scope:** `Bl0ck154/OmniRoute` and its packaged VPS installation. This is a **manual compatibility integration**, not GitHub's blind "Sync fork" button. First read [FORK_PATCH_REGISTER.md](FORK_PATCH_REGISTER.md).
+> **HARD UPGRADE GATE, 2026-10-24:** Review [UPSTREAM_PARITY_GAP_AUDIT_20261024.md](UPSTREAM_PARITY_GAP_AUDIT_20261024.md) first. The fork did **not** fully import official v3.8.52 despite matching version metadata; production already applied migration `194_api_key_preferred_connections`, while official v3.8.52 uses number 194 for **different** proxy-log timing columns. A naive upgrade can skip required SQL. Resolve and stage-test database migration compatibility **before** releasing anything.\n\n**Scope:** `Bl0ck154/OmniRoute` and its packaged VPS installation. This is a **manual compatibility integration**, not GitHub's blind "Sync fork" button. First read [FORK_PATCH_REGISTER.md](FORK_PATCH_REGISTER.md).
 
 **Do not run an upgrade just because a new tag exists.** Scope and verify it with the owner. The fork was 151 commits ahead / 2,171 behind the official default branch as of 2026-10-24, so simply resetting `production` to upstream would silently discard our work; a blind merge may conflict or produce behavior regressions.
 
