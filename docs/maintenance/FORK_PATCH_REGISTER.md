@@ -2,7 +2,7 @@
 
 **Maintained for the fork, not upstream.** This is the living inventory of *known, tracked* custom changes. Read this together with [UPSTREAM_UPGRADE_RUNBOOK.md](UPSTREAM_UPGRADE_RUNBOOK.md) before syncing or deploying an official release. Keep this register in the fork's `production` branch. Update it whenever a patch is introduced, superseded, ported upstream, or intentionally retired.
 
-Last checked: **2026-10-24**. Statuses below are snapshots, **not** promises that an upstream PR is still open. Query GitHub before each upgrade.
+> **Critical 2026-10-24 correction:** The `3.8.52` version label is **not proof of full upstream 3.8.52 source parity**. Fork [PR #42](https://github.com/Bl0ck154/OmniRoute/pull/42) only synchronized version metadata after selected backports; full 3.8.51 promotion PR #7 was not merged. The existing production SQLite migration **194** conflicts with the different official migration **194** and needs a safe migration bridge before upgrading. See the mandatory [source-parity and migration collision audit](UPSTREAM_PARITY_GAP_AUDIT_20261024.md).\n\nLast checked: **2026-10-24**. Statuses below are snapshots, **not** promises that an upstream PR is still open. Query GitHub before each upgrade.
 
 ## Known production baseline
 
