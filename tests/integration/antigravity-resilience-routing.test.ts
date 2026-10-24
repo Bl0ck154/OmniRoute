@@ -95,8 +95,8 @@ test("explicit connection pin surfaces original 504 and never rotates", async ()
   const response = await handleChat(request({ "x-omniroute-connection": first.id }));
   assert.equal(response.status, 504);
   const failure = await response.json();
-  assert.equal(failure?.error?.code, TIMEOUT_CODE, "exact timeout code must survive the full HTTP dispatch path");
-  assert.equal(failure?.error?.type, "upstream_timeout", "timeout type must survive dispatch");
+  assert.equal(failure?.error?.code, "gateway_timeout", "public error code stays sanitized");
+  assert.equal(antigravityHealth.snapshot(first.id)[0].timeouts, 1, "private timeout marker survives non-streaming dispatch for quarantine");
   assert.equal(sends, 1);
 });
 

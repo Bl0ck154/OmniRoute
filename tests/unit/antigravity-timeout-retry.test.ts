@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { shouldRetrySameAccountTransport } from "../../src/sse/services/sameAccountTransportRetry.ts";
 import { isAntigravityPreResponseTimeout } from "../../open-sse/services/antigravityTimeout.ts";
+import { createUpstreamStartTimeoutError } from "../../open-sse/handlers/chatCore/upstreamTimeouts.ts";
 import { handleAntigravityFallbackChainError } from "../../open-sse/executors/antigravity/proFallbackChain.ts";
 import { AntigravityExecutor } from "../../open-sse/executors/antigravity.ts";
 import { seedAntigravityIdeVersionCache, clearAntigravityVersionCaches } from "../../open-sse/services/antigravityVersion.ts";
@@ -17,6 +18,14 @@ test("confirmed timeout is never a same-account transport retry, even with reset
   assert.equal(shouldRetrySameAccountTransport({ provider: "agy", status: 504, attempt: 0 }), false);
   assert.equal(isAntigravityPreResponseTimeout({ code }), true);
   assert.equal(isAntigravityPreResponseTimeout({ status: 504, type: "upstream_timeout" }), false);
+});
+
+test("outer pre-header timeout carries Antigravity-only marker without tagging other providers", () => {
+  const antigravity = createUpstreamStartTimeoutError(12000, "antigravity", "gemini-3.8-flash-high");
+  assert.equal(isAntigravityPreResponseTimeout(antigravity), true);
+  assert.equal((antigravity as Error & { code?: string }).code, code);
+  const other = createUpstreamStartTimeoutError(12000, "codex", "gpt-test");
+  assert.equal(isAntigravityPreResponseTimeout(other), false);
 });
 
 test("transient 502, 503 and socket resets retain bounded same-account retry", () => {
