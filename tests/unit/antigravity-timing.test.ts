@@ -100,3 +100,68 @@ test("failed fetch never fabricates header or first delta latency", async () => 
   assert.equal(events[0].elapsedMs, 500);
   assert.equal(JSON.stringify(events).includes("secret"), false);
 });
+
+
+test("unread upstream errors close timing immediately and keep original bodies untouched", async () => {
+  let now = 100;
+  const tracker = new AntigravityTimingTracker(() => now);
+  const events: Record<string, unknown>[] = [];
+  const run = (status: number, body: Response) => withAntigravityTiming({
+    enabled: true, connectionId: "retry-account", model: "gemini-3.8-flash-tiered",
+    emit: (event) => events.push(event),
+  }, () => tracker.fetch(async () => { now += 10; return body; }));
+
+  for (const status of [403, 429, 503]) {
+    const original = new Response(new ReadableStream<Uint8Array>(), { status });
+    const returned = await run(status, original);
+    assert.equal(returned, original, "error bodies must remain untouched for retries");
+    assert.equal(returned.bodyUsed, false);
+    assert.equal(events.findLast((event) => event.phase === "headers")!.concurrentInflight, 1);
+    assert.equal(events.findLast((event) => event.phase === "http_error")!.headerLatencyMs, 10);
+    await returned.body!.cancel();
+  }
+  assert.equal(events.filter((event) => event.phase === "http_error").length, 3);
+  assert.equal(events.filter((event) => event.phase === "complete").length, 0);
+  assert.equal(events.findLast((event) => event.phase === "headers")!.idleDurationMs, 0);
+});
+
+test("unread successful stream expires telemetry without cancelling upstream transport", async () => {
+  const tracker = new AntigravityTimingTracker(() => performance.now(), 15);
+  const events: Record<string, unknown>[] = [];
+  const run = (response: Response) => withAntigravityTiming({
+    enabled: true, connectionId: "unread-ok", model: "gemini-3.8-flash-tiered",
+    emit: (event) => events.push(event),
+  }, () => tracker.fetch(async () => response));
+  let upstreamCancelled = false;
+  const unread = await run(new Response(new ReadableStream({
+    cancel() { upstreamCancelled = true; },
+  })));
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  assert.equal(events.filter((event) => event.phase === "observation_expired").length, 1);
+  assert.equal(upstreamCancelled, false, "timing watchdog must never affect HTTP response behavior");
+  assert.equal(unread.bodyUsed, false);
+  const following = await run(new Response(null, { status: 204 }));
+  assert.equal(following.status, 204);
+  assert.equal(events.filter((event) => event.phase === "headers").at(-1)!.concurrentInflight, 1);
+  await unread.body!.cancel();
+  assert.equal(upstreamCancelled, true);
+  assert.equal(events.filter((event) => event.phase === "observation_expired").length, 1);
+});
+
+test("request abort and failed fetch release per-account timing slots exactly once", async () => {
+  const tracker = new AntigravityTimingTracker();
+  const events: Record<string, unknown>[] = [];
+  const abortController = new AbortController();
+  const run = (send: () => Promise<Response>, signal?: AbortSignal) => withAntigravityTiming({
+    enabled: true, connectionId: "abort-account", model: "gemini-3.8-flash-tiered",
+    emit: (event) => events.push(event),
+  }, () => tracker.fetch(send, signal));
+  const held = await run(async () => new Response(new ReadableStream()), abortController.signal);
+  abortController.abort(new DOMException("cancelled", "AbortError"));
+  assert.equal(events.filter((event) => event.phase === "caller_abort").length, 1);
+  await held.body!.cancel();
+  await assert.rejects(run(async () => { throw new Error("upstream failed"); }));
+  assert.equal(events.filter((event) => event.phase === "fetch_failed").length, 1);
+  await run(async () => new Response(null, { status: 204 }));
+  assert.equal(events.filter((event) => event.phase === "headers").at(-1)!.concurrentInflight, 1);
+});
