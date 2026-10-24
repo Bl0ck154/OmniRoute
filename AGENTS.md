@@ -6,6 +6,12 @@
 > and point back here. When a rule needs to change, change it HERE — never re-fork it into an
 > assistant-specific file.
 
+## Fork-specific maintenance (Bl0ck154/OmniRoute)
+
+> **Important for release/upstream agents:** The fork's `production` includes custom patches not necessarily present in official `cheaper-inference/OmniRoute`. Before syncing upstream, touching a custom integration, packaging a release, or deploying, read **[the fork patch register](docs/maintenance/FORK_PATCH_REGISTER.md)** and **[the safe upstream upgrade runbook](docs/maintenance/UPSTREAM_UPGRADE_RUNBOOK.md)**. These track the 2026-10-24 URL transcription, pinned-fetch streaming and Gemini/Antigravity resilience changes, official upstream PRs, and exact compatibility/rollback rules. Do not replace `production` with upstream or build OmniRoute on the production VPS. On that host also read `/opt/AGENTS.md`; its no-build rule is binding. The deployed version may lag behind the latest documentation-only commits.
+
+---
+
 ## Quick Start
 
 ```bash
