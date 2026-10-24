@@ -260,6 +260,7 @@ export async function executeWithUpstreamStartTimeout<T>({
   provider,
   model,
   connectionTimeoutMs,
+  preferredHeaderTimeoutCapMs,
   signal,
   log,
   execute,
@@ -268,11 +269,22 @@ export async function executeWithUpstreamStartTimeout<T>({
   provider: string;
   model: string;
   connectionTimeoutMs?: number;
+  preferredHeaderTimeoutCapMs?: number;
   signal: AbortSignal;
   log?: { warn?: (tag: string, message: string) => void } | null;
   execute: (signal: AbortSignal) => Promise<T>;
 }): Promise<T> {
-  const timeoutMs = getExecutorTimeoutMs(executor, provider, model, connectionTimeoutMs);
+  const providerTimeoutMs = getExecutorTimeoutMs(executor, provider, model, connectionTimeoutMs);
+  // A preferred account is NOT pinned. Cap headers latency only if another
+  // eligible sibling exists; preserve any stricter executor/connection timeout.
+  const validPreferredCap =
+    typeof preferredHeaderTimeoutCapMs === "number" &&
+    Number.isFinite(preferredHeaderTimeoutCapMs) &&
+    preferredHeaderTimeoutCapMs >= 500 &&
+    preferredHeaderTimeoutCapMs <= 120_000;
+  const timeoutMs = validPreferredCap
+    ? Math.min(providerTimeoutMs, Math.floor(preferredHeaderTimeoutCapMs))
+    : providerTimeoutMs;
   if (timeoutMs <= 0) return execute(signal);
   if (signal.aborted) throw createAbortError(signal);
 

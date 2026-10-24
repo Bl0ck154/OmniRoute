@@ -34,3 +34,23 @@ jobs:
         run: node scripts/check/check-api-typecheck.mjs
       - name: API typecheck gate unit tests
         run: node --import tsx/esm --test tests/unit/build/check-api-typecheck.test.ts
+      # Upstream-first migration: manual-only synthetic checks for the fork's
+      # historical ledger collision and per-key preferred routing/header timeout.
+      # All tests run on a hosted runner; never on the production VPS.
+      - name: Preferred routing and SQLite migration bridge regressions
+        env:
+          API_KEY_SECRET: ci-only-preferred-routing-long-secret
+          JWT_SECRET: ci-only-preferred-routing-long-jwt-secret
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/api-key-preferred-migration-bridge.test.ts \
+            tests/unit/preferred-connection-failover.test.ts \
+            tests/unit/upstream-timeout-connection-tier.test.ts \
+            tests/unit/api-key-connection-preference.test.ts \
+            tests/unit/api-key-preferred-connections-persistence.test.ts \
+            tests/unit/auth-antigravity-account-retry-v2.test.ts
