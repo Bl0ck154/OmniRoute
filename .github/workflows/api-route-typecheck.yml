@@ -54,3 +54,17 @@ jobs:
             tests/unit/api-key-connection-preference.test.ts \
             tests/unit/api-key-preferred-connections-persistence.test.ts \
             tests/unit/auth-antigravity-account-retry-v2.test.ts
+      - name: Antigravity isolated health and timing module regressions
+        env:
+          API_KEY_SECRET: ci-only-antigravity-module-secret-long
+          JWT_SECRET: ci-only-antigravity-module-jwt-secret-long
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/antigravity-adaptive-health.test.ts \
+            tests/unit/antigravity-timeout-retry.test.ts \
+            tests/unit/antigravity-timing.test.ts
