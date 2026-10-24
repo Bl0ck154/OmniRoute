@@ -1,5 +1,7 @@
 # Antigravity resilience overhaul audit
 
+> **Historical working-branch audit.** This file predates the green CI, merge and successful `3.8.52-custom.34` deployment on 2026-10-24. Statements below such as "CI has not run" or "no deployment" describe the earlier worktree **at the time of writing** and are no longer the current release status. The authoritative living records for future agents are [Fork patch register](../../maintenance/FORK_PATCH_REGISTER.md) and [Upstream upgrade runbook](../../maintenance/UPSTREAM_UPGRADE_RUNBOOK.md). Fork [PR #47](https://github.com/Bl0ck154/OmniRoute/pull/47) was merged; release CI [40100570794](https://github.com/Bl0ck154/OmniRoute/actions/runs/40100570794) succeeded and `custom.34` was installed. The narrow generic timeout fix was offered upstream as [PR #18052](https://github.com/cheaper-inference/OmniRoute/pull/18052).
+
 This branch starts at production commit `44fdae6b4b9d63fa41f62a1941e3ff2f366743f6`.
 It is a code and static review only. The production host was not built, started, or
 used for tests, and no upstream model calls were made.
