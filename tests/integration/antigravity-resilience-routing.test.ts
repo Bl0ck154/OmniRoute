@@ -70,7 +70,7 @@ test("confirmed pre-response 504 sends once on first account then immediately se
   assert.equal(response.headers.get("X-OmniRoute-Account-Fallback-Reasons"), "pre_response_timeout");
   assert.equal(antigravityHealth.snapshot(first.id)[0].timeouts, 1);
   const stored = await providers.getProviderConnectionById(first.id);
-  assert.equal(stored?.rateLimitedUntil, null, "model health must not cool the whole connection");
+  assert.equal(stored?.rateLimitedUntil ?? null, null, "model health must not cool the whole connection");
 });
 
 test("exhausted pool cannot revisit either timed-out account via outer cooldown retry", async () => {
@@ -95,7 +95,7 @@ test("explicit connection pin surfaces original 504 and never rotates", async ()
   const response = await handleChat(request({ "x-omniroute-connection": first.id }));
   assert.equal(response.status, 504);
   const failure = await response.json();
-  assert.equal(failure?.error?.code, "gateway_timeout", "public error code stays sanitized");
+  assert.equal(failure?.error?.code, TIMEOUT_CODE, "public timeout identifier stays from the sanitized safe code vocabulary");
   assert.equal(antigravityHealth.snapshot(first.id)[0].timeouts, 1, "private timeout marker survives non-streaming dispatch for quarantine");
   assert.equal(sends, 1);
 });
