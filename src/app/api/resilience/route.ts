@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCachedSettings } from "@/lib/db/readCache";
-import { getSettings, updateSettings } from "@/lib/db/settings";
+import { getSettings, getSettingsRevision, updateSettings, SettingsRevisionConflictError } from "@/lib/db/settings";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import {
   buildLegacyResilienceCompat,
   mergeResilienceSettings,
@@ -126,12 +127,15 @@ async function syncRuntimeSettings(resilienceSettings: ResilienceSettings) {
 /**
  * GET /api/resilience — Get current resilience configuration
  */
-export async function GET() {
+export async function GET(request?: Request) {
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
+  if (authError) return authError;
   try {
     const settings = await getCachedSettings();
     const resilience = resolveResilienceSettings(settings);
 
     return NextResponse.json({
+      antigravity: resilience.antigravity,
       requestQueue: resilience.requestQueue,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
@@ -161,6 +165,8 @@ export async function GET() {
  * PATCH /api/resilience — Update resilience configuration
  */
 export async function PATCH(request) {
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
+  if (authError) return authError;
   let rawBody;
   try {
     rawBody = await request.json();
@@ -183,9 +189,13 @@ export async function PATCH(request) {
     }
 
     const body = validation.data as JsonRecord;
+    // Capture the revision BEFORE the read. A racing write rejects atomically;
+    // it cannot be lost when two admins change different sections concurrently.
+    const expectedRevision = await getSettingsRevision();
     const currentSettings = await getSettings();
     const currentResilience = resolveResilienceSettings(currentSettings);
     const nextResilience = mergeResilienceSettings(currentResilience, {
+      ...(body.antigravity ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] } : {}),
       ...(body.requestQueue
         ? { requestQueue: body.requestQueue as ResilienceSettingsPatch["requestQueue"] }
         : {}),
@@ -240,7 +250,7 @@ export async function PATCH(request) {
       resilienceSettings: nextResilience,
       requestRetry: nextResilience.waitForCooldown.maxRetries,
       maxRetryIntervalSec: nextResilience.waitForCooldown.maxRetryWaitSec,
-    });
+    }, { expectedRevision });
     await syncRuntimeSettings(nextResilience);
 
     // Issue #2100 follow-up: detect transitions in useUpstream429BreakerHints
@@ -259,6 +269,7 @@ export async function PATCH(request) {
 
     return NextResponse.json({
       ok: true,
+      antigravity: nextResilience.antigravity,
       requestQueue: nextResilience.requestQueue,
       connectionCooldown: nextResilience.connectionCooldown,
       providerBreaker: nextResilience.providerBreaker,
@@ -276,6 +287,9 @@ export async function PATCH(request) {
       legacy: buildLegacyResilienceCompat(nextResilience),
     });
   } catch (err: unknown) {
+    if (err instanceof SettingsRevisionConflictError) {
+      return NextResponse.json({ error: "Settings changed concurrently; reload and retry" }, { status: 409 });
+    }
     console.error("[API] PATCH /api/resilience error:", err);
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to save resilience settings") },

@@ -1,4 +1,5 @@
 import crypto, { randomUUID } from "crypto";
+import { isAntigravityPreResponseTimeout } from "../services/antigravityTimeout.ts";
 import {
   BaseExecutor,
   mergeUpstreamExtraHeaders,
@@ -565,8 +566,7 @@ export class AntigravityExecutor extends BaseExecutor {
       (status === HTTP_STATUS.RATE_LIMITED ||
         status === HTTP_STATUS.NOT_FOUND ||
         status === HTTP_STATUS.BAD_GATEWAY ||
-        status === HTTP_STATUS.SERVICE_UNAVAILABLE ||
-        status === HTTP_STATUS.GATEWAY_TIMEOUT) &&
+        status === HTTP_STATUS.SERVICE_UNAVAILABLE) &&
       urlIndex + 1 < this.getFallbackCount()
     );
   }
@@ -1197,6 +1197,7 @@ export class AntigravityExecutor extends BaseExecutor {
       try {
         result = await this.executeOnce(input, candidate, physicalSendCounter);
       } catch (error) {
+        if (isAntigravityPreResponseTimeout(error)) throw error;
         const outcome = handleAntigravityFallbackChainError(
           input,
           error,
@@ -1338,13 +1339,14 @@ export class AntigravityExecutor extends BaseExecutor {
         if (signal?.aborted || isAbortError(error)) {
           throw signal?.reason ?? error;
         }
+        if (isAntigravityPreResponseTimeout(error)) throw error;
         lastError = error;
         l.error(
           "TELEMETRY",
-          `[Antigravity] Network/Fetch Error - URL: ${url}, Model: ${model}, Error: ${error instanceof Error ? error.message : String(error)}`
+          "[Antigravity] Network/fetch failure before executor result"
         );
         if (urlIndex + 1 < fallbackCount) {
-          l.debug("RETRY", `Error on ${url}, trying fallback ${urlIndex + 1}`);
+          l.debug("RETRY", `Transport failure, trying endpoint ${urlIndex + 1}`);
           continue;
         }
         throw error;
@@ -1658,6 +1660,7 @@ export class AntigravityExecutor extends BaseExecutor {
         switchAuth: decision.kind === "short_cooldown_switch_auth",
       };
     } catch (error) {
+      if (isAntigravityPreResponseTimeout(error)) throw error;
       if (signal?.aborted || isAbortError(error)) {
         throw signal?.reason ?? error;
       }

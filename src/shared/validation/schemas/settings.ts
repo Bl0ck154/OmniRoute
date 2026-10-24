@@ -160,6 +160,12 @@ export const credentialHealthCheckSettingsSchema = z
 
 export const updateResilienceSchema = z
   .object({
+    antigravity: z.object({
+      preferredTimeoutMs: z.number().int().min(500).max(120000).optional(),
+      gemini38PreferredTimeoutMs: z.number().int().min(500).max(120000).optional(),
+      adaptiveHealthEnabled: z.boolean().optional(),
+      timingTelemetryEnabled: z.boolean().optional(),
+    }).strict().optional(),
     requestQueue: requestQueueSettingsSchema.optional(),
     connectionCooldown: z
       .object({
@@ -223,7 +229,8 @@ export const updateResilienceSchema = z
       !value.profiles &&
       !value.defaults &&
       !value.providerQuotaOverrides &&
-      !value.credentialHealthCheck
+      !value.credentialHealthCheck &&
+      !value.antigravity
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

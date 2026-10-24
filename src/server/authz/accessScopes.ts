@@ -32,6 +32,7 @@ export const ADMIN_SCOPE_PREFIXES: readonly string[] = [
 
 /** Require `admin` only for mutating methods; GET/HEAD under these stay `read`. */
 export const ADMIN_MUTATION_PREFIXES: readonly string[] = [
+  "/api/resilience", // persisted routing timeouts and model-health policy
   "/api/providers", // POST add provider / rotate key = admin; GET status = read
   "/api/cli-tools/apply", // writes config onto the host filesystem
 ];

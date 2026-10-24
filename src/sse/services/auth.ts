@@ -97,6 +97,9 @@ import {
   isQuotaPreflightEnabled,
 } from "@omniroute/open-sse/services/quotaPreflight.ts";
 import { resolveResilienceSettings } from "@/lib/resilience/settings";
+import { resolveAntigravitySettings } from "@/lib/resilience/antigravitySettings";
+import { antigravityHealth, type AntigravityHealthAttempt } from "@omniroute/open-sse/services/antigravityHealth";
+import { isAntigravityProvider } from "@omniroute/open-sse/services/antigravityTimeout";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
 import {
   buildMixedAvailabilityError,
@@ -1077,6 +1080,7 @@ async function materializeConnection(
     requestedModel?: string | null;
     selectedByApiKeyPreference?: boolean;
     preferredFallbackAvailable?: boolean;
+    antigravityHealthFallback?: boolean;
   } = {}
 ) {
   const providerSpecificData = await hydrateConnectionProviderSpecificData(connection);
@@ -1979,7 +1983,21 @@ export async function getProviderCredentials(
         : null;
     }
 
-    const orderedConnections = [...leasePolicy.connections].sort((a, b) => {
+    const healthEnabled = isAntigravityProvider(provider) && requestedModel &&
+      resolveAntigravitySettings(settings).adaptiveHealthEnabled;
+    const healthCandidates = healthEnabled
+      ? antigravityHealth.candidates(leasePolicy.connections, requestedModel, Boolean(forcedConnectionId))
+      : leasePolicy.connections;
+    if (healthCandidates.length === 0) {
+      return {
+        allRateLimited: true,
+        retryAfter: new Date(Date.now() + 1000).toISOString(),
+        retryAfterHuman: "1s",
+        lastError: "Antigravity model recovery probe already in flight",
+        lastErrorCode: 503,
+      };
+    }
+    const orderedConnections = [...healthCandidates].sort((a, b) => {
       if (a.authType !== "oauth" || b.authType !== "oauth") return 0;
       const priorityDelta = (a.priority || 999) - (b.priority || 999);
       if (priorityDelta !== 0) return priorityDelta;
@@ -2252,6 +2270,9 @@ export async function getProviderCredentials(
           selectNextLeaseCandidate,
           selectedByApiKeyPreference,
           preferredFallbackAvailable,
+          requestedModel,
+          antigravityHealthFallback: Boolean(healthEnabled &&
+            antigravityHealth.remainingCooldownMs(connection.id, requestedModel) > 0),
           ...probeStamp,
         });
       }
@@ -2303,6 +2324,8 @@ export async function getProviderCredentials(
       requestedModel,
       selectedByApiKeyPreference,
       preferredFallbackAvailable,
+      antigravityHealthFallback: Boolean(healthEnabled &&
+        antigravityHealth.remainingCooldownMs(connection.id, requestedModel) > 0),
     });
   } finally {
     selectionLock?.release();
@@ -2721,11 +2744,15 @@ export function buildExhaustionOptions(
     /** Caller is the combo engine — it records its own model-level lockouts. */
     isCombo?: boolean;
     headers?: Headers | Record<string, string> | null;
+    structuredError?: { code?: string | null; type?: string | null } | null;
+    healthAttempt?: AntigravityHealthAttempt;
   } = {}
 ): {
   persistUnavailableState?: boolean;
   isCombo?: boolean;
   headers?: Headers | Record<string, string> | null;
+  structuredError?: { code?: string | null; type?: string | null } | null;
+  healthAttempt?: AntigravityHealthAttempt;
   correlationId: string | null;
 } {
   return { ...rest, correlationId };
@@ -2747,8 +2774,23 @@ export async function markAccountUnavailable(
     correlationId?: string | null;
     streamOutputEmitted?: boolean;
     structuredError?: { code?: string | null; type?: string | null } | null;
+    healthAttempt?: AntigravityHealthAttempt;
   } = {}
 ) {
+  // Cancellation never belongs to account health, quota or cooldown state.
+  if (status === 499) {
+    options.healthAttempt?.finish("ignored");
+    return { shouldFallback: false, cooldownMs: 0 };
+  }
+  if (isAntigravityProvider(provider) && model && status === 504 &&
+    options.structuredError?.type === "upstream_timeout" &&
+    options.structuredError?.code === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" &&
+    (options.healthAttempt || resolveAntigravitySettings(await getCachedSettings()).adaptiveHealthEnabled)) {
+    // The handler owns an exactly-once ticket. Other callers without a ticket
+    // still rotate, but cannot invent an unpaired health observation here.
+    options.healthAttempt?.finish("timeout");
+    return { shouldFallback: true, cooldownMs: antigravityHealth.remainingCooldownMs(connectionId, model) };
+  }
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
   let resolveMutex: (() => void) | undefined;
   markMutexes.set(

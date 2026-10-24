@@ -1,0 +1,102 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { AntigravityTimingTracker, withAntigravityTiming, hasAntigravityMeaningfulDelta } from "../../open-sse/services/antigravityTiming.ts";
+
+const text = 'data: {"response":{"candidates":[{"content":{"parts":[{"text":"fixture"}]}}]}}\n\n';
+const encoder = new TextEncoder();
+const requestId = "24a00000-0000-4000-a000-000000000024";
+
+test("pings, roles, usage and errors are not meaningful deltas", () => {
+  for (const frame of [": ping\n\n", 'data: {"usageMetadata":{"totalTokenCount":1}}\n\n',
+    'data: {"response":{"candidates":[{"content":{"role":"model","parts":[]}}]}}\n\n',
+    'data: {"error":{"message":"failure"}}\n\n', "data: [DONE]\n\n"]) {
+    assert.equal(hasAntigravityMeaningfulDelta(frame), false);
+  }
+  assert.equal(hasAntigravityMeaningfulDelta(text), true);
+  assert.equal(hasAntigravityMeaningfulDelta('data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"tool"}}]}}]}\n\n'), true);
+});
+
+test("measures actual header and first delta phases with null unavailable network phases", async () => {
+  let now = 100;
+  const events: Record<string, unknown>[] = [];
+  const tracker = new AntigravityTimingTracker(() => now);
+  let upstream: ReadableStreamDefaultController<Uint8Array>;
+  const response = await withAntigravityTiming({
+    enabled: true, connectionId: "fixture-account", model: "agy/gemini-3.8-flash",
+    correlationId: requestId, emit: (event) => events.push(event),
+  }, () => tracker.fetch(async () => {
+    now = 125;
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) { upstream = controller; } }));
+  }));
+  assert.equal(events[0].headerLatencyMs, 25);
+  assert.equal(events[0].idleDurationMs, null);
+  assert.equal(events[0].dnsMs, null);
+  assert.equal(events[0].connectMs, null);
+  assert.equal(events[0].tlsMs, null);
+  now = 140;
+  upstream!.enqueue(encoder.encode(": ping\n\n"));
+  const reading = response.text();
+  now = 170;
+  upstream!.enqueue(encoder.encode(text.slice(0, 20)));
+  upstream!.enqueue(encoder.encode(text.slice(20)));
+  upstream!.close();
+  assert.equal(await reading, ": ping\n\n" + text);
+  const first = events.find((event) => event.phase === "first_meaningful_delta")!;
+  assert.equal(first.firstMeaningfulDeltaFromHeadersMs, 45);
+  assert.equal(first.firstMeaningfulDeltaFromSendMs, 70);
+  assert.equal(first.requestId, requestId);
+  assert.equal(first.model, "gemini-3.8-flash-high");
+  assert.equal(events.filter((event) => event.phase === "complete").length, 1);
+  const serialized = JSON.stringify(events);
+  for (const forbidden of ["fixture-account", "fixture\"", "Bearer", "https://", "parts", "candidates"]) {
+    assert.equal(serialized.includes(forbidden), false);
+  }
+});
+
+test("idle duration and inflight count are per account and end on actual lifecycle", async () => {
+  let now = 10;
+  const tracker = new AntigravityTimingTracker(() => now);
+  const events: Record<string, unknown>[] = [];
+  const send = (id = "a") => withAntigravityTiming({
+    enabled: true, connectionId: id, model: "gemini-3.8-flash-high", emit: (event) => events.push(event),
+  }, () => tracker.fetch(async () => new Response(new ReadableStream())));
+  const first = await send();
+  now = 20;
+  const concurrent = await send();
+  assert.equal(events[1].concurrentInflight, 2);
+  assert.equal(events[1].idleDurationMs, 0);
+  await first.body!.cancel();
+  await concurrent.body!.cancel();
+  now = 90;
+  const afterIdle = await send();
+  assert.equal(events.findLast((event) => event.phase === "headers")!.idleDurationMs, 70);
+  const other = await send("b");
+  assert.equal(events.findLast((event) => event.phase === "headers")!.idleDurationMs, null);
+  await afterIdle.body!.cancel();
+  await other.body!.cancel();
+});
+
+test("feature off does not wrap or consume the response, and logs nothing", async () => {
+  const tracker = new AntigravityTimingTracker();
+  const original = new Response(text);
+  const events: unknown[] = [];
+  const response = await withAntigravityTiming({
+    enabled: false, connectionId: "a", model: "m", emit: (event) => events.push(event),
+  }, () => tracker.fetch(async () => original));
+  assert.equal(response, original);
+  assert.equal(response.bodyUsed, false);
+  assert.deepEqual(events, []);
+});
+
+test("failed fetch never fabricates header or first delta latency", async () => {
+  let now = 0;
+  const tracker = new AntigravityTimingTracker(() => now);
+  const events: Record<string, unknown>[] = [];
+  await assert.rejects(withAntigravityTiming({
+    enabled: true, connectionId: "a", model: "m", correlationId: "Bearer secret", emit: (event) => events.push(event),
+  }, () => tracker.fetch(async () => { now = 500; throw new Error("secret upstream URL"); })));
+  assert.equal(events[0].headerLatencyMs, null);
+  assert.equal(events[0].firstMeaningfulDeltaFromSendMs, null);
+  assert.equal(events[0].elapsedMs, 500);
+  assert.equal(JSON.stringify(events).includes("secret"), false);
+});

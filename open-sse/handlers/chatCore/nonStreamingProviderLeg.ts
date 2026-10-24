@@ -25,6 +25,8 @@ import { extractUsageFromResponse } from "../usageExtractor.ts";
 import { sanitizeUsagePayloadForRequest } from "../../utils/usageTracking.ts";
 import { createErrorResult, formatProviderError } from "../../utils/error.ts";
 import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
+import { isAntigravityPreResponseTimeout } from "../../services/antigravityTimeout.ts";
+import { ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE } from "../../config/constants.ts";
 import { unwrapClinepassEnvelope } from "../../utils/clinepassEnvelope.ts";
 import { unwrapClineNonStreamingEnvelope } from "./clineResponseEnvelope.ts";
 import {
@@ -513,7 +515,18 @@ export async function runNonStreamingProviderLeg(
       connectionId,
       model: currentModel,
     });
-    const errorResult = legError(failureStatus, failureMessage, error);
+    // Preserve the PRIVATE exact pre-response timeout marker across the
+    // non-streaming leg. The status-only legError used to discard it, so the
+    // outer router saw an indistinguishable generic 504 and could not score
+    // account+model health or attribute the account switch correctly.
+    const isHeaderTimeout =
+      (provider === "antigravity" || provider === "agy") &&
+      isAntigravityPreResponseTimeout(error);
+    const errorResult = legError(
+      failureStatus, failureMessage, error, null,
+      isHeaderTimeout ? ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE : undefined,
+      isHeaderTimeout ? "upstream_timeout" : undefined
+    );
     return {
       kind: "error",
       result: errorResult as ChatCoreErrorResult,
