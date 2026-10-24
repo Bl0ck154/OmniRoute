@@ -94,6 +94,9 @@ test("explicit connection pin surfaces original 504 and never rotates", async ()
   globalThis.fetch = async () => { sends++; return confirmedTimeout(); };
   const response = await handleChat(request({ "x-omniroute-connection": first.id }));
   assert.equal(response.status, 504);
+  const failure = await response.json();
+  assert.equal(failure?.error?.code, TIMEOUT_CODE, "exact timeout code must survive the full HTTP dispatch path");
+  assert.equal(failure?.error?.type, "upstream_timeout", "timeout type must survive dispatch");
   assert.equal(sends, 1);
 });
 
@@ -124,7 +127,7 @@ test("499 never counts as a fault or triggers sibling rotation or persistent coo
   assert.equal(sends, 1);
   assert.equal(antigravityHealth.snapshot(first.id)[0].samples, 0);
   assert.equal(antigravityHealth.snapshot(first.id)[0].inflight, 0);
-  assert.equal((await providers.getProviderConnectionById(first.id))?.rateLimitedUntil, null);
+  assert.equal(((await providers.getProviderConnectionById(first.id))?.rateLimitedUntil ?? null), null);
 });
 
 test("state API returns structured bounded model health without credentials or upstream text", async () => {
