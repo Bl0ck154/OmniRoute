@@ -167,6 +167,21 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     toName: "inspector_custom_hosts",
   },
   {
+    // Our production fork shipped preferred_connections first as migration 170
+    // and later as 194. Official upstream reuses both slots for other schemas.
+    // Rehome the old ledger marker before its own 194 proxy timing upgrade.
+    fromVersion: "170",
+    fromName: "api_key_preferred_connections",
+    toVersion: "213",
+    toName: "api_key_preferred_connections",
+  },
+  {
+    fromVersion: "194",
+    fromName: "api_key_preferred_connections",
+    toVersion: "213",
+    toName: "api_key_preferred_connections",
+  },
+  {
     fromVersion: "134",
     fromName: "ccr_blocks",
     toVersion: "139",

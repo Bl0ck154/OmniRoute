@@ -216,6 +216,8 @@ import {
   type ConnectionRestrictionSource,
 } from "./credentialSelectionDiagnostics.ts";
 
+import { pickPreferredConnection } from "./connectionPreference";
+
 type JsonRecord = Record<string, unknown>;
 interface RecoverableConnectionState {
   connectionId: string;
@@ -1844,6 +1846,15 @@ export async function getProviderCredentials(
           (candidate) => candidate.id === leasePolicy.activeLease?.connectionId
         )
       : undefined;
+    let selectedByApiKeyPreference = false;
+    if (!connection && options.preferredConnectionIds?.length) {
+      const preferred = pickPreferredConnection(orderedConnections, options.preferredConnectionIds);
+      if (preferred) {
+        connection = preferred;
+        selectedByApiKeyPreference = true;
+        log.debug("AUTH", `${provider} api-key preference selected ${preferred.id.slice(0, 8)}...`);
+      }
+    }
     const affinityPlan =
       options.lease && !connection
         ? planSessionAffinityConnection(
@@ -1875,7 +1886,7 @@ export async function getProviderCredentials(
     }
 
     if (connection) {
-      // Session affinity selected a connection before global sticky routing.
+      // Active lease, API-key preference, or session affinity selected before global routing.
     } else if (strategy === "round-robin") {
       const stickyLimit = toNumber(
         providerOverride.stickyRoundRobinLimit ??
@@ -2038,7 +2049,11 @@ export async function getProviderCredentials(
       connection = orderedConnections[0];
     }
 
-    if (options.reserveOAuthSession === true && connection?.authType === "oauth") {
+    if (
+      options.reserveOAuthSession === true &&
+      connection?.authType === "oauth" &&
+      !selectedByApiKeyPreference
+    ) {
       const selectedPriority = connection.priority || 999;
       const selectedAvailability = getOAuthSessionAvailability(connection.id, options.sessionKey);
       const moreAvailablePeer = [...orderedConnections]
