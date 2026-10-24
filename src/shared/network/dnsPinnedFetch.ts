@@ -88,7 +88,12 @@ export function createPinnedFetch(address: string, family: number): typeof fetch
         dispatcher,
       })) as unknown as Response;
     } finally {
-      await dispatcher.close();
+      // undici returns a Response as soon as headers arrive, before its body
+      // stream is consumed. Awaiting close() here waits for that body to finish
+      // before the caller can read it, deadlocking streamed media downloads
+      // until their abort timeout. Initiate graceful close, allowing the
+      // consumer to drain/cancel the body, and absorb any late close rejection.
+      void dispatcher.close().catch(() => {});
     }
   }) as typeof fetch;
 }
