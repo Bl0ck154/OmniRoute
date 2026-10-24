@@ -13,6 +13,9 @@ type TimingContext = {
 const context = new AsyncLocalStorage<TimingContext>();
 const MAX_ACCOUNTS = 1000;
 const MAX_EVENTS_PER_ATTEMPT = 24;
+// A forgotten/unconsumed successful response must not accumulate as inflight forever.
+// This timeout affects observation only; it never aborts fetches or response streams.
+const MAX_TIMING_OBSERVATION_MS = 300_000;
 type AccountTiming = { inflight: number; lastFinishedAt: number | null };
 
 /** Only allow actual Gemini output to set first delta; pings/errors/usage do not. */
@@ -38,7 +41,10 @@ export function hasAntigravityMeaningfulDelta(frame: string): boolean {
 
 export class AntigravityTimingTracker {
   private accounts = new Map<string, AccountTiming>();
-  constructor(private now: () => number = () => performance.now()) {}
+  constructor(
+    private now: () => number = () => performance.now(),
+    private maxObservationMs: number = MAX_TIMING_OBSERVATION_MS,
+  ) {}
 
   async fetch(send: () => Promise<Response>, signal?: AbortSignal | null): Promise<Response> {
     const scope = context.getStore();
@@ -61,6 +67,7 @@ export class AntigravityTimingTracker {
     let headersAt: number | null = null;
     let firstDeltaAt: number | null = null;
     let finished = false;
+    let observationTimer: ReturnType<typeof setTimeout> | null = null;
     const event = (phase: string, extra: Record<string, unknown> = {}) => {
       if (physicalSend > MAX_EVENTS_PER_ATTEMPT / 3) return;
       // Correlation ids stay log fields, never metric labels. No URLs or payloads.
@@ -80,6 +87,7 @@ export class AntigravityTimingTracker {
     const finish = (phase: string) => {
       if (finished) return;
       finished = true;
+      if (observationTimer !== null) clearTimeout(observationTimer);
       account!.inflight--;
       account!.lastFinishedAt = this.now();
       signal?.removeEventListener("abort", onAbort);
@@ -89,11 +97,25 @@ export class AntigravityTimingTracker {
       ? "upstream_deadline" : "caller_abort";
     const onAbort = () => finish(abortPhase());
     signal?.addEventListener("abort", onAbort, { once: true });
+    // Bound *telemetry state*, not upstream execution. This also protects HTTP 200
+    // streams that a caller abandons without reading or cancelling their bodies.
+    observationTimer = setTimeout(() => finish("observation_expired"), this.maxObservationMs);
+    observationTimer.unref?.();
     try {
       const response = await send();
       headersAt = this.now();
       event("headers", { status: response.status });
       if (signal?.aborted) finish(abortPhase());
+      // Antigravity can return an intermediate 403/429 that the executor retries
+      // without consuming the body. Such a physical fetch has already completed
+      // at the HTTP-header boundary; retaining an unread-body wrapper here leaks
+      // the inflight counter and corrupts idle/concurrency measurements.
+      // Return the original response untouched so the executor can still inspect
+      // any error body or retry it exactly as before.
+      if (!response.ok) {
+        finish("http_error");
+        return response;
+      }
       if (!response.body) {
         finish("complete");
         return response;
