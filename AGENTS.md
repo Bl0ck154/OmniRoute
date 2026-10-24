@@ -12,7 +12,7 @@
 
 ---
 
-## Quick Start
+> **Mandatory upstream upgrade blocker (2026-10-24):** Read the [upstream parity gap and SQLite migration 194 audit](docs/maintenance/UPSTREAM_PARITY_GAP_AUDIT_20261024.md). Version `3.8.52` in the fork reflects selective backports and metadata alignment, **not a complete official 3.8.52 source merge**. The fork has already applied a different migration 194 than upstream. Never promote an unverified upstream build or migrate the live DB without a tested compatibility bridge.\n\n---\n\n## Quick Start
 
 ```bash
 npm install                    # Install deps (auto-generates .env from .env.example)
