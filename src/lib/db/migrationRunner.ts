@@ -619,9 +619,12 @@ function isSchemaAlreadyApplied(
       // would answer for another migration's schema and skip it.
       return hasColumn(db, "proxy_logs", "attempt_number");
     case "194":
-      // Same shape as 179/181/183/184/187: ensureProxyLogsColumns may have
-      // added headers_ms at boot. Keyed by version only.
-      return hasColumn(db, "proxy_logs", "headers_ms");
+      // Official migration 194 is proxy_logs_attempt_timing, NOT our old
+      // 194_api_key_preferred_connections. Both new fields must exist.
+      return (
+        hasColumn(db, "proxy_logs", "headers_ms") &&
+        hasColumn(db, "proxy_logs", "first_chunk_ms")
+      );
     case "212":
       // Provider-reported cost columns (#16087, renumbered 206 -> 212: the 206 slot
       // went to 206_codex_wakeup_tasks first). A DB that already applied the old
@@ -630,6 +633,9 @@ function isSchemaAlreadyApplied(
         hasColumn(db, "usage_history", "provider_credits") &&
         hasColumn(db, "usage_history", "provider_cost_usd")
       );
+    case "213":
+      // Our historic custom releases already added this column under 170/194.
+      return hasColumn(db, "api_keys", "preferred_connections");
     default:
       return false;
   }
