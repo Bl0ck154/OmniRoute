@@ -53,6 +53,7 @@ jobs:
             tests/unit/feature-flags-settings.test.ts \
             tests/unit/audio-transcription-handler.test.ts \
             tests/unit/audio-transcription-url.test.ts \
+            tests/unit/remote-image-fetch-pin-dns-connection.test.ts \
             tests/unit/provider-availability.test.ts \
             tests/unit/providers-client-route-secrets-qxg2.test.ts \
             tests/unit/resilience-connections.test.ts \
