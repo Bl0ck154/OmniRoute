@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { handleAudioTranscription } from "../../open-sse/handlers/audioTranscription.ts";
-import { resolveTranscriptionFile } from "../../open-sse/utils/transcriptionRemoteAudio.ts";
+import {
+  hasTranscriptionInput,
+  resolveTranscriptionFile,
+  resolveTranscriptionFileOrResponse,
+} from "../../open-sse/utils/transcriptionRemoteAudio.ts";
 import { setPinnedFetchTestOverride } from "../../src/shared/network/remoteImageFetch.ts";
 
 const REMOTE_AUDIO_URL = "https://8.8.8.8/bot123456:PRIVATE_TELEGRAM_TOKEN/voice.oga";
@@ -17,10 +21,11 @@ function urlOnly(model = "groq/whisper-large-v3-turbo", url = REMOTE_AUDIO_URL):
 test("URL input is fetched by OmniRoute then sent to Groq as file, never as a Telegram URL", async () => {
   const originalFetch = globalThis.fetch;
   const upstreamCalls: Array<{ url: string; body: string; authorization: string }> = [];
-  setPinnedFetchTestOverride(async () =>
-    new Response("binary-ogg-audio", {
-      headers: { "content-type": "audio/ogg", "content-length": "16" },
-    })
+  setPinnedFetchTestOverride(
+    async () =>
+      new Response("binary-ogg-audio", {
+        headers: { "content-type": "audio/ogg", "content-length": "16" },
+      })
   );
   globalThis.fetch = async (input, init) => {
     const options = init ?? {};
@@ -34,7 +39,10 @@ test("URL input is fetched by OmniRoute then sent to Groq as file, never as a Te
   try {
     const form = urlOnly();
     form.set("language", "uk");
-    const response = await handleAudioTranscription({ formData: form, credentials: { apiKey: "groq-secret" } });
+    const response = await handleAudioTranscription({
+      formData: form,
+      credentials: { apiKey: "groq-secret" },
+    });
 
     assert.equal(response.status, 200);
     assert.equal((await response.json()).text, "hello");
@@ -54,8 +62,8 @@ test("URL input is fetched by OmniRoute then sent to Groq as file, never as a Te
 test("URL input retains OpenAI-compatible provider routing and multipart field forwarding", async () => {
   const originalFetch = globalThis.fetch;
   let requestUrl = "";
-  setPinnedFetchTestOverride(async () =>
-    new Response("sound", { headers: { "content-type": "audio/ogg" } })
+  setPinnedFetchTestOverride(
+    async () => new Response("sound", { headers: { "content-type": "audio/ogg" } })
   );
   globalThis.fetch = async (input) => {
     requestUrl = String(input);
@@ -165,8 +173,9 @@ test("rejects redirect to a private address rather than following it", async () 
 });
 
 test("refuses oversized remote audio based on Content-Length before reading body", async () => {
-  setPinnedFetchTestOverride(async () =>
-    new Response("x", { headers: { "content-type": "audio/ogg", "content-length": "30000000" } })
+  setPinnedFetchTestOverride(
+    async () =>
+      new Response("x", { headers: { "content-type": "audio/ogg", "content-length": "30000000" } })
   );
   try {
     const response = await handleAudioTranscription({
@@ -180,8 +189,8 @@ test("refuses oversized remote audio based on Content-Length before reading body
 });
 
 test("refuses HTML response even when the URL ends in .ogg", async () => {
-  setPinnedFetchTestOverride(async () =>
-    new Response("<html>no audio</html>", { headers: { "content-type": "text/html" } })
+  setPinnedFetchTestOverride(
+    async () => new Response("<html>no audio</html>", { headers: { "content-type": "text/html" } })
   );
   try {
     const response = await handleAudioTranscription({
@@ -212,4 +221,36 @@ test("download policy cannot be weakened: public-only, DNS pinning, HTTPS hops, 
   assert.equal(opts.maxRedirects, 2);
   assert.equal(opts.maxBytes, 25 * 1024 * 1024);
   assert.equal(opts.timeoutMs, 15000);
+});
+
+test("hasTranscriptionInput accepts a file or a url string and rejects neither", () => {
+  const withFile = new FormData();
+  withFile.set("file", new File(["x"], "a.wav", { type: "audio/wav" }));
+  assert.equal(hasTranscriptionInput(withFile), true);
+  assert.equal(hasTranscriptionInput(urlOnly()), true);
+  assert.equal(hasTranscriptionInput(new FormData()), false);
+});
+
+test("resolveTranscriptionFileOrResponse maps failures to a sanitized error Response", async () => {
+  const unsafe = await resolveTranscriptionFileOrResponse(
+    urlOnly(undefined, "http://8.8.8.8/bot123456:PRIVATE_TELEGRAM_TOKEN/voice.oga")
+  );
+  assert.ok("response" in unsafe);
+  assert.equal(unsafe.response.status, 400);
+  assert.doesNotMatch(await unsafe.response.text(), /PRIVATE_TELEGRAM_TOKEN/);
+
+  const boom = await resolveTranscriptionFileOrResponse(urlOnly(), async () => {
+    throw new Error("connect ECONNREFUSED 8.8.8.8/bot123456:SECRET_BOT_TOKEN");
+  });
+  assert.ok("response" in boom);
+  assert.equal(boom.response.status, 502);
+  assert.doesNotMatch(await boom.response.text(), /SECRET_BOT_TOKEN|ECONNREFUSED/);
+
+  const ok = await resolveTranscriptionFileOrResponse(urlOnly(), async () => ({
+    buffer: Buffer.from("audio-data"),
+    contentType: "audio/ogg",
+    url: "https://8.8.8.8/voice.ogg",
+  }));
+  assert.ok("file" in ok);
+  assert.equal(ok.file.size, 10);
 });

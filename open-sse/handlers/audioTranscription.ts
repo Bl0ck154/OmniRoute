@@ -29,7 +29,10 @@ import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { isJsonObject } from "../utils/kieTask.ts";
 import { handleOpenRouterTranscription } from "./openrouterTranscription.ts";
 import { handleSyntxTranscription } from "./syntxAudio.ts";
-import { resolveTranscriptionFile, TranscriptionAudioUrlError } from "../utils/transcriptionRemoteAudio.ts";
+import {
+  hasTranscriptionInput,
+  resolveTranscriptionFileOrResponse,
+} from "../utils/transcriptionRemoteAudio.ts";
 
 type TranscriptionCredentials = {
   apiKey?: string;
@@ -945,6 +948,14 @@ async function handleSpeechmaticsTranscription(providerConfig, file, modelId, to
   return pollSpeechmaticsJob(`${baseUrl}/${jobId}`, authHeaders);
 }
 
+function resolveTranscriptionToken(
+  providerConfig: AudioProvider,
+  credentials?: TranscriptionCredentials | null
+): string | null | undefined {
+  if (providerConfig.authType === "none") return null;
+  return credentials?.apiKey || credentials?.accessToken;
+}
+
 /**
  * Handle audio transcription request
  *
@@ -975,7 +986,7 @@ export async function handleAudioTranscription({
   }
 
   // Preserve file-only behavior; URL-only audio is resolved after credentials.
-  if (!(formData.get("file") instanceof Blob) && typeof formData.get("url") !== "string") {
+  if (!hasTranscriptionInput(formData)) {
     return errorResponse(400, "file is required");
   }
 
@@ -996,23 +1007,16 @@ export async function handleAudioTranscription({
   }
 
   // Skip credential check for local providers (authType: "none")
-  const token =
-    providerConfig.authType === "none" ? null : credentials?.apiKey || credentials?.accessToken;
+  const token = resolveTranscriptionToken(providerConfig, credentials);
   if (providerConfig.authType !== "none" && !token) {
     return errorResponse(401, `No credentials for transcription provider: ${providerConfig.id}`);
   }
 
   // Fetch URL input into a local file. Never forward Telegram URLs/tokens
   // or other caller-controlled URLs to the upstream STT provider.
-  let file: Blob & { name?: unknown };
-  try {
-    file = await resolveTranscriptionFile(formData);
-  } catch (error) {
-    if (error instanceof TranscriptionAudioUrlError) {
-      return errorResponse(error.status, error.message);
-    }
-    return errorResponse(502, "Audio URL could not be fetched");
-  }
+  const resolvedFile = await resolveTranscriptionFileOrResponse(formData);
+  if ("response" in resolvedFile) return resolvedFile.response;
+  const file = resolvedFile.file;
 
   // Route to provider-specific handler
   if (providerConfig.format === "vertex-gemini") {
