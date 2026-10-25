@@ -8,6 +8,7 @@ import http from "node:http";
 import net from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createManagementSessionHeaders } from "../helpers/managementSession.ts";
 
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-resilience-http-e2e-"));
 const DASHBOARD_PORT = await getFreePort();
@@ -16,6 +17,8 @@ const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.DISABLE_SQLITE_AUTO_BACKUP = "true";
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "resilience-http-e2e-secret-123456";
+// Child Next.js server and the test signer MUST use the same synthetic secret.
+process.env.JWT_SECRET = process.env.JWT_SECRET || "resilience-http-e2e-session-jwt-secret";
 process.env.REQUIRE_API_KEY = "false";
 
 const core = await import("../../src/lib/db/core.ts");
@@ -405,7 +408,7 @@ function buildResilienceConfig(overrides: Record<string, unknown> = {}) {
 async function patchResilience(baseUrl: string, config: Record<string, unknown>) {
   const response = await fetch(`${baseUrl}/api/resilience`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: await createManagementSessionHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(config),
     signal: AbortSignal.timeout(10_000),
   });
@@ -548,6 +551,17 @@ test.after(async () => {
   await relay.stop();
   core.closeDbInstance();
   await fsp.rm(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
+
+test("resilience management PATCH rejects anonymous callers even with login disabled", async () => {
+  assert.ok(app);
+  const response = await fetch(`${app.baseUrl}/api/resilience`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildResilienceConfig()),
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(response.status, 401, "global resilience mutations require management auth");
 });
 
 test("resilience API only exposes configuration, not runtime breaker state", async () => {

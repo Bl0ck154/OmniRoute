@@ -231,7 +231,8 @@ test("chat completions streams Codex Responses reasoning through real route HTTP
       expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       isActive: true,
       testStatus: "active",
-      providerSpecificData: {},
+      // This fixture requests 5.6 Sol, which is restricted to paid accounts.
+      providerSpecificData: { chatgptPlanType: "plus" },
     });
 
     const routeHarness = await startRouteServer();
