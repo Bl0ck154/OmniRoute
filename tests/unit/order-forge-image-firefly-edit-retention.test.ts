@@ -27,5 +27,7 @@ test("optional persistence errors are contained without double-serializing succe
   assert.match(route, /function retainImageEditSuccess\(/);
   assert.match(route, /if \(!capture\) return;/);
   assert.match(route, /catch \{\s*log\.warn\("IMAGE", "Optional scoped image-edit artifact retention failed"\)/);
-  assert.match(route, /function imageEditSuccessResponse\([\s\S]*?retainImageEditSuccess\(data, capture\);\s*return jsonResponse\(data\)/);
+  assert.match(route, /function imageEditSuccessResponse\([\s\S]*?retainImageEditSuccess\(data, capture\);\s*return jsonResponse\(data, 200, quotaHeaders\)/);
+  assert.match(route, /return imageEditSuccessResponse\(result\.data, artifactCapture, quotaHeaders\)/);
+  assert.match(route, /attachCodexImageQuotaHeaders\(\s*quotaHeaders,/);
 });
