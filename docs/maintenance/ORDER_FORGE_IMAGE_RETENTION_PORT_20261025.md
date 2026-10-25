@@ -35,3 +35,15 @@ application naming / directories to the official upstream repository.
 Existing custom artifact directory and metadata are operational data; preserve
 the configured volume/directory during rollout and validate backup/rollback
 without uploading customer files.
+
+## Phase 2: dedicated image edits (2026-10-25)
+
+The image edits route now captures successful responses for native Codex,
+Fal, Firefly, Syntx, OpenRouter, custom providers and the combo fallback
+path using the authenticated API-key scope, never just the caller-provided
+artifact header. Firefly accepts a success callback preserving the original
+response. Failed retention is an optional side effect and must not turn a
+paid successful response into an error or log customer image bytes.
+
+This stage requires hosted tests and full upstream typecheck. Streamed
+Responses image_generation_call and generation combo are still unported.
