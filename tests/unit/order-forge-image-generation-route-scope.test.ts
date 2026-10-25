@@ -16,10 +16,12 @@ test("optional image retention is gated by authenticated principal and success",
   const keyScope = source.indexOf("await resolveKeyConnectionScope(policy.apiKeyInfo)");
   const capture = source.indexOf("const artifactCapture = resolveOrderForgeImageArtifactCapture");
   const success = source.indexOf("if (result.success) {");
-  const persisted = source.indexOf("persistOrderForgeImageArtifacts({");
+  const comboPersisted = source.indexOf("persistOrderForgeImageArtifacts({", capture);
+  const directPersisted = source.indexOf("persistOrderForgeImageArtifacts({", success);
   assert.ok(auth >= 0 && auth < policy);
   assert.ok(policy < keyScope && keyScope < capture);
-  assert.ok(success > capture && persisted > success);
+  assert.ok(comboPersisted > capture && comboPersisted < success, "combo hook is authorized first");
+  assert.ok(success > capture && directPersisted > success, "direct success hook is authorized first");
   assert.match(source, /apiKeyScopes:\s*policy\.apiKeyInfo\?\.scopes/);
   assert.match(source, /headers:\s*request\.headers/);
   assert.match(source, /catch \{[\s\S]*?Optional image artifact retention failed/);
