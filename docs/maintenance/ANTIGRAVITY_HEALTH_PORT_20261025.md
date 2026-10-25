@@ -82,3 +82,13 @@ integer 500–120000 ms. Focused hosted tests cover persistence after DB reopen,
 partial PATCH, atomic rejection of malformed paired values, anonymous 401,
 and write-only token 403. UI controls and read-only health status UI remain
 separate and require additional approval/testing.
+
+## 2026-10-25 phase 3B-5: administrative model health status candidate
+
+The connection-state API emits bounded, model-specific process-local health
+snapshots for Antigravity accounts (cooldown, timeouts, half-open state). It
+continues to use the explicit credential-excluding DB column whitelist and
+requires management authentication on HTTP GET, including login-disabled mode.
+The integration test asserts that tokens/project ids/upstream request content
+are never serialized and anonymous status requests return 401. Dashboard UI
+remains separate. No live service changes or account API calls from diagnostics.

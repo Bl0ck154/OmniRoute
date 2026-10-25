@@ -20,6 +20,8 @@ import type {
 } from "@/types/resilience";
 import { readRotationSnapshot } from "@omniroute/open-sse/services/rotationAttribution";
 import { isRotationAttributionEnabled } from "@/shared/utils/featureFlags";
+import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth.ts";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 
 // Explicit column whitelist -- getRawProviderConnections() DEFAULTS TO SELECT *,
 // so passing columns is MANDATORY to avoid leaking api_key, access_token,
@@ -120,6 +122,11 @@ function toConnectionState(
 
   return {
     id: String(row.id ?? ""),
+    // Only bounded process-local counters and model names. The connection
+    // query itself uses an explicit noncredential column whitelist.
+    antigravityHealth: provider === "antigravity" || provider === "agy"
+      ? antigravityHealth.snapshot(String(row.id ?? ""))
+      : [],
     provider,
     name: row.name != null && row.name !== "" ? String(row.name) : null,
     authType: String(row.authType ?? ""),
@@ -167,6 +174,10 @@ function toConnectionState(
 }
 
 export async function GET(req: NextRequest) {
+  // Model health reveals operator-level routing state. Do not make it
+  // readable through an inference-only key or anonymous dashboard session.
+  const authError = await requireManagementAuth(req, { alwaysRequireAuth: true });
+  if (authError) return authError;
   try {
     const params = querySchema.safeParse(Object.fromEntries(new URL(req.url).searchParams));
     if (!params.success) {
