@@ -183,3 +183,5 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/combo/image-combo-empty-200-fallback.test.ts
+      - name: Codex image quota baseline regressions
+        run: node --import tsx/esm --test tests/unit/codex-image-quota-telemetry.test.ts
