@@ -159,6 +159,7 @@ import { resolveUseUpstream429BreakerHints } from "@/shared/utils/providerHints"
 import { isFeatureFlagEnabled, isRotationAttributionEnabled } from "@/shared/utils/featureFlags";
 import * as agyLease from "../services/antigravityLeaseLifecycle";
 import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth.ts";
+import { withAntigravityTiming } from "@omniroute/open-sse/services/antigravityTiming.ts";
 import { isAntigravityProvider } from "@omniroute/open-sse/services/antigravityTimeout.ts";
 import { resolveAntigravitySettings } from "@/lib/resilience/antigravitySettings";
 import {
@@ -2197,7 +2198,15 @@ async function handleSingleModelChat(
       if (telemetry) telemetry.startPhase("connect");
       let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
       try {
-        execution = await dispatchChatWithAffinityEviction(
+        execution = await withAntigravityTiming(
+          {
+            enabled: antigravitySettings?.timingTelemetryEnabled === true,
+            connectionId: credentials.connectionId,
+            model: effectiveModel,
+            correlationId: runtimeOptions.correlationId ?? null,
+            emit: (event) => log.info("ANTIGRAVITY_TIMING", "Upstream timing phase", event),
+          },
+          () => dispatchChatWithAffinityEviction(
           {
             bypassCircuitBreaker: forceLiveComboTest || hasForcedConnection,
             breaker,
@@ -2244,7 +2253,7 @@ async function handleSingleModelChat(
             allowedConnections: effectiveAllowedConnections,
           },
           runtimeOptions
-        );
+        ));
       } catch (error) {
         healthAttempt?.finish("ignored");
         releaseOAuthSession();

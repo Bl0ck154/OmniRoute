@@ -25,6 +25,7 @@ import {
 } from "../../services/antigravityClientProfile.ts";
 import * as prl from "../../utils/providerRequestLogging.ts";
 import { generateAntigravityRequestId } from "../../services/antigravityIdentity.ts";
+import { timeAntigravityFetch } from "../../services/antigravityTiming.ts";
 import {
   createCreditsExtractionTransform as createCreditsExtractionTransformImpl,
   buildSsePassthroughResult,
@@ -131,7 +132,12 @@ export async function fetchAntigravityWithReadinessTimeout(
 ): Promise<Response> {
   const boundedTimeoutMs = Math.max(0, Math.floor(timeoutMs));
   if (boundedTimeoutMs <= 0) {
-    return fetch(url, init);
+    // No timeout still uses the opt-in timing context when active. Without
+    // an ALS context this is exactly the original fetch (no stream wrapping).
+    return timeAntigravityFetch(
+      () => fetch(url, init),
+      init.signal instanceof AbortSignal ? init.signal : null
+    );
   }
 
   const timeoutController = new AbortController();
@@ -145,7 +151,10 @@ export async function fetchAntigravityWithReadinessTimeout(
     : timeoutController.signal;
 
   try {
-    return await fetch(url, { ...init, signal: combinedSignal });
+    return await timeAntigravityFetch(
+      () => fetch(url, { ...init, signal: combinedSignal }),
+      combinedSignal
+    );
   } catch (error) {
     if (
       timeoutController.signal.aborted &&

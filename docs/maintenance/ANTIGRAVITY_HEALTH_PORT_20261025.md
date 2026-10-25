@@ -58,3 +58,15 @@ This integration is only a **candidate** until hosted checks pass. Next:
 - Transport-level timing wiring, including #49's unconsumed-response cleanup, is separate.
 - Hot validated resilience admin settings API, UI and health status endpoint remain TODO.
 - Full CI, migration rehearsal, canary and explicit deployment approval remain REQUIRED.
+
+## 2026-10-25 phase 3B-3: opt-in transport timing candidate
+
+Separate stacked staging branch wraps the **physical Antigravity fetch** in
+`timeAntigravityFetch` both for bounded readiness deadlines and the no-deadline
+case; wraps `dispatchChatWithAffinityEviction` in `withAntigravityTiming`
+only when `resilienceSettings.antigravity.timingTelemetryEnabled === true`.
+The feature remains default OFF. No request bodies, URLs or credentials may
+appear in timing events; the tracker hashes account IDs and observes streams
+without consuming data ahead of clients. The PR #49 non-2xx slot and unread
+success expiry handling remains in the same tracker. Hosted regression checks
+must pass on the final SHA; no production deployment.
