@@ -146,3 +146,15 @@ jobs:
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/order-forge-image-artifact-sink.test.ts \
             tests/unit/order-forge-image-generation-route-scope.test.ts
+      - name: Order Forge image edits and combo artifact scopes
+        env:
+          API_KEY_SECRET: ci-only-edits-retention-api-key
+          JWT_SECRET: ci-only-edits-retention-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/order-forge-image-edits-retention-scope.test.ts

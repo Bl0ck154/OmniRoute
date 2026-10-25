@@ -24,8 +24,12 @@ application naming / directories to the official upstream repository.
 - Port into non-streaming and streaming `open-sse/handlers/chatCore.ts`
   including safe tee/drain across client disconnect and normalized
   `image_generation_call` outputs.
-- Port `/v1/images/edits` on direct AND combo/custom-provider branches,
-  preserving existing host proxy / account fallback and billing.
+- **Image edits now staged:** combo, Codex, Fal, OpenRouter, Syntx,
+  Gemini/Antigravity and custom OpenAI-compatible successful responses are
+  scope-gated for private artifact retention. Original dispatch, account
+  fallback and billing paths remain unchanged.
+- Still need cover Adobe Firefly's separate Response-returning handler and
+  audit multi-provider generation combo before release.
 - Port independent Codex image quota telemetry, account availability and
   quota header merging only after comparing modern upstream accounting.
 - Run focused image pipeline tests, full hosted build and packaged artifact
