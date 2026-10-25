@@ -49,6 +49,7 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/api-key-preferred-migration-bridge.test.ts \
+            tests/unit/db-migrationrunner-constants-split.test.ts \
             tests/unit/preferred-connection-failover.test.ts \
             tests/unit/upstream-timeout-connection-tier.test.ts \
             tests/unit/api-key-connection-preference.test.ts \
@@ -116,6 +117,7 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/integration/antigravity-resilience-settings-hot.test.ts \
+            tests/unit/resilience-settings-normalize-split.test.ts \
             tests/unit/access-scopes-infer.test.ts
       - name: Antigravity sanitized health status and admin access
         env:

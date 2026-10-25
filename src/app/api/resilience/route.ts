@@ -129,16 +129,17 @@ async function syncRuntimeSettings(resilienceSettings: ResilienceSettings) {
  * GET /api/resilience — Get current resilience configuration
  */
 export async function GET(request?: Request) {
-  // Inference-only API keys and anonymous callers must never read internal
-  // per-account health/telemetry settings, even when login is disabled.
-  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
-  if (authError) return authError;
+  // Preserve the historical read-only configuration API, including local
+  // health probes and callers in login-disabled mode. Only the NEW private
+  // Antigravity controls require management credentials, however.
+  const canReadAntigravity =
+    (await requireManagementAuth(request, { alwaysRequireAuth: true })) === null;
   try {
     const settings = await getCachedSettings();
     const resilience = resolveResilienceSettings(settings);
 
     return NextResponse.json({
-      antigravity: resilience.antigravity,
+      ...(canReadAntigravity ? { antigravity: resilience.antigravity } : {}),
       requestQueue: resilience.requestQueue,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
