@@ -55,3 +55,12 @@ test("API-key management needs admin: a write token cannot mint a manage-scoped 
   assert.equal(inferRequiredScope("GET", "/api/keys/abc/reveal"), "admin");
   assert.equal(inferRequiredScope("GET", "/api/keys-catalog"), "read");
 });
+
+
+test("global resilience PATCH requires admin, but status GET remains read", () => {
+  assert.equal(inferRequiredScope("PATCH", "/api/resilience"), "admin");
+  assert.equal(inferRequiredScope("POST", "/api/resilience/"), "admin");
+  assert.equal(inferRequiredScope("GET", "/api/resilience"), "read");
+  // Exact path guard does not raise unrelated subroutes.
+  assert.equal(inferRequiredScope("PATCH", "/api/resilience/specific-model"), "write");
+});

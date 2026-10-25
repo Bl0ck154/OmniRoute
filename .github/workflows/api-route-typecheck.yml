@@ -116,3 +116,4 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/integration/antigravity-resilience-settings-hot.test.ts
+            tests/unit/access-scopes-infer.test.ts
