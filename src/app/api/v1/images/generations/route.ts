@@ -54,6 +54,10 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { runImageRequestWithAccounting } from "@/lib/usage/imageRequestAccounting";
+import {
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
 import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 import {
@@ -171,6 +175,13 @@ async function postHandler(request, context) {
   const endpointMismatch = await getRequestedModelEndpointMismatch(body.model, "images");
   if (endpointMismatch) return errorResponse(HTTP_STATUS.BAD_REQUEST, endpointMismatch);
   const { allowedConnections } = scope;
+
+  // Strictly opt-in, per-authenticated-principal retention. A caller-supplied
+  // artifact ID does nothing without the dedicated API-key scope.
+  const artifactCapture = resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: policy.apiKeyInfo?.scopes,
+    headers: request.headers,
+  });
 
   const modelPrefix = body.model.includes("/")
     ? body.model.slice(0, body.model.indexOf("/"))
@@ -431,6 +442,18 @@ async function postHandler(request, context) {
 
   if (result.success) {
     await clearRecoveredProviderState(credentials);
+    if (artifactCapture) {
+      try {
+        persistOrderForgeImageArtifacts({
+          capture: artifactCapture,
+          responseBody: (result as { data?: unknown }).data,
+        });
+      } catch {
+        // Retention is optional; its local disk should never turn a successful
+        // image response into a provider/API failure or expose customer data.
+        log.warn("IMAGE", "Optional image artifact retention failed");
+      }
+    }
     // Bill the images actually delivered: a provider that returns fewer than the
     // requested `n` must not be charged for the missing ones (#16398 follow-up).
     const n = (result as { data?: { data?: unknown[] } }).data?.data?.length || 1;

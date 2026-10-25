@@ -133,3 +133,16 @@ jobs:
         run: |
           node --import tsx/esm --test tests/unit/antigravity-resilience-tab-wiring.test.ts
           npx vitest run tests/unit/antigravity-resilience-settings-card-render.test.tsx
+      - name: Order Forge scope-gated image artifact retention
+        env:
+          API_KEY_SECRET: ci-only-retention-api-key
+          JWT_SECRET: ci-only-retention-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/order-forge-image-artifact-sink.test.ts \
+            tests/unit/order-forge-image-generation-route-scope.test.ts
