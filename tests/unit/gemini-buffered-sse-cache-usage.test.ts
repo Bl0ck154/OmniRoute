@@ -1,0 +1,59 @@
+/** Buffered Gemini/Antigravity SSE usage must match streaming usage contracts. */
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { parseSSEToGeminiResponse } from "../../open-sse/handlers/sseParser/geminiResponse.ts";
+
+function parse(events: Record<string, unknown>[]) {
+  const raw = events.map((event) => "data: " + JSON.stringify(event)).join("\n") + "\ndata: [DONE]\n";
+  return parseSSEToGeminiResponse(raw, "gemini-3.8-flash") as Record<string, any>;
+}
+
+test("Cloud Code nested metadata preserves cache and reasoning without double counting", () => {
+  const response = parse([{
+    response: {
+      candidates: [{ content: { parts: [{ text: "reply" }] }, finishReason: "STOP" }],
+      usageMetadata: {
+        promptTokenCount: 18000, candidatesTokenCount: 84,
+        thoughtsTokenCount: 16, cachedContentTokenCount: 8175, totalTokenCount: 18100,
+      },
+    },
+  }]);
+  assert.equal(response.choices[0].message.content, "reply");
+  assert.deepEqual(response.usage, {
+    prompt_tokens: 18000,
+    completion_tokens: 100,
+    total_tokens: 18100,
+    prompt_tokens_details: { cached_tokens: 8175 },
+    completion_tokens_details: { reasoning_tokens: 16 },
+  });
+});
+
+test("a final metadata-only event can report the cache without erasing prior counters", () => {
+  const response = parse([
+    { response: { candidates: [{ content: { parts: [{ text: "Hi" }] } }],
+      usageMetadata: { promptTokenCount: 9000, candidatesTokenCount: 10, totalTokenCount: 9010 } } },
+    { response: { usageMetadata: { cachedContentTokenCount: 4096 } } },
+  ]);
+  assert.equal(response.choices[0].message.content, "Hi");
+  assert.deepEqual(response.usage, {
+    prompt_tokens: 9000, completion_tokens: 10, total_tokens: 9010,
+    prompt_tokens_details: { cached_tokens: 4096 },
+  });
+});
+
+test("explicit zero cache differs from absent cache metadata", () => {
+  const withZero = parse([{ response: { candidates: [{ content: { parts: [{ text: "ok" }] } }],
+    usageMetadata: { promptTokenCount: 5000, cachedContentTokenCount: 0 } } }]);
+  const withoutCache = parse([{ response: { candidates: [{ content: { parts: [{ text: "ok" }] } }],
+    usageMetadata: { promptTokenCount: 5000 } } }]);
+  assert.deepEqual(withZero.usage.prompt_tokens_details, { cached_tokens: 0 });
+  assert.equal(Object.hasOwn(withoutCache.usage, "prompt_tokens_details"), false);
+});
+
+test("top-level Gemini usageMetadata is also normalized", () => {
+  const response = parse([{ response: { candidates: [{ content: { parts: [{ text: "reply" }] } }] },
+    usageMetadata: { promptTokenCount: 6000, candidatesTokenCount: 2, cachedContentTokenCount: 4096 } }]);
+  assert.equal(response.usage.prompt_tokens, 6000);
+  assert.equal(response.usage.prompt_tokens_details.cached_tokens, 4096);
+});
