@@ -13,7 +13,9 @@ const exercise = async (provider: string, reason: Error) =>
     provider,
     model: "fixture-model",
     connectionId: "fixture-connection",
-    executeProviderRequest: async () => { throw reason; },
+    executeProviderRequest: async () => {
+      throw reason;
+    },
     setRequestWireState: () => {},
   });
 
@@ -39,10 +41,7 @@ test("non-streaming leg does not mislabel upstream 504 or other-provider timeout
   assert.equal(result.result.status, 504);
   assert.notEqual(result.result.errorCode, "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT");
 
-  const other = await exercise(
-    "codex",
-    createUpstreamStartTimeoutError(12000, "codex", "fixture")
-  );
+  const other = await exercise("codex", createUpstreamStartTimeoutError(12000, "codex", "fixture"));
   assert.equal(other.kind, "error");
   if (other.kind !== "error") return;
   assert.notEqual(other.result.errorType, "upstream_timeout");

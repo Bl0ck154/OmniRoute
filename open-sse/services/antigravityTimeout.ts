@@ -6,6 +6,9 @@ import { ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE } from "../config/constants.ts";
  * account selector can try a different eligible account instead of replaying.
  */
 export function isAntigravityPreResponseTimeout(error: unknown): boolean {
-  return error !== null && typeof error === "object" &&
-    (error as { code?: unknown }).code === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE;
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
+  );
 }
