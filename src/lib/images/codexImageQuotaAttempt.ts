@@ -52,9 +52,7 @@ export function mergeCodexImageQuotaSamples(
   });
 }
 
-export async function withCodexImageQuotaAttempt<
-  T extends { success: boolean; telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }
->({
+export async function withCodexImageQuotaAttempt<T>({
   provider,
   connectionId,
   credentials,
@@ -70,7 +68,7 @@ export async function withCodexImageQuotaAttempt<
   execute: () => Promise<T>;
   enabled?: boolean;
   fetchQuota?: (id: string, connection: Record<string, unknown>) => Promise<QuotaSample>;
-}): Promise<T & { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }> {
+}): Promise<T> {
   if (!enabled || provider !== "codex" || !connectionId) return execute();
   const info: Record<string, unknown> = {
     ...(credentials ?? {}),
@@ -79,12 +77,18 @@ export async function withCodexImageQuotaAttempt<
     ...(requestedModel ? { requestedModel } : {}),
   };
   const before = await fetchQuota(connectionId, info).catch(() => null);
+  // Legacy image executors are typed Promise<unknown>. Inspect their runtime
+  // contract without falsely claiming TypeScript already guarantees a shape.
   // Exactly ONE inference dispatch: quota errors never cause image replay.
   const result = await execute();
-  if (!result.success) return result;
+  const envelope =
+    result && typeof result === "object" && !Array.isArray(result)
+      ? (result as { success?: unknown; telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } })
+      : null;
+  if (envelope?.success !== true) return result;
   const after = await fetchQuota(connectionId, info).catch(() => null);
   if (!before && !after) return result;
   const quota = mergeCodexImageQuotaSamples(connectionId, before, after, new Date().toISOString());
-  result.telemetry = { ...(result.telemetry ?? {}), codexQuota: quota };
+  envelope.telemetry = { ...(envelope.telemetry ?? {}), codexQuota: quota };
   return result;
 }
