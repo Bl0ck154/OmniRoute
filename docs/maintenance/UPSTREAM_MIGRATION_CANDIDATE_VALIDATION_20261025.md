@@ -66,3 +66,13 @@ routes, one API key editor snapshot, i18n untranslated-ratio thresholds,
 Material Symbol/UI-kit compliance and upstream npm/OSV advisories). They
 must be triaged by comparing pinned official baseline and this staged SHA;
 we do not claim that they all originate from these new patches.
+
+## 2026-10-25 Vitest editor contract
+
+The complete Vitest run against prior SHA passed **3643** tests and failed
+one `api-key-access-editor` full PATCH payload assertion: the new, legitimate
+`preferredConnections: []` property added by per-key preferred ordering was
+missing in the old expected body. The strengthened assertion now pins that
+property explicitly and a hosted focused Vitest job checks the entire existing
+editor suite. No UI behavior or access-control conditions were changed to
+make the test pass.

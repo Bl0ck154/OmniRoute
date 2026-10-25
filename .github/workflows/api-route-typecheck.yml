@@ -135,6 +135,8 @@ jobs:
         run: |
           node --import tsx/esm --test tests/unit/antigravity-resilience-tab-wiring.test.ts
           npx vitest run tests/unit/antigravity-resilience-settings-card-render.test.tsx
+      - name: Existing API key editor full PATCH contract
+        run: npx vitest run tests/unit/ui/api-key-access-editor.test.tsx
       - name: Order Forge scope-gated image artifact retention
         env:
           API_KEY_SECRET: ci-only-retention-api-key
