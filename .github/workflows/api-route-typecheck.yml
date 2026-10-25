@@ -189,6 +189,19 @@ jobs:
             tests/unit/combo/image-combo-empty-200-fallback.test.ts
       - name: Codex image quota baseline regressions
         run: node --import tsx/esm --test tests/unit/codex-image-quota-telemetry.test.ts
+      - name: Gemini cache and reasoning token presence regressions
+        env:
+          API_KEY_SECRET: ci-only-gemini-usage-key
+          JWT_SECRET: ci-only-gemini-usage-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/gemini-buffered-sse-cache-usage.test.ts \
+            tests/unit/gemini-stream-cache-usage-presence.test.ts
       - name: Codex image quota real-serving-account integration
         env:
           API_KEY_SECRET: ci-only-quota-integration-key
