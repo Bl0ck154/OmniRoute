@@ -106,7 +106,7 @@ test("unread upstream errors close timing immediately and keep original bodies u
   let now = 100;
   const tracker = new AntigravityTimingTracker(() => now);
   const events: Record<string, unknown>[] = [];
-  const run = (status: number, body: Response) => withAntigravityTiming({
+  const run = (_status: number, body: Response) => withAntigravityTiming({
     enabled: true, connectionId: "retry-account", model: "gemini-3.8-flash-tiered",
     emit: (event) => events.push(event),
   }, () => tracker.fetch(async () => { now += 10; return body; }));
