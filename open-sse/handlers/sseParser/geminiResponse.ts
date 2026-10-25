@@ -148,9 +148,10 @@ function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccum
 
   // SSE usage is cumulative, not additive. Missing fields in a trailing usage
   // event must not erase fields already reported in an earlier chunk.
-  const promptTokens = nonNegative(um.promptTokenCount) ?? previous?.prompt_tokens ?? 0;
+  const promptTokens =
+    nonNegative(um.promptTokenCount) ?? nonNegative(previous?.prompt_tokens) ?? 0;
   const completionTokens = candidateTokens === undefined
-    ? (previous?.completion_tokens ?? 0)
+    ? (nonNegative(previous?.completion_tokens) ?? 0)
     : candidateTokens + (reasoningTokens ?? 0);
   acc.usage = {
     prompt_tokens: promptTokens,
