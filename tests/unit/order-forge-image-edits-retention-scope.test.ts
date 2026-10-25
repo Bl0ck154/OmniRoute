@@ -24,7 +24,13 @@ test("single-model capture happens only after authorization and on successful ed
   const capture = route.indexOf("const artifactCapture = resolveOrderForgeImageArtifactCapture", reject);
   assert.ok(policy >= 0 && policy < reject && reject < capture);
   assert.match(route, /apiKeyScopes:\s*policy\.apiKeyInfo\?\.scopes/);
-  assert.equal((route.match(/imageEditSuccessResponse\((?:result\.data|\(result as any\)\.data), artifactCapture\)/g) ?? []).length, 5);
+  const twoArgSuccesses =
+    (route.match(/imageEditSuccessResponse\((?:result\.data|\(result as any\)\.data), artifactCapture\)/g) ?? []).length;
+  const codexSuccesses =
+    (route.match(/imageEditSuccessResponse\(result\.data, artifactCapture, quotaHeaders\)/g) ?? []).length;
+  assert.equal(twoArgSuccesses, 4, "non-Codex direct success paths remain scope-gated");
+  assert.equal(codexSuccesses, 1, "Codex success adds only its observed quota headers");
+  assert.equal(twoArgSuccesses + codexSuccesses, 5, "every direct edit success is accounted for");
   assert.match(route, /return imageEditSuccessResponse\(\(result as \{ data\?: unknown \}\)\.data, artifactCapture\)/);
   assert.match(route, /catch \{\s*log\.warn\("IMAGE", "Optional scoped image-edit artifact retention failed"\)/);
 });

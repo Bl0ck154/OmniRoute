@@ -74,6 +74,20 @@ function main() {
   }
 
   if (regressions.length > 0) {
+    // The baseline summary alone hides the actual expected/received types,
+    // forcing speculative fixes and extra hosted CI runs. Surface only newly
+    // regressed compiler diagnostics; do not alter the frozen baseline.
+    const regressionPaths = new Set(regressions.map((entry) => entry.file));
+    const newDiagnosticLines = stdout.split(/\r?\n/).filter((line) => {
+      const match = line.match(/^(.+?)\(\d+,\d+\): error TS\d+:/);
+      return match && regressionPaths.has(match[1].replace(/\\/g, "/"));
+    }).slice(0, 24);
+    if (newDiagnosticLines.length) {
+      process.stderr.write(
+        "[api-typecheck] Actual regressed compiler diagnostics:\n" +
+        newDiagnosticLines.map((line) => "  " + line).join("\n") + "\n"
+      );
+    }
     process.stderr.write(
       `[api-typecheck] FAIL — ${regressions.length} new/regressed TypeScript error(s) ` +
         `under src/app/api/ not covered by the frozen baseline:\n` +
