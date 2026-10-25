@@ -32,3 +32,24 @@ test("streaming Gemini preserves positive cached tokens", () => {
     cachedContentTokenCount: 8175, totalTokenCount: 16020 });
   assert.deepEqual(usage.prompt_tokens_details, { cached_tokens: 8175 });
 });
+
+test("streaming Gemini retains a previously reported cache count across partial metadata chunks", () => {
+  const state = { toolCalls: new Map() };
+  const mkChunk = (metadata: Record<string, unknown>) => ({
+    response: {
+      responseId: "partial-cache-metadata-fixture",
+      modelVersion: "gemini-3.8-flash",
+      candidates: [{ content: { parts: [{ text: "reply" }] }, finishReason: "STOP" }],
+      usageMetadata: metadata,
+    },
+  });
+  geminiToOpenAIResponse(mkChunk({
+    promptTokenCount: 6000, candidatesTokenCount: 20,
+    cachedContentTokenCount: 64, totalTokenCount: 6020,
+  }), state);
+  const trailing = geminiToOpenAIResponse(mkChunk({
+    promptTokenCount: 6000, candidatesTokenCount: 20, totalTokenCount: 6020,
+  }), state);
+  const usage = trailing.find((item: any) => item.usage)?.usage as Record<string, any>;
+  assert.deepEqual(usage.prompt_tokens_details, { cached_tokens: 64 });
+});
