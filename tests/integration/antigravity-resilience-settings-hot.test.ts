@@ -61,7 +61,12 @@ test("management-only access remains required when login is disabled", async () 
   }));
   assert.equal(anonymous.status, 401);
   const anonymousRead = await GET(new Request(url));
-  assert.equal(anonymousRead.status, 401);
+  // Legacy read-only resilience config remains visible where HTTP policy permits,
+  // but new per-account Antigravity settings never leak to anonymous callers.
+  assert.equal(anonymousRead.status, 200);
+  const publicConfig = await anonymousRead.json();
+  assert.equal(Object.hasOwn(publicConfig, "antigravity"), false);
+  assert.equal(typeof publicConfig.requestQueue.requestsPerMinute, "number");
   const token = createAccessToken({ name: "write-only-fixture", scope: "write" });
   const denied = await PATCH(new Request(url, {
     method: "PATCH", body: JSON.stringify({ antigravity: { adaptiveHealthEnabled: true } }),

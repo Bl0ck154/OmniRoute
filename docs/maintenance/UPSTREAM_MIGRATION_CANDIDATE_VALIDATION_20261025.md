@@ -42,3 +42,37 @@ retention and Codex quota telemetry; rollback and canary verification.
 Never use `Build custom OmniRoute release` to validate a draft: that workflow
 checks out `production` and *publishes* a GitHub Release, so it does not
 validate this candidate and cannot be treated as a dry-run.
+
+
+## 2026-10-25 broad CI triage: compatibility corrections
+
+Broad CI against prior stacked candidate SHA `fe4bc7da80` also found:
+- Existing `GET /api/resilience` consumers had become HTTP 401 because the
+  new management-only Antigravity controls protected the **entire** legacy
+  GET instead of just the new fields. This branch restores the old public
+  configuration projection; the additional `antigravity` object is included
+  only for callers who pass `requireManagementAuth` (management sessions/
+  suitably scoped tokens). **PATCH still requires admin** via accessScopes.
+- The pure defaults snapshot must legitimately include the opt-in
+  `antigravity` settings section (both optional features OFF).
+- `RENAMED_MIGRATION_COMPATIBILITY` now has **35** entries, not 33,
+  because two historical SQL ledger variants 170 and 194 are rehomed to
+  213. The strengthened test explicitly asserts both mappings.
+- The focused hosted gate now includes those two otherwise omitted legacy
+  test suites, in addition to the existing runtime persistence/auth test.
+
+Other broad CI failures remain under investigation (several Codex/Combo
+routes, one API key editor snapshot, i18n untranslated-ratio thresholds,
+Material Symbol/UI-kit compliance and upstream npm/OSV advisories). They
+must be triaged by comparing pinned official baseline and this staged SHA;
+we do not claim that they all originate from these new patches.
+
+## 2026-10-25 Vitest editor contract
+
+The complete Vitest run against prior SHA passed **3643** tests and failed
+one `api-key-access-editor` full PATCH payload assertion: the new, legitimate
+`preferredConnections: []` property added by per-key preferred ordering was
+missing in the old expected body. The strengthened assertion now pins that
+property explicitly and a hosted focused Vitest job checks the entire existing
+editor suite. No UI behavior or access-control conditions were changed to
+make the test pass.

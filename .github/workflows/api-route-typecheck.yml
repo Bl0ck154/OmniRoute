@@ -49,6 +49,7 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/api-key-preferred-migration-bridge.test.ts \
+            tests/unit/db-migrationrunner-constants-split.test.ts \
             tests/unit/preferred-connection-failover.test.ts \
             tests/unit/upstream-timeout-connection-tier.test.ts \
             tests/unit/api-key-connection-preference.test.ts \
@@ -116,6 +117,7 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/integration/antigravity-resilience-settings-hot.test.ts \
+            tests/unit/resilience-settings-normalize-split.test.ts \
             tests/unit/access-scopes-infer.test.ts
       - name: Antigravity sanitized health status and admin access
         env:
@@ -133,6 +135,8 @@ jobs:
         run: |
           node --import tsx/esm --test tests/unit/antigravity-resilience-tab-wiring.test.ts
           npx vitest run tests/unit/antigravity-resilience-settings-card-render.test.tsx
+      - name: Existing API key editor full PATCH contract
+        run: npx vitest run tests/unit/ui/api-key-access-editor.test.tsx
       - name: Order Forge scope-gated image artifact retention
         env:
           API_KEY_SECRET: ci-only-retention-api-key
