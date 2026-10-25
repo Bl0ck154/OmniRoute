@@ -66,13 +66,18 @@ export async function withCodexImageQuotaAttempt<
   provider: string;
   connectionId?: string | null;
   credentials?: Record<string, unknown> | null;
-  requestedModel: string;
+  requestedModel: string | null;
   execute: () => Promise<T>;
   enabled?: boolean;
   fetchQuota?: (id: string, connection: Record<string, unknown>) => Promise<QuotaSample>;
 }): Promise<T & { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }> {
   if (!enabled || provider !== "codex" || !connectionId) return execute();
-  const info: Record<string, unknown> = { ...(credentials ?? {}), requestedModel };
+  const info: Record<string, unknown> = {
+    ...(credentials ?? {}),
+    // A credential fallback may be selected before the request model has
+    // been fully normalized. Keep the quota fetcher's nullable model contract.
+    ...(requestedModel ? { requestedModel } : {}),
+  };
   const before = await fetchQuota(connectionId, info).catch(() => null);
   // Exactly ONE inference dispatch: quota errors never cause image replay.
   const result = await execute();
