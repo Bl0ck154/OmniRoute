@@ -92,3 +92,16 @@ requires management authentication on HTTP GET, including login-disabled mode.
 The integration test asserts that tokens/project ids/upstream request content
 are never serialized and anonymous status requests return 401. Dashboard UI
 remains separate. No live service changes or account API calls from diagnostics.
+
+## 2026-10-25 phase 3B-6: UI staging candidate
+
+Added **one** optional Antigravity settings card within the already existing
+Settings > Resilience tab; no new tab, menu or duplicated controls. It reuses
+the section's PATCH/error-toast integration, save/revert controls and shared
+NumberField/BooleanField widgets. A previously running installation lacking
+the Antigravity API response section does not render an invalid empty card.
+The UI is default read-only until Edit and explicitly Save, with pending-save
+disable and a retryable draft after failed API write. Next-intl keys are read
+through conditional fallback so older locale bundles do not crash.
+Focused hosted Vitest/jsdom and static state-mapping tests must pass. No
+production deployment, live DB migration or API-credential changes.

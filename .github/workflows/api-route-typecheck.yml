@@ -129,3 +129,7 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/integration/antigravity-health-status.test.ts
+      - name: Antigravity resilience UI and response mapping
+        run: |
+          node --import tsx/esm --test tests/unit/antigravity-resilience-tab-wiring.test.ts
+          npx vitest run tests/unit/antigravity-resilience-settings-card-render.test.tsx
