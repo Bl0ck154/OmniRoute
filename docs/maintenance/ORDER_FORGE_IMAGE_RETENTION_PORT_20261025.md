@@ -39,3 +39,13 @@ application naming / directories to the official upstream repository.
 Existing custom artifact directory and metadata are operational data; preserve
 the configured volume/directory during rollout and validate backup/rollback
 without uploading customer files.
+
+## Firefly image edit gap closed (separate review)
+
+The native Adobe Firefly edit helper now accepts an optional success callback.
+The scoped Order Forge API-key capability (after successful policy admission)
+uses it to retain the already normalized image data without cloning an
+opaque Response, reading an unbounded response stream or serializing JSON
+twice. The original response, accounting and error paths remain unchanged.
+The callback comes from a guarded local persistence helper whose filesystem
+errors do not escape a successful paid image response.

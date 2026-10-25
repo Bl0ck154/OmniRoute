@@ -220,17 +220,23 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 /** An optional disk sink must never convert a successfully billed image edit
  * into an HTTP failure or reveal returned user content in logs. */
+function retainImageEditSuccess(
+  data: unknown,
+  capture: OrderForgeImageArtifactCapture | null | undefined
+): void {
+  if (!capture) return;
+  try {
+    persistOrderForgeImageArtifacts({ capture, responseBody: data });
+  } catch {
+    log.warn("IMAGE", "Optional scoped image-edit artifact retention failed");
+  }
+}
+
 function imageEditSuccessResponse(
   data: unknown,
   capture: OrderForgeImageArtifactCapture | null | undefined
 ): Response {
-  if (capture) {
-    try {
-      persistOrderForgeImageArtifacts({ capture, responseBody: data });
-    } catch {
-      log.warn("IMAGE", "Optional scoped image-edit artifact retention failed");
-    }
-  }
+  retainImageEditSuccess(data, capture);
   return jsonResponse(data);
 }
 
@@ -973,6 +979,7 @@ async function postHandler(request: Request, _context?: unknown) {
       imageBytes,
       imageMime,
       accounting,
+      onSuccessfulResult: (data) => retainImageEditSuccess(data, artifactCapture),
     });
   }
 

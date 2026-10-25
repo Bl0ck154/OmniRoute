@@ -61,6 +61,7 @@ export async function handleAdobeFireflyEditRequest(params: {
   imageBytes: Buffer | null;
   imageMime: string | null;
   accounting: Pick<ImageRequestAccounting, "apiKeyInfo" | "startTime">;
+  onSuccessfulResult?: (data: unknown) => void;
 }): Promise<Response> {
   const {
     parsed,
@@ -74,6 +75,7 @@ export async function handleAdobeFireflyEditRequest(params: {
     imageBytes,
     imageMime,
     accounting,
+    onSuccessfulResult,
   } = params;
 
   const credentials = await getProviderCredentialsWithQuotaPreflight(
@@ -141,6 +143,7 @@ export async function handleAdobeFireflyEditRequest(params: {
 
   if ((result as { success?: boolean }).success) {
     await clearRecoveredProviderState(credentials);
+    onSuccessfulResult?.((result as { data?: unknown }).data);
     return jsonResponse((result as { data?: unknown }).data);
   }
   return jsonResponse(

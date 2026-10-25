@@ -157,4 +157,5 @@ jobs:
             --import ./open-sse/utils/setupPolyfill.ts \
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
-            tests/unit/order-forge-image-edits-retention-scope.test.ts
+            tests/unit/order-forge-image-edits-retention-scope.test.ts \
+            tests/unit/order-forge-image-firefly-edit-retention.test.ts
