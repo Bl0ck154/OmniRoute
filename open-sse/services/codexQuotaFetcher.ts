@@ -207,14 +207,15 @@ function getDominantResetAt(quota: {
  */
 export async function fetchCodexQuota(
   connectionId: string,
-  connection?: Record<string, unknown>
+  connection?: Record<string, unknown>,
+  options: { bypassCache?: boolean } = {}
 ): Promise<CodexDualWindowQuota | null> {
   const requestedModel = getRequestedModel(connection);
   const cacheKey = getQuotaCacheKey(connectionId, requestedModel);
 
   // Check cache first
   const cached = quotaCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+  if (!options.bypassCache && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.quota;
   }
 
@@ -280,6 +281,18 @@ export async function fetchCodexQuota(
     // Network error, timeout, etc. — fail open
     return null;
   }
+}
+
+/**
+ * Deliberately uncached Codex quota observation for opt-in image telemetry.
+ * Uses the SAME throttled, proxied, fail-open fetcher and quota registry.
+ * Never resends an inference/image-generation request.
+ */
+export function fetchFreshCodexQuota(
+  connectionId: string,
+  connection?: Record<string, unknown>
+): Promise<CodexDualWindowQuota | null> {
+  return fetchCodexQuota(connectionId, connection, { bypassCache: true });
 }
 
 // ─── Response Parser ─────────────────────────────────────────────────────────

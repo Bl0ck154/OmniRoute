@@ -54,6 +54,8 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { runImageRequestWithAccounting } from "@/lib/usage/imageRequestAccounting";
+import { withCodexImageQuotaAttempt } from "@/lib/images/codexImageQuotaAttempt";
+import { attachCodexImageQuotaHeaders, type CodexImageQuotaTelemetryShape } from "@/lib/images/codexImageQuotaTelemetry";
 import {
   persistOrderForgeImageArtifacts,
   resolveOrderForgeImageArtifactCapture,
@@ -404,7 +406,12 @@ async function postHandler(request, context) {
       }
 
       const generateImage = () =>
-        runImageRequestWithAccounting(
+        withCodexImageQuotaAttempt({
+          provider,
+          connectionId: attemptCredentials?.connectionId,
+          credentials: attemptCredentials,
+          requestedModel,
+          execute: () => runImageRequestWithAccounting(
           {
             endpoint: "/v1/images/generations",
             provider,
@@ -430,7 +437,8 @@ async function postHandler(request, context) {
               // provider ignores it.
               peerLocality: request.headers.get(AUTHZ_HEADER_PEER_LOCALITY),
             })
-        );
+          ),
+        });
 
       return attemptCredentials?.connectionId
         ? runWithProxyContext(proxyInfo?.proxy || null, generateImage).catch((err: any) => ({
@@ -476,6 +484,12 @@ async function postHandler(request, context) {
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
     });
+    // The telemetry was collected inside the winner's actual provider attempt,
+    // not on the initial connection selected before account fallback.
+    attachCodexImageQuotaHeaders(
+      headers,
+      (result as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry?.codexQuota
+    );
     return new Response(JSON.stringify((result as { data: unknown }).data), {
       status: 200,
       headers,

@@ -65,6 +65,8 @@ import {
   isCommonChatGptWebRetirementError,
 } from "@/shared/constants/chatgptWebRetirement";
 import { z } from "zod";
+import { withCodexImageQuotaAttempt } from "@/lib/images/codexImageQuotaAttempt";
+import { attachCodexImageQuotaHeaders, type CodexImageQuotaTelemetryShape } from "@/lib/images/codexImageQuotaTelemetry";
 import {
   persistOrderForgeImageArtifacts,
   resolveOrderForgeImageArtifactCapture,
@@ -211,11 +213,10 @@ async function readEditInput(request: Request): Promise<EditInput | null> {
   return null;
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+function jsonResponse(data: unknown, status = 200, extraHeaders?: Headers): Response {
+  const headers = new Headers(extraHeaders);
+  headers.set("Content-Type", "application/json");
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 /** An optional disk sink must never convert a successfully billed image edit
@@ -234,10 +235,11 @@ function retainImageEditSuccess(
 
 function imageEditSuccessResponse(
   data: unknown,
-  capture: OrderForgeImageArtifactCapture | null | undefined
+  capture: OrderForgeImageArtifactCapture | null | undefined,
+  quotaHeaders?: Headers
 ): Response {
   retainImageEditSuccess(data, capture);
-  return jsonResponse(data);
+  return jsonResponse(data, 200, quotaHeaders);
 }
 
 /** Key + start time every edit attempt is attributed to (call_logs + usage_history). */
@@ -877,7 +879,12 @@ async function postHandler(request: Request, _context?: unknown) {
     }
 
     const editImage = () =>
-      runImageRequestWithAccounting(
+      withCodexImageQuotaAttempt({
+        provider: parsed.provider,
+        connectionId,
+        credentials,
+        requestedModel: resolvedModel,
+        execute: () => runImageRequestWithAccounting(
         editAccounting(accounting, parsed.provider, parsed.model, credentials),
         () =>
           handleCodexImageEdit({
@@ -894,7 +901,8 @@ async function postHandler(request: Request, _context?: unknown) {
             log,
             signal: request.signal,
           })
-      );
+        ),
+      });
 
     const result = await (connectionId
       ? runWithProxyContext(proxyInfo?.proxy || null, editImage).catch(() => ({
@@ -906,7 +914,14 @@ async function postHandler(request: Request, _context?: unknown) {
 
     if (result.success === true) {
       await clearRecoveredProviderState(credentials);
-      return imageEditSuccessResponse(result.data, artifactCapture);
+      // Serialize once; attach quota facts only for the successful Codex
+      // account which served this image edit, never the pre-fallback account.
+      const quotaHeaders = new Headers();
+      attachCodexImageQuotaHeaders(
+        quotaHeaders,
+        (result as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry?.codexQuota
+      );
+      return imageEditSuccessResponse(result.data, artifactCapture, quotaHeaders);
     }
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
