@@ -54,6 +54,9 @@ export const ADMIN_MUTATION_PREFIXES: readonly string[] = [
 const ADMIN_MUTATION_EXACT_PATHS: readonly string[] = [
   "/api/settings",
   "/api/settings/require-login",
+  // Global resilience changes alter routing availability, quarantine and
+  // timeout policy. A delegated write token may inspect but not mutate.
+  "/api/resilience",
 ];
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);

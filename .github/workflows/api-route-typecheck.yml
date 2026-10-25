@@ -115,7 +115,8 @@ jobs:
             --import ./open-sse/utils/setupPolyfill.ts \
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
-            tests/integration/antigravity-resilience-settings-hot.test.ts
+            tests/integration/antigravity-resilience-settings-hot.test.ts \
+            tests/unit/access-scopes-infer.test.ts
       - name: Antigravity sanitized health status and admin access
         env:
           API_KEY_SECRET: ci-only-health-status-key
