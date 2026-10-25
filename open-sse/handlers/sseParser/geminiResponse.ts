@@ -128,12 +128,37 @@ function applyFinishReason(
 /** Extract usageMetadata into the OpenAI-shaped usage object, if present. */
 function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccumulator): void {
   const response = parsed.response as Record<string, unknown> | undefined;
-  const um = response?.usageMetadata as Record<string, unknown> | undefined;
-  if (!um) return;
+  // Cloud Code normally nests usage under response; native Gemini can send it
+  // at the top level. A final metadata-only SSE event is still authoritative.
+  const um = (response?.usageMetadata ?? parsed.usageMetadata) as
+    | Record<string, unknown>
+    | undefined;
+  if (!um || typeof um !== "object" || Array.isArray(um)) return;
+
+  const nonNegative = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+  const previous = acc.usage;
+  const previousCache = previous?.prompt_tokens_details as Record<string, unknown> | undefined;
+  const previousReasoning = previous?.completion_tokens_details as Record<string, unknown> | undefined;
+  const cachedTokens = nonNegative(um.cachedContentTokenCount) ??
+    nonNegative(previousCache?.cached_tokens);
+  const reasoningTokens = nonNegative(um.thoughtsTokenCount) ??
+    nonNegative(previousReasoning?.reasoning_tokens);
+  const candidateTokens = nonNegative(um.candidatesTokenCount);
+
+  // SSE usage is cumulative, not additive. Missing fields in a trailing usage
+  // event must not erase fields already reported in an earlier chunk.
   acc.usage = {
-    prompt_tokens: um.promptTokenCount || 0,
-    completion_tokens: um.candidatesTokenCount || 0,
-    total_tokens: um.totalTokenCount || 0,
+    prompt_tokens: nonNegative(um.promptTokenCount) ?? previous?.prompt_tokens ?? 0,
+    completion_tokens: candidateTokens === undefined
+      ? (previous?.completion_tokens ?? 0)
+      : candidateTokens + (reasoningTokens ?? 0),
+    total_tokens: nonNegative(um.totalTokenCount) ?? previous?.total_tokens ?? 0,
+    // Preserve explicit zero: "reported zero" differs from "not reported".
+    ...(cachedTokens !== undefined
+      ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {}),
+    ...(reasoningTokens !== undefined
+      ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } } : {}),
   };
 }
 
