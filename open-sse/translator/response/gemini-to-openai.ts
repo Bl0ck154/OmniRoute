@@ -677,8 +677,10 @@ export function geminiToOpenAIResponse(chunk, state) {
       total_tokens: totalTokens,
     };
 
-    // Add prompt_tokens_details if cached tokens exist
-    if (cachedTokens > 0) {
+    // Preserve an explicitly reported zero separately from missing cache usage.
+    if (typeof usageMeta.cachedContentTokenCount === "number"
+      && Number.isFinite(usageMeta.cachedContentTokenCount)
+      && cachedTokens >= 0) {
       state.usage.prompt_tokens_details = {
         cached_tokens: cachedTokens,
       };
