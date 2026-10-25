@@ -63,6 +63,11 @@ import { appendRequestLog, trackPendingRequest } from "@/lib/usageDb";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags.ts";
 import { isEmptyStreamSiblingRecoveryEnabled } from "../../services/streamRecovery.ts";
 import { getProviderCredentials } from "@/sse/services/auth";
+import {
+  resolveOrderForgeImageArtifactCapture,
+  persistOrderForgeImageArtifacts,
+  drainOrderForgeImageArtifactStream,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 import { resolveCredentialGate } from "@/lib/streamingCredentialTransform";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deps bag mirrors the barrel closure
@@ -145,6 +150,15 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
   let onPipelineStreamError = null;
   let onClientDisconnectFinalize = null;
   let turnExecutionHandedOffToStream = false;
+  // Header by itself must never activate storage. Only the already-authorized
+  // principal with the dedicated permission can request artifact capture.
+  const orderForgeImageArtifactCapture = isResponsesEndpoint
+    ? resolveOrderForgeImageArtifactCapture({
+        apiKeyScopes: apiKeyInfo?.scopes,
+        headers: clientRawRequest?.headers,
+        correlationId,
+      })
+    : null;
 
   // Streaming response
   // #3089 — some "reasoning" openai-compatible upstreams ignore a stream:true
@@ -378,6 +392,25 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
     }
     const cacheUsageLogMeta = buildCacheUsageLogMeta(streamUsage);
     const streamConnectionId = getCurrentConnectionId();
+
+    // A successful HTTP 200 header alone does not count as complete. Only the
+    // successful final stream callback with no interruption may store images.
+    if (
+      normalizedStreamStatus === 200 &&
+      !streamError &&
+      !streamErrorCode &&
+      _streamInterrupted !== true &&
+      orderForgeImageArtifactCapture
+    ) {
+      try {
+        persistOrderForgeImageArtifacts({
+          capture: orderForgeImageArtifactCapture,
+          responseBody: clientPayload ?? streamResponseBody ?? providerPayload,
+        });
+      } catch {
+        log?.warn?.("IMAGE", "Optional streamed Responses image retention failed");
+      }
+    }
 
     if (normalizedStreamStatus === 200) {
       clearPostOutputFailureStreak(provider, streamConnectionId, modelInfo.model);
@@ -781,7 +814,18 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
     // lifecycle frame. See pipeWithDisconnect's own doc comment.
     contentStallTimeoutMs: streamReadinessPolicy.timeoutMs,
   });
-  const clientFacingStream = wrapReadableStreamWithFinalize(finalStream, releaseTurnExecution);
+  let clientStream = finalStream;
+  if (orderForgeImageArtifactCapture) {
+    // Drain the sibling branch concurrently so a downstream disconnect does
+    // not strand a completed paid image generation. The upstream pipeline is
+    // still subject to its normal abort/readiness policies.
+    const [downstreamStream, artifactStream] = finalStream.tee();
+    clientStream = downstreamStream;
+    void drainOrderForgeImageArtifactStream(artifactStream).catch(() => {
+      log?.warn?.("IMAGE", "Optional Responses stream artifact drain failed");
+    });
+  }
+  const clientFacingStream = wrapReadableStreamWithFinalize(clientStream, releaseTurnExecution);
 
   // ── Gamification event (fire-and-forget) ──
   await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });

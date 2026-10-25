@@ -49,3 +49,18 @@ opaque Response, reading an unbounded response stream or serializing JSON
 twice. The original response, accounting and error paths remain unchanged.
 The callback comes from a guarded local persistence helper whose filesystem
 errors do not escape a successful paid image response.
+
+## Phase 3 — refactored Responses API capture
+
+Captures normalized, successful Responses API image generation after tool
+completion in the extracted nonstreaming response handler. The newly split
+streaming-tail module stores images only on successful, uninterrupted
+stream completion, and drains a separate tee of the client stream only for
+a principal with the explicit retention permission and a valid artifact ID.
+A stream without this capability is unchanged (no tee, no sink read).
+Optional disk failures do not impact provider response status or client
+delivery, and logs never include payloads or artifact IDs.
+
+Before deployment: hosted focused tests, provider mock end-to-end Responses
+success/abort tests, full CI/typecheck, private data path preservation and
+canary/rollback are still required.
