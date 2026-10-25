@@ -196,8 +196,19 @@ export const tokenRefreshBreakerSettingsSchema = z
   })
   .strict();
 
+/** Private diagnostics settings require management credentials at the API boundary. */
+export const antigravityResilienceSettingsSchema = z
+  .object({
+    preferredTimeoutMs: z.number().int().min(500).max(120_000).optional(),
+    gemini38PreferredTimeoutMs: z.number().int().min(500).max(120_000).optional(),
+    adaptiveHealthEnabled: z.boolean().optional(),
+    timingTelemetryEnabled: z.boolean().optional(),
+  })
+  .strict();
+
 export const updateResilienceSchema = z
   .object({
+    antigravity: antigravityResilienceSettingsSchema.optional(),
     requestQueue: requestQueueSettingsSchema.optional(),
     connectionCooldown: z
       .object({
@@ -253,6 +264,7 @@ export const updateResilienceSchema = z
   .strict()
   .superRefine((value, ctx) => {
     const provided = [
+      value.antigravity,
       value.requestQueue,
       value.connectionCooldown,
       value.providerBreaker,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCachedSettings } from "@/lib/db/readCache";
 import { getSettings, updateSettings } from "@/lib/db/settings";
 import {
@@ -127,12 +128,17 @@ async function syncRuntimeSettings(resilienceSettings: ResilienceSettings) {
 /**
  * GET /api/resilience — Get current resilience configuration
  */
-export async function GET() {
+export async function GET(request?: Request) {
+  // Inference-only API keys and anonymous callers must never read internal
+  // per-account health/telemetry settings, even when login is disabled.
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
+  if (authError) return authError;
   try {
     const settings = await getCachedSettings();
     const resilience = resolveResilienceSettings(settings);
 
     return NextResponse.json({
+      antigravity: resilience.antigravity,
       requestQueue: resilience.requestQueue,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
@@ -164,7 +170,9 @@ export async function GET() {
 /**
  * PATCH /api/resilience — Update resilience configuration
  */
-export async function PATCH(request) {
+export async function PATCH(request: Request) {
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
+  if (authError) return authError;
   let rawBody;
   try {
     rawBody = await request.json();
@@ -198,6 +206,9 @@ export async function PATCH(request) {
       resilienceSettings: storedResilience,
     });
     const mergedFull = mergeResilienceSettings(sparseBase, {
+      ...(body.antigravity
+        ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] }
+        : {}),
       ...(body.requestQueue
         ? { requestQueue: body.requestQueue as ResilienceSettingsPatch["requestQueue"] }
         : {}),
@@ -296,6 +307,7 @@ export async function PATCH(request) {
 
     return NextResponse.json({
       ok: true,
+      antigravity: nextResilience.antigravity,
       requestQueue: nextResilience.requestQueue,
       connectionCooldown: nextResilience.connectionCooldown,
       providerBreaker: nextResilience.providerBreaker,

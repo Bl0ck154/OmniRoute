@@ -70,3 +70,15 @@ appear in timing events; the tracker hashes account IDs and observes streams
 without consuming data ahead of clients. The PR #49 non-2xx slot and unread
 success expiry handling remains in the same tracker. Hosted regression checks
 must pass on the final SHA; no production deployment.
+
+## 2026-10-25 phase 3B-4: administrative hot settings candidate
+
+The opt-in settings now participate in the latest upstream's typed
+`ResilienceSettings` normalization, sparse-default pruning, PATCH merge and
+strict Zod validation. `GET/PATCH /api/resilience` requires management auth
+even if dashboard login is disabled. Both health and timing stay OFF unless
+enabled explicitly by an authorized operator; timeout values are limited to
+integer 500–120000 ms. Focused hosted tests cover persistence after DB reopen,
+partial PATCH, atomic rejection of malformed paired values, anonymous 401,
+and write-only token 403. UI controls and read-only health status UI remain
+separate and require additional approval/testing.
