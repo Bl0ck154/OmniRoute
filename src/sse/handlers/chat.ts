@@ -158,6 +158,13 @@ import { isSubscriptionQuotaText } from "@omniroute/open-sse/services/quotaTextC
 import { resolveUseUpstream429BreakerHints } from "@/shared/utils/providerHints";
 import { isFeatureFlagEnabled, isRotationAttributionEnabled } from "@/shared/utils/featureFlags";
 import * as agyLease from "../services/antigravityLeaseLifecycle";
+import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth.ts";
+import { isAntigravityProvider } from "@omniroute/open-sse/services/antigravityTimeout.ts";
+import { resolveAntigravitySettings } from "@/lib/resilience/antigravitySettings";
+import {
+  bindAntigravityHealthAttempt,
+  holdAntigravityHealthThroughResponse,
+} from "../services/antigravityHealthLifecycle";
 import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import { getCircuitBreaker, isLocalStreamLifecycleError } from "../../shared/utils/circuitBreaker";
 import { maybeMarkChatAccountExhaustedFrom429 } from "../services/chatQuotaExhaustion";
@@ -1771,9 +1778,14 @@ async function handleSingleModelChat(
   });
 
   const userAgent = request?.headers?.get("user-agent") || "";
-  const baseRetrySettings = resolveCooldownAwareRetrySettings(
-    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})))
-  );
+  // Share the existing request-level settings snapshot; adaptive health is
+  // opt-in and never opens an additional settings query per retry.
+  const requestSettings =
+    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})));
+  const antigravitySettings = isAntigravityProvider(provider)
+    ? resolveAntigravitySettings(requestSettings)
+    : null;
+  const baseRetrySettings = resolveCooldownAwareRetrySettings(requestSettings);
   const retrySettings = disableCooldownAwareRetry(
     baseRetrySettings,
     provider === "claude-web" ||
@@ -2161,6 +2173,26 @@ async function handleSingleModelChat(
         reselectPoolMember?: () => Promise<unknown>;
       } = { proxy: null };
       const proxyStartTime = Date.now();
+      const healthTicket = antigravitySettings?.adaptiveHealthEnabled
+        ? antigravityHealth.begin(
+            credentials.connectionId,
+            effectiveModel,
+            hasForcedConnection || credentials.antigravityHealthFallback === true
+          )
+        : undefined;
+      if (healthTicket === null) {
+        releaseOAuthSession();
+        agyLease.release(leaseId);
+        if (hasForcedConnection) {
+          return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE,
+            "Antigravity model recovery probe already in flight");
+        }
+        excludedConnectionIds.add(credentials.connectionId);
+        continue;
+      }
+      const healthAttempt = healthTicket
+        ? bindAntigravityHealthAttempt(healthTicket, requestSignal)
+        : undefined;
       // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
       if (telemetry) telemetry.startPhase("connect");
       let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
@@ -2214,16 +2246,42 @@ async function handleSingleModelChat(
           runtimeOptions
         );
       } catch (error) {
+        healthAttempt?.finish("ignored");
         releaseOAuthSession();
         agyLease.release(leaseId);
         throw error;
       }
       if (telemetry) telemetry.endPhase();
       if ("localResourcePressureResult" in execution) {
+        healthAttempt?.finish("ignored");
         agyLease.release(leaseId);
         return execution.localResourcePressureResult.response;
       }
       const { result, tlsFingerprintUsed, wasProviderProbe } = execution;
+      if (healthAttempt) {
+        if (requestSignal?.aborted || result.status === 499) {
+          healthAttempt.finish("ignored");
+        } else if (result.success && requestBody.stream === true) {
+          // A successful HTTP 200 header is not a successful stream. Complete
+          // the probe after consuming useful content; cancel/empty/error => ignored.
+          result.response = holdAntigravityHealthThroughResponse(result.response, healthAttempt);
+        } else if (result.success) {
+          healthAttempt.finish("success");
+        } else if (
+          result.status === HTTP_STATUS.GATEWAY_TIMEOUT &&
+          result.errorType === "upstream_timeout" &&
+          result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
+        ) {
+          healthAttempt.finish("timeout");
+        } else if (result.status === HTTP_STATUS.BAD_GATEWAY ||
+          result.status === HTTP_STATUS.SERVICE_UNAVAILABLE) {
+          healthAttempt.finish("transport");
+        } else {
+          // 401/403/429, quota, upstream formatting and local policy refusals
+          // cannot count as model header timeout health samples.
+          healthAttempt.finish("ignored");
+        }
+      }
       if (!result.success) releaseOAuthSession();
       if (result.success && agyLease.isStreamingAntigravityResponse(result.response))
         result.response = inheritProviderProbeResponse(
@@ -2472,7 +2530,11 @@ async function handleSingleModelChat(
           provider,
           model,
           providerProfile,
-          buildExhaustionOptions(runtimeOptions.correlationId ?? null, { isCombo })
+          buildExhaustionOptions(runtimeOptions.correlationId ?? null, {
+            isCombo,
+            structuredError: { code: result.errorCode, type: result.errorType },
+            healthAttempt,
+          })
         );
 
         if (shouldFallback && !hasForcedConnection) {

@@ -80,3 +80,15 @@ jobs:
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/antigravity-timeout-retry.test.ts \
             tests/unit/codex-same-account-transport-retry-9708.test.ts
+      - name: Antigravity adaptive health full routing integration
+        env:
+          API_KEY_SECRET: ci-only-antigravity-integration-key
+          JWT_SECRET: ci-only-antigravity-integration-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/integration/antigravity-health-wiring.test.ts

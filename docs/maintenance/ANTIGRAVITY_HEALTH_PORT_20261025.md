@@ -44,3 +44,17 @@ logic and is **not** a standalone-core test. It is deliberately deferred to
 phase 3B rather than changing its assertions or treating this stage as a pass.
 The test remains in fork production and must be ported unchanged when wiring
 live Antigravity retries. Do not deploy before these assertions pass.
+
+
+## 2026-10-25 phase 3B-2 integration candidate
+
+Isolated draft branch (not deployed) implements:
+- Credential selection health filtering **only after** allowlists, quota, terminal/cooldown and lease filtering, with per-model quarantine and single-probe guard.
+- Per-attempt health tickets in current upstream `chat.ts`; exactly-once settlement on header timeout vs 499/abort vs ordinary transport, and stream completion rather than HTTP 200 response headers.
+- Opt-in behavior using `resilienceSettings.antigravity.adaptiveHealthEnabled` (default OFF); prevents a model health timeout from inducing a global account cooldown.
+- First five end-to-end request-path cases from fork #47, adapted to current upstream API. State API and settings UI are not yet included.
+
+This integration is only a **candidate** until hosted checks pass. Next:
+- Transport-level timing wiring, including #49's unconsumed-response cleanup, is separate.
+- Hot validated resilience admin settings API, UI and health status endpoint remain TODO.
+- Full CI, migration rehearsal, canary and explicit deployment approval remain REQUIRED.
