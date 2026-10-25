@@ -76,3 +76,19 @@ missing in the old expected body. The strengthened assertion now pins that
 property explicitly and a hosted focused Vitest job checks the entire existing
 editor suite. No UI behavior or access-control conditions were changed to
 make the test pass.
+
+
+## Production fork advanced to custom.36 during migration
+
+Current fork production merged #70 after the initial upstream-first candidate
+branch was cut. Its Gemini cache/read and reasoning usage metadata changes are
+critical to Oscar's cached-token accounting. Four focused commits have been
+ported into an isolated follow-up branch:
+- buffered Gemini SSE parser preserves late usageMetadata, explicit cache zero
+  and reasoning tokens, without losing canonical derived total when absent;
+- nonstream Gemini translation distinguishes reported zero from missing cached
+  usage; no positive-token fabrication from omitted fields;
+- both original regression suites from fork production are included.
+
+They are not in the earlier unified PR #73 SHA until explicitly reconciled.
+No production service, SQLite DB or customer data was modified.
