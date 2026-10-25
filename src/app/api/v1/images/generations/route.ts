@@ -206,6 +206,15 @@ async function postHandler(request, context) {
             allowedConnections,
             isTargetAllowed: createComboTargetKeyGate(policy, body.model as string),
           },
+          onSuccessPayload: artifactCapture
+            ? (data) => {
+                try {
+                  persistOrderForgeImageArtifacts({ capture: artifactCapture, responseBody: data });
+                } catch {
+                  log.warn("IMAGE", "Optional image combo artifact retention failed");
+                }
+              }
+            : undefined,
         },
         startTime,
         log

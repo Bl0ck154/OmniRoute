@@ -242,6 +242,8 @@ export async function executeImageCombo(
     policy: { apiKeyInfo?: { id?: string; name?: string } | null };
     /** GHSA-3w2r: the caller key's scope; omitted = unrestricted (unchanged). */
     keyScope?: ComboKeyScope;
+    /** Optional caller-owned success side effect. Never called for failed targets. */
+    onSuccessPayload?: (data: unknown) => void;
   },
   startTime: number,
   log: typeof logger
@@ -317,6 +319,16 @@ export async function executeImageCombo(
     const responseBody = Array.isArray(payload)
       ? { created: Math.floor(Date.now() / 1000), data: payload }
       : payload;
+    // The caller has already authenticated the API key, checked policy and
+    // validated any optional retention capability. Preserve the combo HTTP
+    // response, accounting and cost even if that optional callback fails.
+    if (auth.onSuccessPayload) {
+      try {
+        auth.onSuccessPayload(responseBody);
+      } catch {
+        logger.warn("IMAGE", "Optional image combo success hook failed");
+      }
+    }
     return new Response(JSON.stringify(responseBody), { status: 200, headers });
   }
 

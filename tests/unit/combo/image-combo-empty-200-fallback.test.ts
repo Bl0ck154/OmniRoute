@@ -326,3 +326,67 @@ test("direct image model request with empty 200 is a retryable 502 (behavior pre
   assert.equal(malformed.success, false);
   assert.equal(malformed.status, 502);
 });
+
+
+test("image combo invokes optional successful payload hook only for the winning image leg", async () => {
+  await resetStorage();
+  await seedOpenRouterConnection();
+  await seedTwoLegCombo("orderforge-combo-success");
+  const hits: Array<{ url: string; model?: string }> = [];
+  stubFetchEmptyThenValid(hits);
+  const payloads: unknown[] = [];
+  const response = await executeImageCombo(
+    "orderforge-combo-success",
+    { model: "orderforge-combo-success", prompt: "a cat", n: 1 },
+    {
+      ...createMockAuth(),
+      onSuccessPayload: (data: unknown) => payloads.push(data),
+    },
+    Date.now(),
+    createLog()
+  );
+  assert.equal(response.status, 200);
+  assert.equal(hits.length, 2, "the first empty 200 must still fall back");
+  assert.equal(payloads.length, 1, "only the winning image is offered to retention");
+  assert.deepEqual(payloads[0], await response.json(), "original client payload is unchanged");
+});
+
+test("image combo never invokes artifact hook on exhausted provider results", async () => {
+  await resetStorage();
+  await seedOpenRouterConnection();
+  await seedTwoLegCombo("orderforge-combo-failure");
+  stubFetchAlwaysEmpty();
+  let captured = 0;
+  const response = await executeImageCombo(
+    "orderforge-combo-failure",
+    { model: "orderforge-combo-failure", prompt: "a cat", n: 1 },
+    {
+      ...createMockAuth(),
+      onSuccessPayload: () => { captured += 1; },
+    },
+    Date.now(),
+    createLog()
+  );
+  assert.equal(response.status, 502);
+  assert.equal(captured, 0, "denied or exhausted image combo may not store artifacts");
+});
+
+test("optional artifact hook failure does not change a successfully billed image response", async () => {
+  await resetStorage();
+  await seedOpenRouterConnection();
+  await seedTwoLegCombo("orderforge-combo-store-failure");
+  stubFetchAlwaysValid();
+  const response = await executeImageCombo(
+    "orderforge-combo-store-failure",
+    { model: "orderforge-combo-store-failure", prompt: "a cat", n: 1 },
+    {
+      ...createMockAuth(),
+      onSuccessPayload: () => { throw new Error("fixture disk full"); },
+    },
+    Date.now(),
+    createLog()
+  );
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { data?: Array<{ b64_json?: string }> };
+  assert.equal(body.data?.[0]?.b64_json, PNG_B64);
+});

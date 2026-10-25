@@ -64,3 +64,15 @@ delivery, and logs never include payloads or artifact IDs.
 Before deployment: hosted focused tests, provider mock end-to-end Responses
 success/abort tests, full CI/typecheck, private data path preservation and
 canary/rollback are still required.
+
+## Phase 4 — image-generation combo capture
+
+The existing generation combo service now invokes an optional request-owned
+success callback with the exact normalized, winning provider payload.
+The generations route supplies the callback only when the authenticated API
+key has the special image_artifact_retention scope and a validated artifact ID.
+No empty/malformed/failing target may emit an artifact. Callback exceptions
+are isolated, so a successful paid image stays a 200 with unchanged headers,
+JSON body, cost and fallback accounting. Hosted real SQLite/fake-provider
+regressions cover first-target failure, final-target success, exhausted combo
+and optional-storage failure without any external paid requests.
