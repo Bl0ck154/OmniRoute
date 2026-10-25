@@ -615,6 +615,26 @@ is invalid, it points out of the filesystem root`) while typecheck, lint and the
 4. **Tear down only your own** worktree + branch when done, from the main checkout:
    `git worktree remove .claude/worktrees/<dir>` then `git branch -D <task>`. Never blanket-delete
    `fix/*`/`feat/*` — other sessions keep their own; delete only the branches you created, by name.
+
+   **Netcup agent worktree lifecycle (server-local automation):** after the task is
+   finished, the result has been committed/pushed to `origin`, and no further
+   edits are planned, the owning agent should run:
+
+   ```bash
+   sudo /usr/local/sbin/omniroute-agent-worktree-gc --mark-completed "$(git rev-parse --show-toplevel)"
+   ```
+
+   Only invoke this command **from your own worktree**, and only if that helper
+   exists on this host. It checks for a clean state and remote-covered HEAD,
+   records a completion signal in Git metadata (not in tracked sources), and
+   schedules worktree removal after at least five minutes without writes or
+   active processes. A separate check runs every 15 minutes. Local branches
+   are retained, and no `--force` removal is used. If the helper refuses
+   because ignored/untracked files or unpushed changes remain, do not force
+   cleanup: review them in the task's own worktree and complete the normal
+   manual teardown instead. Never mark somebody else's worktree complete.
+   Unmarked worktrees remain protected by the conservative seven-day
+   inactivity policy. This helper does **not** build OmniRoute on Netcup.
 5. **Never touch another session's worktree, branch, or uncommitted changes.** If `git worktree
 list` shows worktrees you didn't create, leave them alone. End every session with the main
    checkout back on the branch it started on (the active `release/vX.Y.Z`, never `main`).
