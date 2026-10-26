@@ -30,11 +30,6 @@ jobs:
           node-version: "24"
           cache: npm
       - uses: ./.github/actions/npm-ci-retry
-      # TEMP diagnosis on isolated hosted runner: remove after generated doc is synced.
-      - name: Diagnose generated omni-inference skill drift
-        run: |
-          node --import tsx/esm scripts/skills/generate-agent-skills.mjs --apply --only=omni-inference
-          git diff -- skills/omni-inference/SKILL.md | head -n 110
       - name: Reject new API-route TypeScript diagnostics
         run: node scripts/check/check-api-typecheck.mjs
       - name: API typecheck gate unit tests
