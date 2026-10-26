@@ -600,7 +600,7 @@ jobs:
         # manual candidate verification compare against that actual ancestor.
         # Normal PRs retain the real target branch via GITHUB_BASE_REF.
         env:
-          CHANGELOG_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'integration/') && 'origin/migration/upstream-v3.8.53-clean-20261024' || '' }}
+          CHANGELOG_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && (startsWith(github.ref_name, 'integration/') || startsWith(github.ref_name, 'fix/migration-')) && 'origin/migration/upstream-v3.8.53-clean-20261024' || '' }}
         run: npm run check:changelog-integrity
       - name: Agent-skills generator sync (SKILL.md gerado ≡ catálogo)
         run: npm run check:agent-skills-sync
