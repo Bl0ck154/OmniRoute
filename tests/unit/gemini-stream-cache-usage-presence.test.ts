@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { geminiToOpenAIResponse } from "../../open-sse/translator/response/gemini-to-openai.ts";
 
+type GeminiUsage = {
+  prompt_tokens: number;
+  prompt_tokens_details?: { cached_tokens: number };
+};
+
+
 function collect(usageMetadata: Record<string, unknown>) {
   const events = geminiToOpenAIResponse({
     response: {
@@ -11,7 +17,11 @@ function collect(usageMetadata: Record<string, unknown>) {
       usageMetadata,
     },
   }, { toolCalls: new Map() });
-  return events.find((item: any) => item.usage)?.usage as Record<string, any>;
+  const usageEvent = events.find((item) =>
+    typeof item === "object" && item !== null && "usage" in item
+  );
+  if (!usageEvent) throw new Error("Gemini fixture did not emit usage metadata");
+  return (usageEvent as { usage: GeminiUsage }).usage;
 }
 
 test("streaming Gemini reports an explicit cache zero", () => {
@@ -50,6 +60,10 @@ test("streaming Gemini retains a previously reported cache count across partial 
   const trailing = geminiToOpenAIResponse(mkChunk({
     promptTokenCount: 6000, candidatesTokenCount: 20, totalTokenCount: 6020,
   }), state);
-  const usage = trailing.find((item: any) => item.usage)?.usage as Record<string, any>;
+  const usageEvent = trailing.find((item) =>
+    typeof item === "object" && item !== null && "usage" in item
+  );
+  if (!usageEvent) throw new Error("Trailing Gemini fixture dropped usage");
+  const usage = (usageEvent as { usage: GeminiUsage }).usage;
   assert.deepEqual(usage.prompt_tokens_details, { cached_tokens: 64 });
 });
