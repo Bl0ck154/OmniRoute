@@ -23,6 +23,11 @@ import { detectFormatFromEndpoint } from "@omniroute/open-sse/services/provider.
 import { resolveChatCoreTargetFormat } from "@omniroute/open-sse/handlers/chatCore/targetFormat.ts";
 import { handleChatCore } from "@omniroute/open-sse/handlers/chatCore.ts";
 import {
+  resolveOrderForgeImageArtifactCapture,
+  persistOrderForgeImageArtifacts,
+  drainOrderForgeImageArtifactStream,
+} from "@/lib/usage/orderForgeImageArtifactSink";
+import {
   checkResourcePressureGuard,
   type ResourcePressureGuardResult,
 } from "@omniroute/open-sse/utils/resourcePressure.ts";
@@ -530,6 +535,13 @@ export async function executeChatWithBreaker({
             clientRawRequest,
             connectionId: credentials.connectionId,
             apiKeyInfo,
+            // Trusted app-owned hooks: engine may request optional retention,
+            // but it never imports a customer-specific app storage module.
+            orderForgeImageArtifacts: {
+              resolveCapture: resolveOrderForgeImageArtifactCapture,
+              persist: persistOrderForgeImageArtifacts,
+              drain: drainOrderForgeImageArtifactStream,
+            },
             userAgent,
             comboName,
             comboStrategy,

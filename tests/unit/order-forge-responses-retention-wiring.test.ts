@@ -10,8 +10,8 @@ const streaming = source("streamingTail.ts");
 
 test("nonstream captures only successful normalized Responses output for the authenticated principal", () => {
   const check = nonstream.indexOf("if (isResponsesEndpoint) {");
-  const capture = nonstream.indexOf("const artifactCapture = resolveOrderForgeImageArtifactCapture", check);
-  const persist = nonstream.indexOf("persistOrderForgeImageArtifacts({", capture);
+  const capture = nonstream.indexOf("const artifactCapture = deps.orderForgeImageArtifacts?.resolveCapture?.", check);
+  const persist = nonstream.indexOf("deps.orderForgeImageArtifacts?.persist?.({", capture);
   const returned = nonstream.indexOf("return {\n      response: {\n        success: true", persist);
   assert.ok(check >= 0 && check < capture && capture < persist && persist < returned);
   assert.match(nonstream, /apiKeyScopes: apiKeyInfo\?\.scopes/);
@@ -25,7 +25,7 @@ test("streamed Responses capture requires final successful completion, not a 200
   assert.match(streaming, /apiKeyScopes: apiKeyInfo\?\.scopes/);
   assert.match(streaming, /normalizedStreamStatus === 200 &&\s*!streamError &&\s*!streamErrorCode &&\s*_streamInterrupted !== true/);
   assert.match(streaming, /responseBody: clientPayload \?\? streamResponseBody \?\? providerPayload/);
-  const persist = streaming.indexOf("persistOrderForgeImageArtifacts({");
+  const persist = streaming.indexOf("deps.orderForgeImageArtifacts?.persist?.({");
   const firstReturn = streaming.indexOf("const onStreamComplete =", 0);
   assert.ok(persist > firstReturn);
 });
@@ -33,7 +33,7 @@ test("streamed Responses capture requires final successful completion, not a 200
 test("stream tee drains a separate branch without changing client-facing stream", () => {
   assert.match(streaming, /if \(orderForgeImageArtifactCapture\) \{[\s\S]*?finalStream\.tee\(\)/);
   assert.match(streaming, /clientStream = downstreamStream;/);
-  assert.match(streaming, /drainOrderForgeImageArtifactStream\(artifactStream\)/);
+  assert.match(streaming, /deps\.orderForgeImageArtifacts\.drain\(artifactStream\)/);
   assert.match(streaming, /wrapReadableStreamWithFinalize\(clientStream, releaseTurnExecution\)/);
   assert.ok(!streaming.includes("log?.error?.(\n          \"ETSY_IMAGE_ARTIFACT\""));
 });

@@ -58,7 +58,7 @@ import {
   type ResilienceSettings,
 } from "@/lib/resilience/settings";
 import { updatePendingScope, type PendingRequestScope } from "@/lib/usage/pendingRequestScope";
-import { getPreferredAntigravityStartTimeoutCapMs } from "@/sse/services/preferredConnectionFailover";
+import { getPreferredAntigravityStartTimeoutCapMs } from "../../services/preferredConnectionFailover.ts";
 import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { buildContinuationLogHooks } from "./recoveryTraceLogging.ts";

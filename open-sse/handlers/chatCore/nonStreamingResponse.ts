@@ -71,10 +71,6 @@ import { routingFinishReason } from "../chatCore/routingFinishReason.ts";
 import { hasTrustedEmptyTurn, inheritEmptyTurnPolicy } from "../../utils/emptyTurnPolicy.ts";
 import { getProviderCredentials } from "@/sse/services/auth";
 import { extractFacts } from "@/lib/memory/extraction";
-import {
-  resolveOrderForgeImageArtifactCapture,
-  persistOrderForgeImageArtifacts,
-} from "@/lib/usage/orderForgeImageArtifactSink";
 // The leaf body is unchanged from the barrel, so its closed-over values keep
 // the barrel's types. This alias only exists so the deps bag type-checks.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1063,14 +1059,14 @@ export async function runNonStreamingResponse(deps: NonStreamingDeps) {
     // authenticated API key with explicit capability and validated artifact ID.
     // Use the already-normalized translated payload, not a cloned response body.
     if (isResponsesEndpoint) {
-      const artifactCapture = resolveOrderForgeImageArtifactCapture({
+      const artifactCapture = deps.orderForgeImageArtifacts?.resolveCapture?.({
         apiKeyScopes: apiKeyInfo?.scopes,
         headers: clientRawRequest?.headers,
         correlationId: traceId,
       });
       if (artifactCapture) {
         try {
-          persistOrderForgeImageArtifacts({
+          deps.orderForgeImageArtifacts?.persist?.({
             capture: artifactCapture,
             responseBody: translatedResponse,
           });

@@ -355,6 +355,7 @@ async function handleChatCoreInner({
   clientRawRequest,
   connectionId,
   apiKeyInfo = null,
+  orderForgeImageArtifacts = null,
   userAgent,
   comboName,
   comboStrategy = null,
@@ -3140,6 +3141,7 @@ async function handleChatCoreInner({
     const nonStreamingOutcome = await runNonStreamingResponse({
       reportSignatureFailure,
       apiKeyInfo,
+      orderForgeImageArtifacts,
       allowedConnections,
       appendRequestLog,
       applyProviderFailureClassification,
@@ -3288,6 +3290,7 @@ async function handleChatCoreInner({
     modelInfo,
     forcedConnectionId,
     apiKeyInfo,
+    orderForgeImageArtifacts,
     attachCompressionUsageReceiptAfterAnalytics,
     body,
     bodyForCacheWrite,

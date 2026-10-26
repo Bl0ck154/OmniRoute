@@ -63,11 +63,6 @@ import { appendRequestLog, trackPendingRequest } from "@/lib/usageDb";
 import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags.ts";
 import { isEmptyStreamSiblingRecoveryEnabled } from "../../services/streamRecovery.ts";
 import { getProviderCredentials } from "@/sse/services/auth";
-import {
-  resolveOrderForgeImageArtifactCapture,
-  persistOrderForgeImageArtifacts,
-  drainOrderForgeImageArtifactStream,
-} from "@/lib/usage/orderForgeImageArtifactSink";
 import { resolveCredentialGate } from "@/lib/streamingCredentialTransform";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deps bag mirrors the barrel closure
@@ -153,7 +148,7 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
   // Header by itself must never activate storage. Only the already-authorized
   // principal with the dedicated permission can request artifact capture.
   const orderForgeImageArtifactCapture = isResponsesEndpoint
-    ? resolveOrderForgeImageArtifactCapture({
+    ? deps.orderForgeImageArtifacts?.resolveCapture?.({
         apiKeyScopes: apiKeyInfo?.scopes,
         headers: clientRawRequest?.headers,
         correlationId,
@@ -405,7 +400,7 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
       orderForgeImageArtifactCapture
     ) {
       try {
-        persistOrderForgeImageArtifacts({
+        deps.orderForgeImageArtifacts?.persist?.({
           capture: orderForgeImageArtifactCapture,
           responseBody: clientPayload ?? streamResponseBody ?? providerPayload,
         });
@@ -823,7 +818,7 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
     // still subject to its normal abort/readiness policies.
     const [downstreamStream, artifactStream] = finalStream.tee();
     clientStream = downstreamStream;
-    void drainOrderForgeImageArtifactStream(artifactStream).catch(() => {
+    void deps.orderForgeImageArtifacts.drain(artifactStream).catch(() => {
       log?.warn?.("IMAGE", "Optional Responses stream artifact drain failed");
     });
   }

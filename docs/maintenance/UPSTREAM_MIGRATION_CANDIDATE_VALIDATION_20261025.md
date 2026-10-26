@@ -92,3 +92,27 @@ ported into an isolated follow-up branch:
 
 They are not in the earlier unified PR #73 SHA until explicitly reconciled.
 No production service, SQLite DB or customer data was modified.
+
+## 2026-10-26 quality boundary: remove three migration-introduced reverse imports
+
+The official quality ratchet correctly identified **three** new reverse
+\`open-sse → src\` imports, increasing 774 to 777 edges. We did **not** raise
+the baseline. Instead:
+
+- Pure preferred-connection deadline policy moves to an engine-owned service,
+  with an unchanged app-side re-export for existing callers.
+- The two Responses handlers no longer import our private Order Forge artifact
+  sink from \`src/\`. The authenticated app \`chatHelpers\` injects only the
+  private \`resolveCapture\`, \`persist\`, and \`drain\` callbacks into the
+  individual \`handleChatCore\` invocation. The engine forwards these request
+  callbacks only to its streaming/nonstreaming leaf. Every sink retains its
+  original API-key scope + validated artifact ID guard, fail-open disk errors,
+  original client stream ownership and successful-completion requirement.
+- No global registry, client-provided executable callback, or rewritten data
+  directory behavior was introduced. Any direct engine caller that does not
+  supply private app hooks simply performs no optional Order Forge retention.
+
+The original source-guard suite was adapted to require injected hooks. A new
+independent scope/boundary regression protects against future reverse imports.
+Verify exact branch in hosted API typecheck, build and Quality Gates before
+considering the issue fixed. SQLite migration and smoke are still pending.
