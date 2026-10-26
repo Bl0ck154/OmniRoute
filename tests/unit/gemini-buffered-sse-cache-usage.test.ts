@@ -4,9 +4,21 @@ import assert from "node:assert/strict";
 
 import { parseSSEToGeminiResponse } from "../../open-sse/handlers/sseParser/geminiResponse.ts";
 
+type BufferedGeminiResponse = {
+  choices: Array<{ message: { content: string } }>;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    prompt_tokens_details?: { cached_tokens: number };
+    completion_tokens_details?: { reasoning_tokens: number };
+  };
+};
+
+
 function parse(events: Record<string, unknown>[]) {
   const raw = events.map((event) => "data: " + JSON.stringify(event)).join("\n") + "\ndata: [DONE]\n";
-  return parseSSEToGeminiResponse(raw, "gemini-3.8-flash") as Record<string, any>;
+  return parseSSEToGeminiResponse(raw, "gemini-3.8-flash") as unknown as BufferedGeminiResponse;
 }
 
 test("Cloud Code nested metadata preserves cache and reasoning without double counting", () => {
