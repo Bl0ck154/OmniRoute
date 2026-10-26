@@ -3959,6 +3959,7 @@
     "builderComboRefStep": "Adicionar referência de combo",
     "builderPinnedAccount": "Conta fixada",
     "builderLegacyEntry": "Entrada legada",
+    "builderStaleModel": "Fora do catálogo ao vivo",
     "reviewName": "Nome",
     "reviewStrategy": "Estratégia",
     "reviewSteps": "Etapas",
@@ -7283,7 +7284,7 @@
       "nextSwitchNow": "Agora",
       "coreConfigPath": "Arquivo de configuração do núcleo",
       "coreConfigPathPlaceholder": "/var/lib/omniroute/sing-box/config.json",
-      "coreConfigPathDesc": "Caminho absoluto de um .json (extensão em minúsculas). Vazio = sem geração. Cada sincronização grava '<caminho>'.generated ao lado do arquivo adotado, nunca dentro dele.",
+      "coreConfigPathDesc": "Caminho absoluto de um .json/.yaml/.yml (extensão em minúsculas). Vazio = sem geração. Cada sincronização grava '<caminho>'.generated ao lado do arquivo adotado, nunca dentro dele.",
       "lastSwitchKind": "Motivo da troca",
       "switchKind": {
         "ip_quota_429": "quota",
@@ -10325,7 +10326,11 @@
     "codexPaidCreditsLabel": "Créditos pagos do Codex",
     "codexPaidCreditsAvailable": "Disponível (saldo não informado)",
     "codexPaidCreditsUnavailable": "Indisponível ou limite de gastos atingido",
-    "codexPaidCreditsUnlimited": "Ilimitado"
+    "codexPaidCreditsUnlimited": "Ilimitado",
+    "claudeResetCreditDefaultTitle": "Redefinição de limite do Claude",
+    "confirmRedeemClaudeResetCredit": "O resgate redefine imediatamente os limites de uso elegíveis do Claude e consome este crédito permanentemente.",
+    "claudeResetCreditsModalTitle": "Créditos de redefinição do Claude",
+    "claudeResetCreditsModalExplainer": "Créditos de redefinição do Claude disponíveis e redefinições semanais de sessão para esta conta."
   },
   "modals": {
     "waitingAuth": "Aguardando Autorização",
@@ -11563,7 +11568,7 @@
     "bulkImportNoValidEntries": "Nenhuma entrada válida encontrada. Verifique o formato e tente novamente.",
     "bulkImportSuccess": "Importação concluída: {created} criado, {updated} atualizado, {failed} falhou",
     "bulkImportErrorLine": "Linha {line}: {reason}",
-    "bulkImportMaxExceeded": "Máximo de 100 proxies por importação",
+    "bulkImportMaxExceeded": "Máximo de {max} proxies por importação",
     "bulkImportPreview": "Visualização",
     "clearAssignment": "(atribuição clara)",
     "bulkProxyAssignment": "Atribuição de proxy em massa",
@@ -11624,6 +11629,7 @@
     "poolSetAsideKindIpQuota429": "limite de taxa por IP (429)",
     "poolSetAsideKindSlow": "respostas lentas",
     "poolSetAsideKindGeoBlocked": "bloqueado por região (403/451)",
+    "poolSetAsideKindOperatorReported": "interrupção relatada pelo operador",
     "poolSetAsideUntil": "De volta à rotação {endsAt}",
     "poolSetAsideRepeat": "Afastado {count, plural, one {# vez} other {# vezes}}",
     "poolUnknownAddress": "Endereço desconhecido",

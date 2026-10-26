@@ -104,6 +104,8 @@ describe("resilience/settings normalize split-guard", () => {
       "connectionCooldown",
       // Global default cadence for the background credential health check sweep.
       "credentialHealthCheck",
+      // Opt-in latency term for p2c account selection (weight 0 = off).
+      "p2cLatency",
       "providerBreaker",
       "providerCooldown",
       "providerQuotaOverrides",

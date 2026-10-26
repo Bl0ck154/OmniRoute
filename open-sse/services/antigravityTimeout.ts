@@ -1,6 +1,10 @@
 import { ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE } from "../config/constants.ts";
 
-/** Exact phase evidence. A generic 504 or BodyTimeoutError is insufficient. */
+/**
+ * A confirmed exhausted response-header deadline, NOT an arbitrary HTTP 504.
+ * Preserve the original error across URL and Pro fallback layers, so the
+ * account selector can try a different eligible account instead of replaying.
+ */
 export function isAntigravityPreResponseTimeout(error: unknown): boolean {
   return (
     error !== null &&
@@ -9,6 +13,7 @@ export function isAntigravityPreResponseTimeout(error: unknown): boolean {
   );
 }
 
+/** Supports both the canonical Antigravity and agy provider aliases. */
 export function isAntigravityProvider(provider: string | null | undefined): boolean {
   return provider === "antigravity" || provider === "agy";
 }

@@ -19,6 +19,7 @@ import {
   normalizeComboCooldownWaitSettings,
   normalizeQuotaShareConcurrencyLimitSettings,
   normalizeStreamStallCooldownSettings,
+  normalizeP2CLatencySettings,
   normalizeProviderCooldownSettings,
   normalizeQuotaPreflightSettings,
   normalizeStreamRecoverySettings,
@@ -50,6 +51,7 @@ export type {
   WaitForCooldownSettings,
   ComboCooldownWaitSettings,
   QuotaShareConcurrencyLimitSettings,
+  P2CLatencySettings,
   ProviderCooldownSettings,
   QuotaPreflightSettings,
   StreamRecoverySettings,
@@ -161,6 +163,10 @@ export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
   // the operator opts in (see StreamStallCooldownSettings).
   streamStallCooldown: {
     enabled: false,
+  },
+  // Opt-in latency term for p2c account selection (see P2CLatencySettings). 0 = off.
+  p2cLatency: {
+    weight: 0,
   },
   providerCooldown: {
     minRetryCooldownMs: Number(process.env.PROVIDER_COOLDOWN_MIN_MS || "5000"),
@@ -320,6 +326,7 @@ function buildLegacyFallback(settings: JsonRecord): ResilienceSettings {
     antigravity: DEFAULT_RESILIENCE_SETTINGS.antigravity,
     quotaShareConcurrencyLimit: DEFAULT_RESILIENCE_SETTINGS.quotaShareConcurrencyLimit,
     streamStallCooldown: DEFAULT_RESILIENCE_SETTINGS.streamStallCooldown,
+    p2cLatency: DEFAULT_RESILIENCE_SETTINGS.p2cLatency,
     providerCooldown: DEFAULT_RESILIENCE_SETTINGS.providerCooldown,
     tokenRefreshBreaker: DEFAULT_RESILIENCE_SETTINGS.tokenRefreshBreaker,
     quotaPreflight: DEFAULT_RESILIENCE_SETTINGS.quotaPreflight,
@@ -406,6 +413,7 @@ export function resolveResilienceSettings(
       current.streamStallCooldown,
       fallback.streamStallCooldown
     ),
+    p2cLatency: normalizeP2CLatencySettings(current.p2cLatency, fallback.p2cLatency),
     providerCooldown: normalizeProviderCooldownSettings(
       current.providerCooldown,
       fallback.providerCooldown
@@ -479,6 +487,7 @@ export function mergeResilienceSettings(
       updates.streamStallCooldown,
       current.streamStallCooldown
     ),
+    p2cLatency: normalizeP2CLatencySettings(updates.p2cLatency, current.p2cLatency),
     providerCooldown: normalizeProviderCooldownSettings(
       updates.providerCooldown,
       current.providerCooldown
