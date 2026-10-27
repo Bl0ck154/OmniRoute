@@ -223,3 +223,18 @@ jobs:
           node scripts/i18n/check-glossary-consistency.mjs --locale=zh-CN
           node scripts/i18n/check-glossary-consistency.mjs --locale=zh-TW
           node scripts/check/check-test-tla-order.mjs
+
+
+      - name: Codex paid-plan eligibility with context relay and WS reasoning
+        env:
+          API_KEY_SECRET: ci-only-codex-policy-regression
+          JWT_SECRET: ci-only-codex-policy-regression-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/chat-context-relay.test.ts \
+            tests/unit/codex-ws-policy-enforcement-6564.test.ts

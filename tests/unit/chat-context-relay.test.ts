@@ -52,7 +52,9 @@ async function seedCodexOAuthConnection({
     isActive: true,
     testStatus: "active",
     priority,
-    providerSpecificData: { workspaceId },
+    // Sol requires a paid Codex OAuth plan. This fixture models an eligible
+    // account so the test exercises context relay, not plan-policy rejection.
+    providerSpecificData: { workspaceId, chatgptPlanType: "plus" },
   });
 }
 
