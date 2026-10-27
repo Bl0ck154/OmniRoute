@@ -591,9 +591,11 @@ export function translateNonStreamingResponse(
           };
         }
         // A zero returned by the provider is not the same as missing metadata.
-        if (typeof usage.cachedContentTokenCount === "number"
-          && Number.isFinite(usage.cachedContentTokenCount)
-          && usage.cachedContentTokenCount >= 0) {
+        if (
+          typeof usage.cachedContentTokenCount === "number" &&
+          Number.isFinite(usage.cachedContentTokenCount) &&
+          usage.cachedContentTokenCount >= 0
+        ) {
           (result.usage as JsonRecord).prompt_tokens_details = {
             cached_tokens: toNumber(usage.cachedContentTokenCount, 0),
           };

@@ -656,8 +656,7 @@ export function geminiToOpenAIResponse(chunk, state) {
       usageMeta.cachedContentTokenCount >= 0
         ? usageMeta.cachedContentTokenCount
         : undefined;
-    const cachedTokens =
-      reportedCachedTokens ?? state.usage?.prompt_tokens_details?.cached_tokens;
+    const cachedTokens = reportedCachedTokens ?? state.usage?.prompt_tokens_details?.cached_tokens;
     const promptTokenCountRaw =
       typeof usageMeta.promptTokenCount === "number" ? usageMeta.promptTokenCount : 0;
     const thoughtsTokens =

@@ -131,38 +131,46 @@ function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccum
   // Cloud Code normally nests usage under response; native Gemini can send it
   // at the top level. A final metadata-only SSE event is still authoritative.
   const um = (response?.usageMetadata ?? parsed.usageMetadata) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (!um || typeof um !== "object" || Array.isArray(um)) return;
 
   const nonNegative = (value: unknown): number | undefined =>
     typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
   const previous = acc.usage;
   const previousCache = previous?.prompt_tokens_details as Record<string, unknown> | undefined;
-  const previousReasoning = previous?.completion_tokens_details as Record<string, unknown> | undefined;
-  const cachedTokens = nonNegative(um.cachedContentTokenCount) ??
-    nonNegative(previousCache?.cached_tokens);
-  const reasoningTokens = nonNegative(um.thoughtsTokenCount) ??
-    nonNegative(previousReasoning?.reasoning_tokens);
+  const previousReasoning = previous?.completion_tokens_details as
+    Record<string, unknown> | undefined;
+  const cachedTokens =
+    nonNegative(um.cachedContentTokenCount) ?? nonNegative(previousCache?.cached_tokens);
+  const reasoningTokens =
+    nonNegative(um.thoughtsTokenCount) ?? nonNegative(previousReasoning?.reasoning_tokens);
   const candidateTokens = nonNegative(um.candidatesTokenCount);
 
   // SSE usage is cumulative, not additive. Missing fields in a trailing usage
   // event must not erase fields already reported in an earlier chunk.
   const promptTokens =
     nonNegative(um.promptTokenCount) ?? nonNegative(previous?.prompt_tokens) ?? 0;
-  const completionTokens = candidateTokens === undefined
-    ? (nonNegative(previous?.completion_tokens) ?? 0)
-    : candidateTokens + (reasoningTokens ?? 0);
+  const completionTokens =
+    candidateTokens === undefined
+      ? (nonNegative(previous?.completion_tokens) ?? 0)
+      : candidateTokens + (reasoningTokens ?? 0);
+  // Older Gemini sends no totalTokenCount, and some upstreams send 0: treat a
+  // non-positive total as missing (same rule as the streaming translator).
+  const upstreamTotal = nonNegative(um.totalTokenCount);
   acc.usage = {
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
-    // Older Gemini sends no totalTokenCount; do not turn that into zero.
-    total_tokens: nonNegative(um.totalTokenCount) ?? promptTokens + completionTokens,
+    total_tokens:
+      upstreamTotal !== undefined && upstreamTotal > 0
+        ? upstreamTotal
+        : promptTokens + completionTokens,
     // Preserve explicit zero: "reported zero" differs from "not reported".
     ...(cachedTokens !== undefined
-      ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {}),
+      ? { prompt_tokens_details: { cached_tokens: cachedTokens } }
+      : {}),
     ...(reasoningTokens !== undefined
-      ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } } : {}),
+      ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } }
+      : {}),
   };
 }
 
