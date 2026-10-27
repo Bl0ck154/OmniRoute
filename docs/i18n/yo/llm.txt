@@ -128,7 +128,7 @@ OmniRoute solves the problem of managing multiple AI provider subscriptions, quo
 │   │   │   ├── secrets.ts        # Secrets management
 │   │   │   ├── stateReset.ts     # State reset utilities
 │   │   │   ├── migrationRunner.ts # Schema migration runner
-│   │   │   └── migrations/       # 210 versioned SQL migration files
+│   │   │   └── migrations/       # 211 versioned SQL migration files
 │   │   ├── evals/                # Eval runner and scheduler
 │   │   ├── memory/               # Persistent conversational memory
 │   │   │   ├── extraction.ts     # Memory extraction from conversations
