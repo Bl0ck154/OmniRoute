@@ -216,3 +216,9 @@ jobs:
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/codex-image-quota-attempt.test.ts \
             tests/unit/codex-image-quota-route-wiring.test.ts
+      - name: Migration docs mirrors, glossary and test import order
+        run: |
+          node scripts/check/check-docs-sync.mjs
+          node scripts/i18n/check-glossary-consistency.mjs --locale=zh-CN
+          node scripts/i18n/check-glossary-consistency.mjs --locale=zh-TW
+          node scripts/check/check-test-tla-order.mjs
