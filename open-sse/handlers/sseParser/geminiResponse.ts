@@ -157,7 +157,7 @@ function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccum
     prompt_tokens: promptTokens,
     completion_tokens: completionTokens,
     // Older Gemini sends no totalTokenCount; do not turn that into zero.
-    total_tokens: nonNegative(um.totalTokenCount) ?? promptTokens + completionTokens,
+    total_tokens: nonNegative(um.totalTokenCount) || promptTokens + completionTokens,
     // Preserve explicit zero: "reported zero" differs from "not reported".
     ...(cachedTokens !== undefined
       ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {}),

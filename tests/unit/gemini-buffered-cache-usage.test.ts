@@ -78,15 +78,19 @@ for (const format of [FORMATS.ANTIGRAVITY, FORMATS.GEMINI]) {
     { name: "zero", metadata: { cachedContentTokenCount: 0 } },
     { name: "missing", metadata: {} },
   ]) {
-    test(`${format}: ${control.name} cache keeps the existing plain usage shape`, () => {
+    test(`${format}: ${control.name} cache preserves the reported-vs-absent distinction`, () => {
       const parsed = bufferedResponse(control.metadata, format);
       const client = translateNonStreamingResponse(parsed.body, parsed.format, FORMATS.OPENAI);
       assert.deepEqual(client.usage, {
         prompt_tokens: 18020,
         completion_tokens: 4,
         total_tokens: 18024,
+        ...(control.name === "zero" ? { prompt_tokens_details: { cached_tokens: 0 } } : {}),
       });
-      assert.equal(extractUsageFromResponse(client, "antigravity").cached_tokens, undefined);
+      assert.equal(
+        extractUsageFromResponse(client, "antigravity").cached_tokens,
+        control.name === "zero" ? 0 : undefined
+      );
       const claude = translateNonStreamingResponse(parsed.body, parsed.format, FORMATS.CLAUDE);
       assert.deepEqual(claude.usage, { input_tokens: 18020, output_tokens: 4 });
     });
