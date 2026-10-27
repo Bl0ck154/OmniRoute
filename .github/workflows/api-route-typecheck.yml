@@ -268,3 +268,16 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/codex-import-refresh-validation-7522.test.ts
+
+      - name: Codex paid Images API long response-start and no replay
+        env:
+          API_KEY_SECRET: ci-only-codex-long-images
+          JWT_SECRET: ci-only-codex-long-images-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/codex-dedicated-image-response-start-timeout.test.ts

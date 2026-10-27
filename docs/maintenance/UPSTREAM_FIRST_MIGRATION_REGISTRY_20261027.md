@@ -21,6 +21,7 @@ Key: **U** = implemented by merged official upstream; **P** = fork-only code por
 | Order Forge Responses image nonstream / SSE | P | Yes | `tests/unit/order-forge-image-artifact-sink.test.ts`; stream cancel and completion V | Retain only confirmed outputs; test duplicate-free late SSE |
 | Order Forge image combos + fallback | P | Yes | `tests/unit/combo/image-combo-empty-200-fallback.test.ts` | Retain winning artifacts, no duplicate image inference |
 | Legacy `GET /api/resilience` clients | P | Yes | #62/#73; read-only management scope and PATCH authz V | Retain compatibility projection without widening access |
+| Dedicated paid Codex Images long response start, no replay after timeout | P; V | Yes | `tests/unit/codex-dedicated-image-response-start-timeout.test.ts`; both generation and edits + proxy/manual transport V | Isolate 10m Images deadline and fresh socket, avoid duplicate charged POST |
 | Disconnect, timeout, empty response, provider errors | U + P; V | Yes | Focused streaming cancellation/EOF/fallback, logs and billing parity V | Treat as a blocking cross-feature release scenario |
 | Other production patch-id differences (historically >100) | ? | Selectively | Per-file code/behavior audit vs `production`, `git range-diff`, `git patch-id`, provider ownership map V | Don't bulk cherry-pick; mark each omitted item as upstream-equivalent, obsolete or missing |
 

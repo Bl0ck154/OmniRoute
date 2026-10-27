@@ -246,6 +246,30 @@ export function getDefaultDispatcher(hostname?: string): Dispatcher {
  * to a parallel retry cache so a fresh-socket retry cannot pick up a stale
  * socket from the cloud-upstream pool.
  */
+/**
+ * Expensive Codex image POSTs may take minutes to produce response headers.
+ * Keep their undici header/body deadlines separate from chat transport limits
+ * and use a dedicated fresh-socket, non-pipelining Agent.
+ */
+const dedicatedCodexImageDispatchers = new Map<number, Dispatcher>();
+export function getDedicatedCodexImageDispatcher(responseStartTimeoutMs: number): Dispatcher {
+  const timeoutMs = Math.max(60_000, responseStartTimeoutMs + 60_000);
+  let dispatcher = dedicatedCodexImageDispatchers.get(timeoutMs);
+  if (!dispatcher) {
+    const defaults = getDispatcherOptions();
+    dispatcher = new Agent({
+      ...defaults,
+      headersTimeout: Math.max(defaults.headersTimeout, timeoutMs),
+      bodyTimeout: Math.max(defaults.bodyTimeout, timeoutMs),
+      keepAliveTimeout: 1,
+      keepAliveMaxTimeout: 1,
+      pipelining: 0,
+    });
+    dedicatedCodexImageDispatchers.set(timeoutMs, dispatcher);
+  }
+  return dispatcher;
+}
+
 export function getRetryDispatcher(hostname?: string): Dispatcher {
   if (isLocalEgressHostname(hostname)) {
     let dispatcher = getLocalRetryCachedDispatcher();
