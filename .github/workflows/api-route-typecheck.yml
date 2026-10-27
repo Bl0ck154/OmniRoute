@@ -239,3 +239,17 @@ jobs:
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/chat-context-relay.test.ts \
             tests/unit/codex-ws-policy-enforcement-6564.test.ts
+
+
+      - name: Codex image edit eligibility and reference route fixtures
+        env:
+          API_KEY_SECRET: ci-only-codex-image-regression
+          JWT_SECRET: ci-only-codex-image-regression-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/image-generation-route.test.ts
