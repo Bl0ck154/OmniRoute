@@ -202,7 +202,8 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/gemini-buffered-sse-cache-usage.test.ts \
-            tests/unit/gemini-stream-cache-usage-presence.test.ts
+            tests/unit/gemini-stream-cache-usage-presence.test.ts \
+            tests/unit/gemini-buffered-cache-usage.test.ts
       - name: Codex image quota real-serving-account integration
         env:
           API_KEY_SECRET: ci-only-quota-integration-key
@@ -253,3 +254,17 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=1 \
             tests/unit/image-generation-route.test.ts
+
+
+      - name: Codex OAuth import rotated-token reimport regression
+        env:
+          API_KEY_SECRET: ci-only-codex-import-secret
+          JWT_SECRET: ci-only-codex-import-jwt-secret
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/codex-import-refresh-validation-7522.test.ts
