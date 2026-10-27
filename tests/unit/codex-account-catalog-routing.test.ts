@@ -46,6 +46,8 @@ async function seedTwoAccounts(options: { proRateLimitedUntil?: string } = {}) {
     name: "Pro account",
     priority: 1,
     isActive: true,
+    // Sol requires a documented paid account; an unclassified OAuth account is ineligible.
+    providerSpecificData: { chatgptPlanType: "pro" },
   });
   const plusId = await createConnection({
     provider: PROVIDER,
@@ -235,6 +237,8 @@ test("Codex reasoning-suffix aliases select the account that advertises the base
     name: "Pro account",
     priority: 1,
     isActive: true,
+    // Sol requires a documented paid account; an unclassified OAuth account is ineligible.
+    providerSpecificData: { chatgptPlanType: "pro" },
   });
   const plusId = await createConnection({
     provider: PROVIDER,
@@ -300,6 +304,8 @@ test("Codex keeps matching an inventory id that already carries a reasoning suff
     name: "Pro account",
     priority: 1,
     isActive: true,
+    // Sol requires a documented paid account; an unclassified OAuth account is ineligible.
+    providerSpecificData: { chatgptPlanType: "pro" },
   });
   await modelsDb.replaceSyncedAvailableModelsForConnection(PROVIDER, proId, [
     { id: "gpt-6-sol-high", name: "gpt-6-sol-high" },
