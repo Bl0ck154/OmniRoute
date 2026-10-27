@@ -624,8 +624,7 @@ function isSchemaAlreadyApplied(
       // must not mark first_chunk_ms as migrated. The migration runner can
       // replay only the missing ADD COLUMN via stripExistingAddColumns.
       return (
-        hasColumn(db, "proxy_logs", "headers_ms") &&
-        hasColumn(db, "proxy_logs", "first_chunk_ms")
+        hasColumn(db, "proxy_logs", "headers_ms") && hasColumn(db, "proxy_logs", "first_chunk_ms")
       );
     case "212":
       // Provider-reported cost columns (#16087, renumbered 206 -> 212: the 206 slot
