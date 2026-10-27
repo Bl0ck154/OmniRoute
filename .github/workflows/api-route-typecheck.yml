@@ -219,6 +219,7 @@ jobs:
       - name: Migration docs mirrors, glossary and test import order
         run: |
           node scripts/check/check-docs-sync.mjs
+          node scripts/check/check-docs-counts-sync.mjs
           node scripts/i18n/check-glossary-consistency.mjs --locale=zh-CN
           node scripts/i18n/check-glossary-consistency.mjs --locale=zh-TW
           node scripts/check/check-test-tla-order.mjs
