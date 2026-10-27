@@ -84,8 +84,9 @@ lastUpdated: 2026-10-22
 
 1. Tokens, never literals. Exceptions kept on purpose: the always-dark console terminal, ReactFlow SVG
    strokes via `STATUS_HEX` (`src/shared/constants/statusColors.ts`), and the categorical palettes
-   `STRATEGY_COLORS` (`src/app/(dashboard)/dashboard/combos/live/nodes/StrategyNode.tsx`) and
-   `LAYER_COLORS` (`src/app/(dashboard)/dashboard/compression/studio/nodes/EngineNode.tsx`).
+   **STRATEGY_COLORS** (`src/app/(dashboard)/dashboard/combos/live/nodes/StrategyNode.tsx`) and
+   **LAYER_COLORS** (`src/app/(dashboard)/dashboard/compression/studio/nodes/EngineNode.tsx`).
+   Both are in-code palette constants, not configuration environment variables.
 2. Never patch `packages/ui-kit/src` by hand: sync with `scripts/dev/sync-ui-kit.sh <commit>`; the
    pre-commit gate `npm run check:ui-kit-snapshot` (`.husky/pre-commit`) fails on any byte that
    differs from the pinned upstream commit (it skips with a warning when the upstream clone,
