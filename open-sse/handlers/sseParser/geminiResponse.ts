@@ -3,6 +3,11 @@
 // state, following the handlers submodule pattern (chatCore/, responseSanitizer/).
 import { normalizeOpenAICompatibleFinishReasonString } from "../../utils/finishReason.ts";
 import { stripObfuscationZeroWidth } from "../../utils/zeroWidth.ts";
+import {
+  TRUNCATED_STREAM_FINISH_REASON,
+  hasSseDoneMarker,
+  markTruncatedStreamBody,
+} from "./truncation.ts";
 
 type AccumulatedToolCall = {
   id: string;
@@ -15,6 +20,7 @@ type AccumulatedToolCall = {
 type GeminiSSEAccumulator = {
   textContent: string;
   finishReason: string;
+  sawFinishReason: boolean;
   usage: Record<string, unknown> | null;
   sawContent: boolean;
   toolCalls: AccumulatedToolCall[];
@@ -120,58 +126,122 @@ function applyFinishReason(
   acc: GeminiSSEAccumulator
 ): void {
   if (!candidate?.finishReason) return;
+  acc.sawFinishReason = true;
   acc.finishReason = normalizeOpenAICompatibleFinishReasonString(
     String(candidate.finishReason).toLowerCase()
   );
 }
 
-/** Extract usageMetadata into the OpenAI-shaped usage object, if present. */
-function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccumulator): void {
+/** A finite, non-negative number from `value`, else `fallback`. */
+function nonNegativeOr<T>(value: unknown, fallback: T): number | T {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+/**
+ * Resolve the cached-token count of a usage snapshot. A reported count larger than the prompt
+ * is invalid; a snapshot that omits the field keeps the last valid count (snapshots are cumulative).
+ */
+function resolveCachedTokens(
+  um: Record<string, unknown>,
+  promptTokens: number | undefined,
+  previousCachedTokens: number | undefined
+): number | undefined {
+  if (!Object.prototype.hasOwnProperty.call(um, "cachedContentTokenCount")) {
+    return previousCachedTokens;
+  }
+  const reported = nonNegativeOr(um.cachedContentTokenCount, undefined);
+  return reported !== undefined && typeof promptTokens === "number" && reported <= promptTokens
+    ? reported
+    : undefined;
+}
+
+/**
+ * Fold the resolved cached-token count into the accumulated usage. A positive count is exposed as
+ * `prompt_tokens_details.cached_tokens` (a breakdown of the inclusive prompt count, not extra
+ * input). A reported zero or an invalid count keeps the plain usage shape: this object is returned
+ * to clients as-is, so no internal evidence marker is added to it. A snapshot that omits the field
+ * keeps the last valid count.
+ */
+function applyCacheEvidence(
+  usage: Record<string, unknown>,
+  um: Record<string, unknown>,
+  cachedTokens: number | undefined
+): void {
+  if (typeof cachedTokens === "number" && cachedTokens > 0) {
+    usage.prompt_tokens_details = { cached_tokens: cachedTokens };
+  } else if (Object.prototype.hasOwnProperty.call(um, "cachedContentTokenCount")) {
+    delete usage.prompt_tokens_details;
+  }
+}
+
+/**
+ * The event's usageMetadata. Cloud Code nests it under `response`; native Gemini can send it at
+ * the top level, also next to a `response` that carries only candidates.
+ */
+function readUsageMetadata(parsed: Record<string, unknown>): Record<string, unknown> | undefined {
   const response = parsed.response as Record<string, unknown> | undefined;
-  // Cloud Code normally nests usage under response; native Gemini can send it
-  // at the top level. A final metadata-only SSE event is still authoritative.
-  const um = (response?.usageMetadata ?? parsed.usageMetadata) as
-    Record<string, unknown> | undefined;
-  if (!um || typeof um !== "object" || Array.isArray(um)) return;
+  const um = response?.usageMetadata ?? parsed.usageMetadata;
+  return um && typeof um === "object" && !Array.isArray(um)
+    ? (um as Record<string, unknown>)
+    : undefined;
+}
 
-  const nonNegative = (value: unknown): number | undefined =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-  const previous = acc.usage;
-  const previousCache = previous?.prompt_tokens_details as Record<string, unknown> | undefined;
-  const previousReasoning = previous?.completion_tokens_details as
-    Record<string, unknown> | undefined;
-  const cachedTokens =
-    nonNegative(um.cachedContentTokenCount) ?? nonNegative(previousCache?.cached_tokens);
-  const reasoningTokens =
-    nonNegative(um.thoughtsTokenCount) ?? nonNegative(previousReasoning?.reasoning_tokens);
-  const candidateTokens = nonNegative(um.candidatesTokenCount);
-
-  // SSE usage is cumulative, not additive. Missing fields in a trailing usage
-  // event must not erase fields already reported in an earlier chunk.
-  const promptTokens =
-    nonNegative(um.promptTokenCount) ?? nonNegative(previous?.prompt_tokens) ?? 0;
+/**
+ * Resolve the cumulative completion count and its reasoning part. Gemini reports thoughts apart
+ * from candidates; OpenAI's completion_tokens includes them (same rule as the streaming and
+ * non-stream translators). A snapshot without candidatesTokenCount keeps the last completion.
+ */
+function resolveCompletionTokens(
+  um: Record<string, unknown>,
+  previousUsage: Record<string, unknown>
+): { completionTokens: number | undefined; reasoningTokens: number | undefined } {
+  const previousReasoningTokens = (
+    previousUsage.completion_tokens_details as { reasoning_tokens?: number } | undefined
+  )?.reasoning_tokens;
+  const reasoningTokens = nonNegativeOr(um.thoughtsTokenCount, previousReasoningTokens);
+  const candidateTokens = nonNegativeOr(um.candidatesTokenCount, undefined);
   const completionTokens =
     candidateTokens === undefined
-      ? (nonNegative(previous?.completion_tokens) ?? 0)
+      ? nonNegativeOr(previousUsage.completion_tokens, undefined)
       : candidateTokens + (reasoningTokens ?? 0);
-  // Older Gemini sends no totalTokenCount, and some upstreams send 0: treat a
-  // non-positive total as missing (same rule as the streaming translator).
-  const upstreamTotal = nonNegative(um.totalTokenCount);
-  acc.usage = {
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    total_tokens:
-      upstreamTotal !== undefined && upstreamTotal > 0
-        ? upstreamTotal
-        : promptTokens + completionTokens,
-    // Preserve explicit zero: "reported zero" differs from "not reported".
-    ...(cachedTokens !== undefined
-      ? { prompt_tokens_details: { cached_tokens: cachedTokens } }
-      : {}),
-    ...(reasoningTokens !== undefined
+  return { completionTokens, reasoningTokens };
+}
+
+/** Extract usageMetadata into the OpenAI-shaped usage object, if present. */
+function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccumulator): void {
+  const um = readUsageMetadata(parsed);
+  if (!um) return;
+
+  const previousUsage = acc.usage ?? {};
+  const promptTokens = nonNegativeOr(um.promptTokenCount, previousUsage.prompt_tokens);
+  const { completionTokens, reasoningTokens } = resolveCompletionTokens(um, previousUsage);
+  // Gemini may omit totalTokenCount (or report 0); keep the last total, else derive it.
+  const totalTokens =
+    nonNegativeOr(um.totalTokenCount, 0) ||
+    previousUsage.total_tokens ||
+    (typeof promptTokens === "number" && typeof completionTokens === "number"
+      ? promptTokens + completionTokens
+      : undefined);
+  const previousCachedTokens = (
+    previousUsage.prompt_tokens_details as { cached_tokens?: number } | undefined
+  )?.cached_tokens;
+  const cachedTokens = resolveCachedTokens(
+    um,
+    typeof promptTokens === "number" ? promptTokens : undefined,
+    previousCachedTokens
+  );
+
+  const nextUsage = {
+    ...previousUsage,
+    ...(typeof promptTokens === "number" ? { prompt_tokens: promptTokens } : {}),
+    ...(typeof completionTokens === "number" ? { completion_tokens: completionTokens } : {}),
+    ...(typeof totalTokens === "number" ? { total_tokens: totalTokens } : {}),
+    ...(typeof reasoningTokens === "number" && reasoningTokens > 0
       ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } }
       : {}),
-  };
+  } as Record<string, unknown>;
+  applyCacheEvidence(nextUsage, um, cachedTokens);
+  acc.usage = nextUsage;
 }
 
 /** Parse one `data:` line's JSON payload and fold it into the accumulator (best-effort). */
@@ -260,6 +330,7 @@ export function parseSSEToGeminiResponse(
   const acc: GeminiSSEAccumulator = {
     textContent: "",
     finishReason: "stop",
+    sawFinishReason: false,
     usage: null,
     sawContent: false,
     toolCalls: [],
@@ -276,5 +347,11 @@ export function parseSSEToGeminiResponse(
 
   if (!acc.sawContent && acc.toolCalls.length === 0) return null;
 
-  return buildChatCompletionFromAccumulator(acc, fallbackModel);
+  // #18432 — content but no candidate finishReason (nor [DONE]): the stream was cut.
+  const streamCut = !acc.sawFinishReason && acc.sawContent && !hasSseDoneMarker(rawSSE);
+  if (streamCut) {
+    acc.finishReason = TRUNCATED_STREAM_FINISH_REASON;
+  }
+
+  return markTruncatedStreamBody(buildChatCompletionFromAccumulator(acc, fallbackModel), streamCut);
 }

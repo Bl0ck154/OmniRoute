@@ -65,7 +65,9 @@ test("a final metadata-only event can report the cache without erasing prior cou
   });
 });
 
-test("explicit zero cache differs from absent cache metadata", () => {
+// release/v3.8.53 (#12775) pins the buffered contract: a reported zero keeps the plain usage
+// shape, exactly like absent cache metadata (this object is returned to clients as-is).
+test("explicit zero cache keeps the same plain shape as absent cache metadata", () => {
   const withZero = parse([
     {
       response: {
@@ -82,8 +84,9 @@ test("explicit zero cache differs from absent cache metadata", () => {
       },
     },
   ]);
-  assert.deepEqual(withZero.usage.prompt_tokens_details, { cached_tokens: 0 });
+  assert.equal(Object.hasOwn(withZero.usage, "prompt_tokens_details"), false);
   assert.equal(Object.hasOwn(withoutCache.usage, "prompt_tokens_details"), false);
+  assert.deepEqual(withZero.usage, withoutCache.usage);
 });
 
 test("top-level Gemini usageMetadata is also normalized", () => {
