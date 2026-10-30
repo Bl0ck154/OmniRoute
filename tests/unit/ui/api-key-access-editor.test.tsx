@@ -437,6 +437,7 @@ describe("ApiKeyAccessEditorClient", () => {
       streamDefaultMode: "legacy",
       compressionEnabled: true,
       allowAutoCombos: true,
+      allowCcDiscoveryAliases: true,
       catalogScope: "all",
       disableNonPublicModels: false,
       allowUsageCommand: false,

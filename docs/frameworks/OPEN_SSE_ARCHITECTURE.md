@@ -490,8 +490,7 @@ This handles:
 
 | File                          | Purpose                                           |
 | ----------------------------- | ------------------------------------------------- |
-| `providerRegistry.ts`         | Chat-model registry over the 376-provider catalog |
-| `providerModels.ts`           | Model aliases, format mapping                     |
+| `providerRegistry.ts`         | Chat-model registry over the 377-provider catalog || `providerModels.ts`           | Model aliases, format mapping                     |
 | `constants.ts`                | Timeouts, limits, status codes                    |
 | `defaultThinkingSignature.ts` | Default Claude thinking signature                 |
 | `modelStrip.ts` (in services) | Per-provider field stripping                      |

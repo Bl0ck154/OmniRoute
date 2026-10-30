@@ -83,6 +83,8 @@ async function run(mode: string, hedge = true) {
   await delay(80);
   return { response, dispatched, cancelled };
 }
+const { handleComboChat } = await import("../../open-sse/services/combo.ts");
+
 test("hedges launch different models before sibling accounts, preserving indices", async () => {
   const r = await run("duplicates");
   assert.equal(await r.response.text(), "luna");
