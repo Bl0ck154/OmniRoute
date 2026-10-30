@@ -11,7 +11,6 @@ lastUpdated: 2026-10-29
 > **Last generated:** 2026-10-29
 
 Total providers: **380**. See category breakdown below.
-
 ## Categories
 
 - **Free** — free tier with API key (configured via dashboard)

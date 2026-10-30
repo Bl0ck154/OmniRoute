@@ -67,7 +67,7 @@
   <text x="60" y="228" class="headline">~1.62B</text>
   <text x="62" y="266" class="kicker">FREE TOKENS / MONTH · <tspan style="fill:var(--ok)">STEADY</tspan></text>
   <text x="62" y="298" class="body" style="fill:var(--body)">up to <tspan font-weight="600" style="fill:var(--ok)">~2.22B</tspan> in your first month — signup credits</text>
-  <text x="62" y="326" class="mono-sm" style="fill:var(--muted)">documented free tiers · <tspan style="fill:var(--ink)">34 recurring pools</tspan> · <tspan style="fill:var(--ink)">484 catalog entries</tspan> · one endpoint</text>
+  <text x="62" y="326" class="mono-sm" style="fill:var(--muted)">documented free tiers · <tspan style="fill:var(--ink)">34 recurring pools</tspan> · <tspan style="fill:var(--ink)">486 catalog entries</tspan> · one endpoint</text>
   <rect x="680" y="84" width="460" height="216" rx="12" class="surface" stroke-width="1"/>
   <text x="704" y="116" class="lbl">THE HONEST MATH</text>
   <text x="704" y="172" class="num" style="fill:var(--muted)">~10B</text>

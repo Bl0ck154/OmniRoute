@@ -70,8 +70,18 @@ describe("migrationRunner/constants — exact small-table snapshots", () => {
 // ── large tables — count + shape + spot-checks (corruption guard) ─────────────
 
 describe("migrationRunner/constants — large-table integrity", () => {
-  it("RENAMED_MIGRATION_COMPATIBILITY has 39 well-formed entries", () => {
-    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 39);
+  it("RENAMED_MIGRATION_COMPATIBILITY includes new upstream and two legacy preferred-connection rehomes", () => {
+    // Current upstream has 39 historical renames; our legacy 170/194 collision
+    // mappings add two more, and must not be silently dropped.
+    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 41);
+    for (const version of ["170", "194"]) {
+      assert.ok(RENAMED_MIGRATION_COMPATIBILITY.some((item) =>
+        item.fromVersion === version &&
+        item.fromName === "api_key_preferred_connections" &&
+        item.toVersion === "213" &&
+        item.toName === "api_key_preferred_connections"
+      ), `missing historical preferred-connection rehome ${version}`);
+    }
     for (const e of RENAMED_MIGRATION_COMPATIBILITY) {
       assert.equal(typeof e.fromVersion, "string");
       assert.equal(typeof e.fromName, "string");

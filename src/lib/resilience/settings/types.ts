@@ -271,7 +271,12 @@ export interface StreamThroughputWatchdogSettings {
   minUsefulBytes: number;
 }
 
+/** The opt-in Antigravity fields are defined in the provider-specific leaf. */
+export type AntigravityResilienceSettings =
+  import("../antigravitySettings").AntigravityResilienceSettings;
+
 export interface ResilienceSettings {
+  antigravity: AntigravityResilienceSettings;
   requestQueue: RequestQueueSettings;
   connectionCooldown: Record<AuthCategory, ConnectionCooldownProfileSettings>;
   providerBreaker: Record<AuthCategory, ProviderBreakerProfileSettings>;
@@ -289,6 +294,7 @@ export interface ResilienceSettings {
 }
 
 export interface ResilienceSettingsPatch {
+  antigravity?: Partial<AntigravityResilienceSettings>;
   requestQueue?: Partial<RequestQueueSettings>;
   connectionCooldown?: Partial<Record<AuthCategory, Partial<ConnectionCooldownProfileSettings>>>;
   providerBreaker?: Partial<Record<AuthCategory, Partial<ProviderBreakerProfileSettings>>>;

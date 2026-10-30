@@ -211,6 +211,7 @@ test("WS reasoning rules apply Codex-to-Codex effort and reject non-Codex target
     provider: "codex",
     authType: "oauth",
     name: "Codex WS test",
+    providerSpecificData: { chatgptPlanType: "plus" },
     accessToken: "test-codex-access-token",
     refreshToken: "test-codex-refresh-token",
     expiresAt: Date.now() + 60 * 60 * 1000,

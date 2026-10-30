@@ -34,3 +34,250 @@ jobs:
         run: node scripts/check/check-api-typecheck.mjs
       - name: API typecheck gate unit tests
         run: node --import tsx/esm --test tests/unit/build/check-api-typecheck.test.ts
+      # Upstream-first migration: manual-only synthetic checks for the fork's
+      # historical ledger collision and per-key preferred routing/header timeout.
+      # All tests run on a hosted runner; never on the production VPS.
+      - name: Preferred routing and SQLite migration bridge regressions
+        env:
+          API_KEY_SECRET: ci-only-preferred-routing-long-secret
+          JWT_SECRET: ci-only-preferred-routing-long-jwt-secret
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/api-key-preferred-migration-bridge.test.ts \
+            tests/unit/db-migrationrunner-constants-split.test.ts \
+            tests/unit/preferred-connection-failover.test.ts \
+            tests/unit/upstream-timeout-connection-tier.test.ts \
+            tests/unit/api-key-connection-preference.test.ts \
+            tests/unit/api-key-preferred-connections-persistence.test.ts \
+            tests/unit/auth-antigravity-account-retry-v2.test.ts
+      - name: Antigravity isolated health and timing module regressions
+        env:
+          API_KEY_SECRET: ci-only-antigravity-module-secret-long
+          JWT_SECRET: ci-only-antigravity-module-jwt-secret-long
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/antigravity-adaptive-health.test.ts \
+            tests/unit/antigravity-timing.test.ts
+      - name: Antigravity confirmed-timeout retry regressions
+        env:
+          API_KEY_SECRET: ci-only-antigravity-timeout-secret
+          JWT_SECRET: ci-only-antigravity-timeout-jwt-secret
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/antigravity-timeout-retry.test.ts \
+            tests/unit/codex-same-account-transport-retry-9708.test.ts
+      - name: Antigravity adaptive health full routing integration
+        env:
+          API_KEY_SECRET: ci-only-antigravity-integration-key
+          JWT_SECRET: ci-only-antigravity-integration-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/integration/antigravity-health-wiring.test.ts
+      - name: Antigravity physical egress timing integration
+        env:
+          API_KEY_SECRET: ci-only-timing-integration-key
+          JWT_SECRET: ci-only-timing-integration-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/antigravity-execute-attempt-timing-wiring.test.ts
+      - name: Antigravity hot management settings and access control
+        env:
+          API_KEY_SECRET: ci-only-settings-integration-key
+          JWT_SECRET: ci-only-settings-integration-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/integration/antigravity-resilience-settings-hot.test.ts \
+            tests/unit/resilience-settings-normalize-split.test.ts \
+            tests/unit/access-scopes-infer.test.ts
+      - name: Antigravity sanitized health status and admin access
+        env:
+          API_KEY_SECRET: ci-only-health-status-key
+          JWT_SECRET: ci-only-health-status-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/integration/antigravity-health-status.test.ts
+      - name: Antigravity resilience UI and response mapping
+        run: |
+          node --import tsx/esm --test tests/unit/antigravity-resilience-tab-wiring.test.ts
+          npx vitest run tests/unit/antigravity-resilience-settings-card-render.test.tsx
+      - name: Existing API key editor full PATCH contract
+        run: npx vitest run tests/unit/ui/api-key-access-editor.test.tsx
+      - name: Order Forge scope-gated image artifact retention
+        env:
+          API_KEY_SECRET: ci-only-retention-api-key
+          JWT_SECRET: ci-only-retention-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/order-forge-image-artifact-sink.test.ts \
+            tests/unit/order-forge-image-generation-route-scope.test.ts
+      - name: Order Forge image edits and combo artifact scopes
+        env:
+          API_KEY_SECRET: ci-only-edits-retention-api-key
+          JWT_SECRET: ci-only-edits-retention-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/order-forge-image-edits-retention-scope.test.ts \
+            tests/unit/order-forge-image-firefly-edit-retention.test.ts
+      - name: Order Forge nonstream and SSE Responses retention
+        env:
+          API_KEY_SECRET: ci-only-responses-retention-api-key
+          JWT_SECRET: ci-only-responses-retention-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/order-forge-responses-retention-wiring.test.ts \
+            tests/unit/migration-open-sse-boundary-injection.test.ts
+      - name: Order Forge generation combo winning-target retention
+        env:
+          API_KEY_SECRET: ci-only-combo-retention-api-key
+          JWT_SECRET: ci-only-combo-retention-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/combo/image-combo-empty-200-fallback.test.ts
+      - name: Codex image quota baseline regressions
+        run: node --import tsx/esm --test tests/unit/codex-image-quota-telemetry.test.ts
+      - name: Gemini cache and reasoning token presence regressions
+        env:
+          API_KEY_SECRET: ci-only-gemini-usage-key
+          JWT_SECRET: ci-only-gemini-usage-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/gemini-buffered-sse-cache-usage.test.ts \
+            tests/unit/gemini-stream-cache-usage-presence.test.ts \
+            tests/unit/gemini-buffered-cache-usage.test.ts
+      - name: Codex image quota real-serving-account integration
+        env:
+          API_KEY_SECRET: ci-only-quota-integration-key
+          JWT_SECRET: ci-only-quota-integration-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/codex-image-quota-attempt.test.ts \
+            tests/unit/codex-image-quota-route-wiring.test.ts
+      - name: Migration docs mirrors, glossary and test import order
+        run: |
+          node scripts/check/check-docs-sync.mjs
+          node scripts/check/check-docs-counts-sync.mjs
+          node scripts/check/check-env-doc-sync.mjs
+          node scripts/i18n/check-glossary-consistency.mjs --locale=zh-CN
+          node scripts/i18n/check-glossary-consistency.mjs --locale=zh-TW
+          node scripts/check/check-test-tla-order.mjs
+
+
+      - name: Codex paid-plan eligibility with context relay and WS reasoning
+        env:
+          API_KEY_SECRET: ci-only-codex-policy-regression
+          JWT_SECRET: ci-only-codex-policy-regression-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/chat-context-relay.test.ts \
+            tests/unit/codex-ws-policy-enforcement-6564.test.ts
+
+
+      - name: Codex image edit eligibility and reference route fixtures
+        env:
+          API_KEY_SECRET: ci-only-codex-image-regression
+          JWT_SECRET: ci-only-codex-image-regression-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/image-generation-route.test.ts
+
+
+      - name: Codex OAuth import rotated-token reimport regression
+        env:
+          API_KEY_SECRET: ci-only-codex-import-secret
+          JWT_SECRET: ci-only-codex-import-jwt-secret
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/codex-import-refresh-validation-7522.test.ts
+
+      - name: Codex paid Images API long response-start and no replay
+        env:
+          API_KEY_SECRET: ci-only-codex-long-images
+          JWT_SECRET: ci-only-codex-long-images-jwt
+          DISABLE_SQLITE_AUTO_BACKUP: "true"
+          OMNIROUTE_DISABLE_BACKGROUND_SERVICES: "true"
+        run: |
+          node --import tsx/esm \
+            --import ./open-sse/utils/setupPolyfill.ts \
+            --import ./tests/_setup/isolateDataDir.ts \
+            --test --test-force-exit --test-concurrency=1 \
+            tests/unit/codex-dedicated-image-response-start-timeout.test.ts

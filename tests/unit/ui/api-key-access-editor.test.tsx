@@ -420,7 +420,8 @@ describe("ApiKeyAccessEditorClient", () => {
       blockedModels: [],
       allowedCombos: [],
       allowedConnections: [],
-      // #13102: the ordered per-key connection preference is always part of the PATCH.
+      // The per-key ordered preference feature must round-trip in the full
+      // PATCH body even when no accounts have been prioritized.
       preferredConnections: [],
       noLog: false,
       autoResolve: false,

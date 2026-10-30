@@ -649,8 +649,7 @@ export function geminiToOpenAIResponse(chunk, state) {
   // Usage metadata - extract before finish reason so we can include it
   const usageMeta = response.usageMetadata || chunk.usageMetadata;
   if (usageMeta && typeof usageMeta === "object") {
-    const previousUsage = state.usage;
-    const promptTokenCountRaw =
+    const previousUsage = state.usage;    const promptTokenCountRaw =
       typeof usageMeta.promptTokenCount === "number" &&
       Number.isFinite(usageMeta.promptTokenCount) &&
       usageMeta.promptTokenCount >= 0
@@ -724,8 +723,7 @@ export function geminiToOpenAIResponse(chunk, state) {
       // Gemini may omit totalTokenCount; derive it instead of reporting 0.
       total_tokens: totalTokens || promptTokens + completionTokens,
     };
-    if (typeof effectiveCachedTokens === "number") {
-      state.usage.prompt_tokens_details = {
+    if (typeof effectiveCachedTokens === "number") {      state.usage.prompt_tokens_details = {
         cached_tokens: effectiveCachedTokens,
       };
     }

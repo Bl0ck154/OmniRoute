@@ -29,6 +29,22 @@ export interface RotationAccountState {
 }
 
 export interface ConnectionState {
+  /** Bounded process-local diagnostics, no raw upstream messages/credentials. */
+  antigravityHealth?: Array<{
+    connectionId: string;
+    model: string;
+    state: string;
+    reason: string | null;
+    samples: number;
+    timeouts: number;
+    transportFailures: number;
+    timeoutRatio: number;
+    consecutiveTimeouts: number;
+    cooldownRemainingMs: number;
+    backoffLevel: number;
+    recoverySuccesses: number;
+    inflight: number;
+  }>;
   id: string;
   provider: string;
   name: string | null;

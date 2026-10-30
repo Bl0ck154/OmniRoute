@@ -54,6 +54,12 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { runImageRequestWithAccounting } from "@/lib/usage/imageRequestAccounting";
+import { withCodexImageQuotaAttempt } from "@/lib/images/codexImageQuotaAttempt";
+import { attachCodexImageQuotaHeaders, type CodexImageQuotaTelemetryShape } from "@/lib/images/codexImageQuotaTelemetry";
+import {
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
 import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 import {
@@ -172,6 +178,13 @@ async function postHandler(request, context) {
   if (endpointMismatch) return errorResponse(HTTP_STATUS.BAD_REQUEST, endpointMismatch);
   const { allowedConnections } = scope;
 
+  // Strictly opt-in, per-authenticated-principal retention. A caller-supplied
+  // artifact ID does nothing without the dedicated API-key scope.
+  const artifactCapture = resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: policy.apiKeyInfo?.scopes,
+    headers: request.headers,
+  });
+
   const modelPrefix = body.model.includes("/")
     ? body.model.slice(0, body.model.indexOf("/"))
     : body.model;
@@ -195,6 +208,15 @@ async function postHandler(request, context) {
             allowedConnections,
             isTargetAllowed: createComboTargetKeyGate(policy, body.model as string),
           },
+          onSuccessPayload: artifactCapture
+            ? (data) => {
+                try {
+                  persistOrderForgeImageArtifacts({ capture: artifactCapture, responseBody: data });
+                } catch {
+                  log.warn("IMAGE", "Optional image combo artifact retention failed");
+                }
+              }
+            : undefined,
         },
         startTime,
         log
@@ -384,7 +406,12 @@ async function postHandler(request, context) {
       }
 
       const generateImage = () =>
-        runImageRequestWithAccounting(
+        withCodexImageQuotaAttempt({
+          provider,
+          connectionId: attemptCredentials?.connectionId,
+          credentials: attemptCredentials,
+          requestedModel,
+          execute: () => runImageRequestWithAccounting(
           {
             endpoint: "/v1/images/generations",
             provider,
@@ -410,7 +437,8 @@ async function postHandler(request, context) {
               // provider ignores it.
               peerLocality: request.headers.get(AUTHZ_HEADER_PEER_LOCALITY),
             })
-        );
+          ),
+        });
 
       return attemptCredentials?.connectionId
         ? runWithProxyContext(proxyInfo?.proxy || null, generateImage).catch((err: any) => ({
@@ -431,6 +459,18 @@ async function postHandler(request, context) {
 
   if (result.success) {
     await clearRecoveredProviderState(credentials);
+    if (artifactCapture) {
+      try {
+        persistOrderForgeImageArtifacts({
+          capture: artifactCapture,
+          responseBody: (result as { data?: unknown }).data,
+        });
+      } catch {
+        // Retention is optional; its local disk should never turn a successful
+        // image response into a provider/API failure or expose customer data.
+        log.warn("IMAGE", "Optional image artifact retention failed");
+      }
+    }
     // Bill the images actually delivered: a provider that returns fewer than the
     // requested `n` must not be charged for the missing ones (#16398 follow-up).
     const n = (result as { data?: { data?: unknown[] } }).data?.data?.length || 1;
@@ -444,6 +484,12 @@ async function postHandler(request, context) {
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
     });
+    // The telemetry was collected inside the winner's actual provider attempt,
+    // not on the initial connection selected before account fallback.
+    attachCodexImageQuotaHeaders(
+      headers,
+      (result as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry?.codexQuota
+    );
     return new Response(JSON.stringify((result as { data: unknown }).data), {
       status: 200,
       headers,

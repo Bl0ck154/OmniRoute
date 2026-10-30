@@ -6,6 +6,8 @@ import Icon from "@/shared/components/Icon";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useTranslations } from "next-intl";
 import AutoDisableCard from "./AutoDisableCard";
+import AntigravityResilienceCard from "./AntigravityResilienceCard";
+import type { AntigravityResilienceSettings } from "@/lib/resilience/antigravitySettings";
 import ModelLockoutCard from "./ModelLockoutCard";
 import TokenRefreshBreakerCard, { type TokenRefreshBreakerValue } from "./TokenRefreshBreakerCard";
 import { NumberField, BooleanField } from "./ResilienceFields";
@@ -64,6 +66,7 @@ export type ProviderCooldownSettings = {
 };
 
 type ResilienceResponse = {
+  antigravity?: AntigravityResilienceSettings;
   requestQueue: RequestQueueSettings;
   connectionCooldown: {
     oauth: ConnectionCooldownProfileSettings;
@@ -83,6 +86,7 @@ type ResilienceResponse = {
 
 function toResilienceResponse(json: ResilienceResponse): ResilienceResponse {
   return {
+    antigravity: json.antigravity,
     requestQueue: json.requestQueue,
     connectionCooldown: json.connectionCooldown,
     providerBreaker: json.providerBreaker,
@@ -1213,6 +1217,14 @@ export default function ResilienceTab() {
   return (
     <div className="space-y-6">
       <AutoDisableCard />
+
+      {data.antigravity && (
+        <AntigravityResilienceCard
+          value={data.antigravity}
+          saving={savingSection === "antigravity"}
+          onSave={(antigravity) => savePatch("antigravity", { antigravity })}
+        />
+      )}
 
       <RequestQueueCard
         value={data.requestQueue}

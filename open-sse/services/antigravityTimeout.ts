@@ -12,3 +12,8 @@ export function isAntigravityPreResponseTimeout(error: unknown): boolean {
     (error as { code?: unknown }).code === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
   );
 }
+
+/** Supports both the canonical Antigravity and agy provider aliases. */
+export function isAntigravityProvider(provider: string | null | undefined): boolean {
+  return provider === "antigravity" || provider === "agy";
+}

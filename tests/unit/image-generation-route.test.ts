@@ -408,7 +408,10 @@ test("v1 image edit POST guards multipart prompts after parsing", async () => {
 });
 
 test("v1 image edit POST routes built-in Codex references through native Responses edit", async () => {
-  await seedConnection("codex", { apiKey: "codex-oauth-token" });
+  await seedConnection("codex", {
+    apiKey: "codex-oauth-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
 
   let captured: CapturedRequest | null = null;
   globalThis.fetch = async (url, options: RequestInit = {}) => {
@@ -483,7 +486,10 @@ test("v1 image edit POST routes built-in Codex references through native Respons
 });
 
 test("v1 image edit POST defaults Codex results to b64_json when response_format is unset (#12268)", async () => {
-  await seedConnection("codex", { apiKey: "codex-oauth-token" });
+  await seedConnection("codex", {
+    apiKey: "codex-oauth-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
 
   globalThis.fetch = async () => {
     const event = {
@@ -518,7 +524,10 @@ test("v1 image edit POST defaults Codex results to b64_json when response_format
 });
 
 test("v1 image edit POST rejects excessive or malformed Codex reference sets", async () => {
-  await seedConnection("codex", { apiKey: "codex-oauth-token" });
+  await seedConnection("codex", {
+    apiKey: "codex-oauth-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
   globalThis.fetch = async () => {
     throw new Error("Invalid Codex reference sets must not reach upstream");
   };
@@ -597,7 +606,10 @@ test("v1 image edit POST keeps non-Codex providers single-reference", async () =
 });
 
 test("v1 image edit POST rejects unsupported Codex models and MIME mismatches", async () => {
-  await seedConnection("codex", { apiKey: "codex-oauth-token" });
+  await seedConnection("codex", {
+    apiKey: "codex-oauth-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
   globalThis.fetch = async () => {
     throw new Error("Invalid Codex edit inputs must not reach upstream");
   };
@@ -640,12 +652,17 @@ test("v1 image edit POST rejects Codex free-plan accounts before upstream", asyn
   );
   const body = (await response.json()) as ErrorResponseBody;
 
-  assert.equal(response.status, 400);
-  assert.match(body.error.message, /paid ChatGPT\/Codex plan/i);
+  // The auth selector filters ineligible Free plans before provider dispatch;
+  // no eligible account is a 401, not a paid-model inference failure.
+  assert.equal(response.status, 401);
+  assert.match(body.error.message, /No credentials for provider: codex/i);
 });
 
 test("v1 image edit POST executes Codex through the configured connection proxy", async () => {
-  const connection = await seedConnection("codex", { apiKey: "codex-proxy-token" });
+  const connection = await seedConnection("codex", {
+    apiKey: "codex-proxy-token",
+    providerSpecificData: { chatgptPlanType: "plus" },
+  });
   await settingsDb.setProxyForLevel("key", String(connection.id), {
     type: "http",
     host: "127.0.0.1",

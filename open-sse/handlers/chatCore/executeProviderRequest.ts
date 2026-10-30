@@ -58,6 +58,7 @@ import {
   type ResilienceSettings,
 } from "@/lib/resilience/settings";
 import { updatePendingScope, type PendingRequestScope } from "@/lib/usage/pendingRequestScope";
+import { getPreferredAntigravityStartTimeoutCapMs } from "../../services/preferredConnectionFailover.ts";
 import { shouldIsolateProbeFailures } from "@/shared/utils/probeOrigin";
 import { resolveProviderId } from "@/shared/constants/providers";
 import { buildContinuationLogHooks } from "./recoveryTraceLogging.ts";
@@ -337,6 +338,9 @@ export async function executeProviderRequest(
                   provider,
                   model: modelToCall,
                   connectionTimeoutMs: resolveConnectionTimeoutMs(execCreds?.providerSpecificData),
+                  preferredHeaderTimeoutCapMs: getPreferredAntigravityStartTimeoutCapMs(
+                    provider, execCreds, modelToCall, settings
+                  ),
                   signal: streamController.signal,
                   log,
                   execute: (signal) =>
@@ -542,6 +546,9 @@ export async function executeProviderRequest(
                       model: modelToCall,
                       connectionTimeoutMs: resolveConnectionTimeoutMs(
                         execCreds?.providerSpecificData
+                      ),
+                      preferredHeaderTimeoutCapMs: getPreferredAntigravityStartTimeoutCapMs(
+                        provider, execCreds, modelToCall, settings
                       ),
                       signal: streamController.signal,
                       log,

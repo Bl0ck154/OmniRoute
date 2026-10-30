@@ -1080,6 +1080,27 @@ export async function runNonStreamingResponse(deps: NonStreamingDeps) {
       response: { status: 200, data: translatedResponse },
     });
 
+    // Persist a completed Responses image-generation output ONLY for the
+    // authenticated API key with explicit capability and validated artifact ID.
+    // Use the already-normalized translated payload, not a cloned response body.
+    if (isResponsesEndpoint) {
+      const artifactCapture = deps.orderForgeImageArtifacts?.resolveCapture?.({
+        apiKeyScopes: apiKeyInfo?.scopes,
+        headers: clientRawRequest?.headers,
+        correlationId: traceId,
+      });
+      if (artifactCapture) {
+        try {
+          deps.orderForgeImageArtifacts?.persist?.({
+            capture: artifactCapture,
+            responseBody: translatedResponse,
+          });
+        } catch {
+          log?.warn?.("IMAGE", "Optional Responses image retention failed");
+        }
+      }
+    }
+
     // Routing event (feedback foundation) — fire-and-forget, cheap.
     void emitRoutingEvent(
       createRoutingEvent({

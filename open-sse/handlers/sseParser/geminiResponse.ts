@@ -158,16 +158,16 @@ function resolveCachedTokens(
 /**
  * Fold the resolved cached-token count into the accumulated usage. A positive count is exposed as
  * `prompt_tokens_details.cached_tokens` (a breakdown of the inclusive prompt count, not extra
- * input). A reported zero or an invalid count keeps the plain usage shape: this object is returned
- * to clients as-is, so no internal evidence marker is added to it. A snapshot that omits the field
- * keeps the last valid count.
+ * input), including an explicitly reported zero. Invalid counts clear the field; omitted cache
+ * metadata retains the last valid count across cumulative usage snapshots.
  */
 function applyCacheEvidence(
   usage: Record<string, unknown>,
   um: Record<string, unknown>,
   cachedTokens: number | undefined
 ): void {
-  if (typeof cachedTokens === "number" && cachedTokens > 0) {
+  // Preserve an explicit zero: it is evidence of a cache miss, not missing metadata.
+  if (typeof cachedTokens === "number" && cachedTokens >= 0) {
     usage.prompt_tokens_details = { cached_tokens: cachedTokens };
   } else if (Object.prototype.hasOwnProperty.call(um, "cachedContentTokenCount")) {
     delete usage.prompt_tokens_details;
@@ -195,15 +195,26 @@ function resolveTotalTokens(
 /** Extract usageMetadata into the OpenAI-shaped usage object, if present. */
 function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccumulator): void {
   const response = (parsed.response ?? parsed) as Record<string, unknown>;
-  const um = response?.usageMetadata as Record<string, unknown> | undefined;
-  if (!um) return;
+  // Cloud Code nests usage under response, native Gemini may put it at top level.
+  const um = (response?.usageMetadata ?? parsed.usageMetadata) as Record<string, unknown> | undefined;
+  if (!um || typeof um !== "object" || Array.isArray(um)) return;
 
   const previousUsage = acc.usage ?? {};
   const previousPromptTokens = nonNegativeOr(previousUsage.prompt_tokens, undefined);
   const previousCompletionTokens = nonNegativeOr(previousUsage.completion_tokens, undefined);
+  const previousReasoningTokens = nonNegativeOr(
+    (previousUsage.completion_tokens_details as { reasoning_tokens?: number } | undefined)?.reasoning_tokens,
+    undefined
+  );
+  const reasoningTokens = nonNegativeOr(um.thoughtsTokenCount, previousReasoningTokens);
   const previousTotalTokens = nonNegativeOr(previousUsage.total_tokens, undefined);
   const promptTokens = nonNegativeOr(um.promptTokenCount, previousPromptTokens);
-  const completionTokens = nonNegativeOr(um.candidatesTokenCount, previousCompletionTokens);
+  // Candidate tokens exclude Gemini thought tokens. Each frame is a cumulative snapshot.
+  const candidateTokens = nonNegativeOr(um.candidatesTokenCount, undefined);
+  const completionTokens =
+    typeof candidateTokens === "number"
+      ? candidateTokens + (reasoningTokens ?? 0)
+      : previousCompletionTokens;
   // Gemini may omit totalTokenCount; keep the last valid total, else derive it.
   const reportedTotalTokens = nonNegativeOr(um.totalTokenCount, undefined);
   const totalTokens = resolveTotalTokens(
@@ -229,8 +240,10 @@ function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccum
     ...(typeof totalTokens === "number" ? { total_tokens: totalTokens } : {}),
   } as Record<string, unknown>;
   applyCacheEvidence(nextUsage, um, cachedTokens);
-  acc.usage = nextUsage;
-}
+  if (typeof reasoningTokens === "number") {
+    nextUsage.completion_tokens_details = { reasoning_tokens: reasoningTokens };
+  }
+  acc.usage = nextUsage;}
 
 /** Parse one `data:` line's JSON payload and fold it into the accumulator (best-effort). */
 function applyGeminiSSEDataLine(payload: string, acc: GeminiSSEAccumulator): void {

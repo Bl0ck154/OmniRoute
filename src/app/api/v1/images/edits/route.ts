@@ -65,6 +65,13 @@ import {
   isCommonChatGptWebRetirementError,
 } from "@/shared/constants/chatgptWebRetirement";
 import { z } from "zod";
+import { withCodexImageQuotaAttempt } from "@/lib/images/codexImageQuotaAttempt";
+import { attachCodexImageQuotaHeaders, type CodexImageQuotaTelemetryShape } from "@/lib/images/codexImageQuotaTelemetry";
+import {
+  persistOrderForgeImageArtifacts,
+  resolveOrderForgeImageArtifactCapture,
+  type OrderForgeImageArtifactCapture,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 
 // JSON edit body (Open WebUI / OpenAI-style). All fields optional — the prompt
 // and resolvable image are enforced after extraction in POST — but the top-level
@@ -206,11 +213,33 @@ async function readEditInput(request: Request): Promise<EditInput | null> {
   return null;
 }
 
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+function jsonResponse(data: unknown, status = 200, extraHeaders?: Headers): Response {
+  const headers = new Headers(extraHeaders);
+  headers.set("Content-Type", "application/json");
+  return new Response(JSON.stringify(data), { status, headers });
+}
+
+/** An optional disk sink must never convert a successfully billed image edit
+ * into an HTTP failure or reveal returned user content in logs. */
+function retainImageEditSuccess(
+  data: unknown,
+  capture: OrderForgeImageArtifactCapture | null | undefined
+): void {
+  if (!capture) return;
+  try {
+    persistOrderForgeImageArtifacts({ capture, responseBody: data });
+  } catch {
+    log.warn("IMAGE", "Optional scoped image-edit artifact retention failed");
+  }
+}
+
+function imageEditSuccessResponse(
+  data: unknown,
+  capture: OrderForgeImageArtifactCapture | null | undefined,
+  quotaHeaders?: Headers
+): Response {
+  retainImageEditSuccess(data, capture);
+  return jsonResponse(data, 200, quotaHeaders);
 }
 
 /** Key + start time every edit attempt is attributed to (call_logs + usage_history). */
@@ -268,6 +297,7 @@ async function handleSyntxEditRequest(params: {
   imageBytes: Buffer | null;
   imageMime: string | null;
   signal: AbortSignal | null;
+  artifactCapture?: OrderForgeImageArtifactCapture | null;
 }): Promise<Response> {
   const {
     parsed,
@@ -281,6 +311,7 @@ async function handleSyntxEditRequest(params: {
     imageBytes,
     imageMime,
     signal,
+    artifactCapture,
   } = params;
 
   const preflight = await syntxEditPreflight(parsed.provider, allowedConnections, resolvedModel);
@@ -312,7 +343,7 @@ async function handleSyntxEditRequest(params: {
 
   if ((result as { success?: boolean }).success) {
     await clearRecoveredProviderState(credentials);
-    return jsonResponse((result as { data?: unknown }).data);
+    return imageEditSuccessResponse((result as { data?: unknown }).data, artifactCapture);
   }
   return jsonResponse(
     toJsonErrorPayload((result as { error?: unknown }).error, "Image edit provider error"),
@@ -332,6 +363,7 @@ interface ImageEditContext {
   allowedConnections: string[] | null;
   request: Request;
   accounting: EditAccountingBase;
+  artifactCapture: OrderForgeImageArtifactCapture | null;
 }
 
 /** A combo target that resolved to an edit-capable provider/node. */
@@ -636,7 +668,7 @@ async function executeImageEditCombo(comboName: string, ctx: ImageEditContext): 
   }
   if (run.outcome === "success") {
     // Match the single-model edit path: return the provider payload directly.
-    return jsonResponse(run.data);
+    return imageEditSuccessResponse(run.data, ctx.artifactCapture);
   }
   const errorPayload = toJsonErrorPayload(
     run.lastError?.error || "All combo targets failed",
@@ -714,6 +746,10 @@ async function postHandler(request: Request, _context?: unknown) {
     if (combo) {
       const comboPolicy = await enforceApiKeyPolicy(request, fullModel);
       if (comboPolicy.rejection) return comboPolicy.rejection;
+      const comboArtifactCapture = resolveOrderForgeImageArtifactCapture({
+        apiKeyScopes: comboPolicy.apiKeyInfo?.scopes,
+        headers: request.headers,
+      });
       const comboAllowedConnections =
         comboPolicy.apiKeyInfo?.allowedConnections &&
         comboPolicy.apiKeyInfo.allowedConnections.length > 0
@@ -730,6 +766,7 @@ async function postHandler(request: Request, _context?: unknown) {
         allowedConnections: comboAllowedConnections,
         request,
         accounting: { apiKeyInfo: comboPolicy.apiKeyInfo, startTime },
+        artifactCapture: comboArtifactCapture,
       });
     }
   }
@@ -761,6 +798,10 @@ async function postHandler(request: Request, _context?: unknown) {
       ? policy.apiKeyInfo.allowedConnections
       : null;
   const accounting: EditAccountingBase = { apiKeyInfo: policy.apiKeyInfo, startTime };
+  const artifactCapture = resolveOrderForgeImageArtifactCapture({
+    apiKeyScopes: policy.apiKeyInfo?.scopes,
+    headers: request.headers,
+  });
 
   const parsed = parseImageModel(resolvedModel);
   const providerConfig = parsed.provider ? getImageProvider(parsed.provider) : null;
@@ -838,7 +879,12 @@ async function postHandler(request: Request, _context?: unknown) {
     }
 
     const editImage = () =>
-      runImageRequestWithAccounting(
+      withCodexImageQuotaAttempt({
+        provider: parsed.provider,
+        connectionId,
+        credentials,
+        requestedModel: resolvedModel,
+        execute: () => runImageRequestWithAccounting(
         editAccounting(accounting, parsed.provider, parsed.model, credentials),
         () =>
           handleCodexImageEdit({
@@ -855,7 +901,8 @@ async function postHandler(request: Request, _context?: unknown) {
             log,
             signal: request.signal,
           })
-      );
+        ),
+      });
 
     const result = await (connectionId
       ? runWithProxyContext(proxyInfo?.proxy || null, editImage).catch(() => ({
@@ -867,7 +914,14 @@ async function postHandler(request: Request, _context?: unknown) {
 
     if (result.success === true) {
       await clearRecoveredProviderState(credentials);
-      return jsonResponse(result.data);
+      // Serialize once; attach quota facts only for the successful Codex
+      // account which served this image edit, never the pre-fallback account.
+      const quotaHeaders = new Headers();
+      attachCodexImageQuotaHeaders(
+        quotaHeaders,
+        (result as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry?.codexQuota
+      );
+      return imageEditSuccessResponse(result.data, artifactCapture, quotaHeaders);
     }
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
@@ -918,7 +972,7 @@ async function postHandler(request: Request, _context?: unknown) {
 
     if (result.success) {
       await clearRecoveredProviderState(credentials);
-      return jsonResponse(result.data);
+      return imageEditSuccessResponse(result.data, artifactCapture);
     }
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
@@ -940,6 +994,7 @@ async function postHandler(request: Request, _context?: unknown) {
       imageBytes,
       imageMime,
       accounting,
+      onSuccessfulResult: (data) => retainImageEditSuccess(data, artifactCapture),
     });
   }
 
@@ -956,6 +1011,7 @@ async function postHandler(request: Request, _context?: unknown) {
       imageBytes,
       imageMime,
       signal: request.signal,
+      artifactCapture,
     });
   }
 
@@ -1004,7 +1060,7 @@ async function postHandler(request: Request, _context?: unknown) {
 
     if (result.success) {
       await clearRecoveredProviderState(credentials);
-      return jsonResponse(result.data);
+      return imageEditSuccessResponse(result.data, artifactCapture);
     }
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
@@ -1073,7 +1129,7 @@ async function postHandler(request: Request, _context?: unknown) {
 
     if (result.success) {
       if (finalCreds) await clearRecoveredProviderState(finalCreds);
-      return jsonResponse(result.data);
+      return imageEditSuccessResponse(result.data, artifactCapture);
     }
     return jsonResponse(
       toJsonErrorPayload(result.error, "Image edit provider error"),
@@ -1142,7 +1198,7 @@ async function postHandler(request: Request, _context?: unknown) {
 
   if (result.success) {
     await clearRecoveredProviderState(credentials);
-    return jsonResponse((result as any).data);
+    return imageEditSuccessResponse((result as any).data, artifactCapture);
   }
   return jsonResponse(
     toJsonErrorPayload((result as any).error, "Image edit provider error"),

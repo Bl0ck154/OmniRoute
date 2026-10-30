@@ -88,8 +88,7 @@ lastUpdated: 2026-10-27
    they ride on the kit's five chart tokens (`--color-chart-1..5`) through
    `src/shared/utils/categoricalPalette.ts` and, for routing strategies,
    `src/app/(dashboard)/dashboard/combos/strategyPalette.ts`; ReactFlow edges and the orchestration
-   canvas read the theme-aware `--orch-status-*` variables (`src/shared/components/flow/edgeStyles.ts`).
-2. Never patch `packages/ui-kit/src` by hand: sync with `scripts/dev/sync-ui-kit.sh <commit>`; the
+   canvas read the theme-aware `--orch-status-*` variables (`src/shared/components/flow/edgeStyles.ts`).2. Never patch `packages/ui-kit/src` by hand: sync with `scripts/dev/sync-ui-kit.sh <commit>`; the
    pre-commit gate `npm run check:ui-kit-snapshot` (`.husky/pre-commit`) fails on any byte that
    differs from the pinned upstream commit (it skips with a warning when the upstream clone,
    `UI_KIT_CLONE` or `_references/cheaper-inference-ui-kit`, is absent). When the kit lacks something,

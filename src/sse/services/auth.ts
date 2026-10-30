@@ -123,6 +123,10 @@ import {
 import { preflightQuota } from "@omniroute/open-sse/services/quotaPreflight.ts";
 import { resolveResilienceSettings } from "@/lib/resilience/settings";
 import { resolveModelLockoutSettings } from "@/lib/resilience/modelLockoutSettings";
+import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth.ts";
+import type { AntigravityHealthAttempt } from "@omniroute/open-sse/services/antigravityHealth.ts";
+import { isAntigravityProvider } from "@omniroute/open-sse/services/antigravityTimeout.ts";
+import { resolveAntigravitySettings } from "@/lib/resilience/antigravitySettings";
 import {
   buildMixedAvailabilityError,
   isTransportCooldownErrorCode,
@@ -160,6 +164,7 @@ import {
   WEB_COOKIE_PROVIDERS,
 } from "@/shared/constants/providers";
 import { isModelExcludedByConnection } from "@/domain/connectionModelRules";
+import { isCodexPlanEligibleForModel } from "@omniroute/open-sse/services/codexPlanEligibility.ts";
 import {
   isRequestedModelAdvertised,
   loadAdvertisedModelsForConnections,
@@ -804,6 +809,9 @@ async function materializeConnection(
     reactivatedFromInactive?: boolean;
     routingLease?: AntigravityLease;
     requestedModel?: string | null;
+    selectedByApiKeyPreference?: boolean;
+    preferredFallbackAvailable?: boolean;
+    antigravityHealthFallback?: boolean;
   } = {}
 ) {
   const providerSpecificData = await hydrateConnectionProviderSpecificData(connection);
@@ -1249,6 +1257,13 @@ export async function getProviderCredentials(
         connectionFilterStatus.set(c.id, "modelExcluded");
         return false;
       }
+      // Paid-only Codex models must never be sent to Free/Go/unknown accounts.
+      // Filter before routing modes so even an explicit probe cannot select one.
+      if (provider === "codex" && requestedModel &&
+          !isCodexPlanEligibleForModel(c.providerSpecificData, requestedModel)) {
+        connectionFilterStatus.set(c.id, "codexPlanIneligible");
+        return false;
+      }
       if (
         requestedModel &&
         ((c.provider === "codex" && advertisedModelsByConnection.get(c.id)?.size === 0) ||
@@ -1655,7 +1670,30 @@ export async function getProviderCredentials(
         : null;
     }
 
-    const orderedConnections = [...leasePolicy.connections].sort((a, b) => {
+    // Apply adaptive health LAST: no quota-blocked, forbidden, terminal, or
+    // leased-away account can be resurrected by the quarantine escape hatch.
+    // Disabled by default for all installs until explicitly enabled in settings.
+    const healthEnabled =
+      isAntigravityProvider(provider) &&
+      Boolean(requestedModel) &&
+      resolveAntigravitySettings(settings).adaptiveHealthEnabled;
+    // A forced ID or an already-owned exclusive lease is an authorization /
+    // concurrency decision, never a health-scoring choice. Keep the exact
+    // admitted account, and allow only its bounded recovery probe downstream.
+    const healthCandidates =
+      healthEnabled && requestedModel && !forcedConnectionId && !leasePolicy.activeLease
+        ? antigravityHealth.candidates(leasePolicy.connections, requestedModel)
+        : leasePolicy.connections;
+    if (healthCandidates.length === 0) {
+      return {
+        allRateLimited: true,
+        retryAfter: new Date(Date.now() + 1000).toISOString(),
+        retryAfterHuman: "1s",
+        lastError: "Antigravity model recovery probe already in flight",
+        lastErrorCode: 503,
+      };
+    }
+    const orderedConnections = [...healthCandidates].sort((a, b) => {
       if (a.authType !== "oauth" || b.authType !== "oauth") return 0;
       const priorityDelta = (a.priority || 999) - (b.priority || 999);
       if (priorityDelta !== 0) return priorityDelta;
@@ -1682,11 +1720,15 @@ export async function getProviderCredentials(
         )
       : undefined;
     let selectedByApiKeyPreference = false;
+    let preferredFallbackAvailable = false;
     if (!connection && options.preferredConnectionIds?.length) {
       const preferred = pickPreferredConnection(orderedConnections, options.preferredConnectionIds);
       if (preferred) {
         connection = preferred;
         selectedByApiKeyPreference = true;
+        // Only accounts surviving ALL authorization, quota, cooldown and lease
+        // filters count as viable siblings; a forced pin never has one.
+        preferredFallbackAvailable = orderedConnections.some((candidate) => candidate.id !== preferred.id);
         log.debug("AUTH", `${provider} api-key preference selected ${preferred.id.slice(0, 8)}...`);
       }
     }
@@ -1932,6 +1974,10 @@ export async function getProviderCredentials(
         return materializeConnection(connection, options, {
           commitSelectionSideEffects,
           selectNextLeaseCandidate,
+          selectedByApiKeyPreference,
+          preferredFallbackAvailable,
+          antigravityHealthFallback: Boolean(healthEnabled && requestedModel &&
+            antigravityHealth.remainingCooldownMs(connection.id, requestedModel) > 0),
           ...probeStamp,
         });
       }
@@ -1956,6 +2002,8 @@ export async function getProviderCredentials(
           exclusiveLease,
           connectionId: connection.id,
           provider: connection.provider,
+          selectedByApiKeyPreference,
+          preferredFallbackAvailable,
           ...probeStamp,
         };
       }
@@ -1981,6 +2029,10 @@ export async function getProviderCredentials(
       ...probeStamp,
       routingLease: reserved.lease,
       requestedModel,
+      selectedByApiKeyPreference,
+      preferredFallbackAvailable,
+      antigravityHealthFallback: Boolean(healthEnabled && requestedModel &&
+        antigravityHealth.remainingCooldownMs(connection.id, requestedModel) > 0),
     });
   } finally {
     selectionLock?.release();
@@ -2347,8 +2399,29 @@ export async function markAccountUnavailable(
     correlationId?: string | null;
     streamOutputEmitted?: boolean;
     structuredError?: { code?: string | null; type?: string | null } | null;
+    healthAttempt?: AntigravityHealthAttempt;
   } = {}
 ) {
+  // No cancellation or deadline-driven *model* health may be turned into a
+  // global account cooldown; healthy sibling models must remain eligible.
+  if (status === 499) {
+    options.healthAttempt?.finish("ignored");
+    return { shouldFallback: false, cooldownMs: 0 };
+  }
+  if (
+    isAntigravityProvider(provider) && model &&
+    status === 504 &&
+    options.structuredError?.type === "upstream_timeout" &&
+    options.structuredError?.code === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" &&
+    (options.healthAttempt ||
+      resolveAntigravitySettings(await getCachedSettings()).adaptiveHealthEnabled)
+  ) {
+    options.healthAttempt?.finish("timeout");
+    return {
+      shouldFallback: true,
+      cooldownMs: antigravityHealth.remainingCooldownMs(connectionId, model),
+    };
+  }
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
   let resolveMutex: (() => void) | undefined;
   markMutexes.set(
