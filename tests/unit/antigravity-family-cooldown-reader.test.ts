@@ -82,3 +82,22 @@ test("saved family reader preserves the lock sets and deadlines of hydration", (
     clearAllModelLockouts();
   }
 });
+
+test("saved Argon quota deadline is readable and rehydrated without affecting Gemini/Claude", (t) => {
+  const now = Date.parse("2099-01-01T00:00:00Z");
+  t.mock.method(Date, "now", () => now);
+  const psd = { antigravityFamilyRateLimitedUntil: { argon: now + 120_000 } };
+  try {
+    clearAllModelLockouts();
+    assert.equal(getAntigravityFamilyCooldownUntil(psd, "argon", now), now + 120_000);
+    assert.deepEqual(getAllModelLockouts(), [], "reading the persisted deadline must be pure");
+    assert.equal(getAntigravityFamilyCooldownUntil(psd, "gemini", now), null);
+    assert.equal(getAntigravityFamilyCooldownUntil(psd, "claude", now), null);
+    rehydrateAntigravityFamilyLocks("agy", "synthetic", psd);
+    const locks = getAllModelLockouts();
+    assert.equal(locks.length, 2, "both Antigravity aliases must be locked");
+    assert.ok(locks.every((lock) => JSON.stringify(lock).includes("argon_weekly")));
+  } finally {
+    clearAllModelLockouts();
+  }
+});

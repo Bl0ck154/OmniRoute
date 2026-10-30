@@ -84,3 +84,11 @@ test("Optional fields absent from entry still parse successfully", () => {
   const result = CliCatalogEntrySchema.safeParse(CLI_TOOLS["codex"]);
   assert.equal(result.success, true);
 });
+
+test("Pi configuration example preserves its optional title through schema validation", () => {
+  const result = CliCatalogEntrySchema.safeParse(CLI_TOOLS["pi"]);
+  assert.equal(result.success, true);
+  if (result.success) {
+    assert.equal(result.data.codeBlock?.title, "~/.pi/agent/models.json");
+  }
+});

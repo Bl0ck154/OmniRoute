@@ -3,7 +3,7 @@
  * on the connection row, without cooling the whole account.
  */
 import { lockModel } from "./accountFallback.ts";
-import { getAntigravityQuotaFamily, isAntigravityQuotaProvider } from "./antigravityQuotaFamily.ts";
+import { getAntigravityQuotaFamily, isAntigravityQuotaProvider, type AntigravityQuotaFamily } from "./antigravityQuotaFamily.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -22,7 +22,8 @@ function parseUntilMs(value: unknown): number {
   return NaN;
 }
 
-function dummyModelForFamily(family: "gemini" | "claude"): string {
+function dummyModelForFamily(family: Exclude<AntigravityQuotaFamily, "other">): string {
+  if (family === "argon") return "argon_weekly";
   return family === "gemini" ? "gemini-family-lock" : "claude-family-lock";
 }
 
@@ -106,7 +107,7 @@ export async function persistAntigravityPreflightFamilyLock(params: {
 /** Read the saved deadline without installing any process-local model locks. */
 export function getAntigravityFamilyCooldownUntil(
   providerSpecificData: unknown,
-  family: "gemini" | "claude" | "other",
+  family: AntigravityQuotaFamily,
   now = Date.now()
 ): number | null {
   const untils = asRecord(asRecord(providerSpecificData)[FAMILY_PSD_KEY]);
@@ -121,7 +122,7 @@ export function rehydrateAntigravityFamilyLocks(
 ): void {
   if (!isAntigravityQuotaProvider(provider)) return;
   const now = Date.now();
-  for (const family of ["gemini", "claude"] as const) {
+  for (const family of ["gemini", "claude", "argon"] as const) {
     const untilMs = getAntigravityFamilyCooldownUntil(providerSpecificData, family, now);
     if (untilMs === null) continue;
     const model = dummyModelForFamily(family);
