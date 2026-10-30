@@ -71,7 +71,9 @@ describe("migrationRunner/constants — exact small-table snapshots", () => {
 
 describe("migrationRunner/constants — large-table integrity", () => {
   it("RENAMED_MIGRATION_COMPATIBILITY includes new upstream and two legacy preferred-connection rehomes", () => {
-    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 39);
+    // Current upstream has 39 historical renames; our legacy 170/194 collision
+    // mappings add two more, and must not be silently dropped.
+    assert.equal(RENAMED_MIGRATION_COMPATIBILITY.length, 41);
     for (const version of ["170", "194"]) {
       assert.ok(RENAMED_MIGRATION_COMPATIBILITY.some((item) =>
         item.fromVersion === version &&
