@@ -1371,7 +1371,7 @@ export const APIKEY_PROVIDERS_GATEWAYS = {
     apiHint:
       "Token Harbor is OpenAI-compatible. Use the tokenharbor provider prefix with the exact model ID from its live /v1/models catalog; API base URL: https://tokenharbor.ai/v1.",
     freeNote:
-      "Selected :free model IDs (for example, claude-haiku-5.5:free) use a personal rolling 7-day list-price allowance and never charge the wallet; free routes have 60 RPM and 1,800 requests/hour per account. Enable free routes first; prompts and responses may be retained after opting in. Model availability can change.",
+      "Current :free routes include deepseek-v4.1-flash:free and mimo-v2.6-flash:free. The personal rolling 7-day free allowance is value-based and shared across eligible models; these routes stop at allowance exhaustion and do not charge the wallet. Enable free routes first; prompts and responses may be retained after opting in. Promotional models (such as the retired Haiku 5.5 free route) and availability can change.",
   },
   navy: {
     id: "navy",

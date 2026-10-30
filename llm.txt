@@ -13,7 +13,8 @@ OmniRoute solves the problem of managing multiple AI provider subscriptions, quo
 
 - **Runtime:** Node.js `>=22.22.2 <23 || >=24.0.0 <27`, ES Modules (`"type": "module"`)
 - **Framework:** Next.js 16 (App Router) with TypeScript 6
-- **Database:** SQLite via better-sqlite3 (local, zero-config, 214 migrations)- **State management:** Zustand (client), SQLite (server persistence)
+- **Database:** SQLite via better-sqlite3 (local, zero-config, 214 migrations)
+- **State management:** Zustand (client), SQLite (server persistence)
 - **UI:** React 19, Tailwind CSS 4, Recharts for analytics, @lobehub/icons for 130+ provider SVG icons
 - **Auth:** OAuth 2.0 (PKCE) for providers, bcrypt for local user auth
 - **Schemas:** Zod v4 for all API / MCP input validation
@@ -122,7 +123,8 @@ OmniRoute solves the problem of managing multiple AI provider subscriptions, quo
 │   │   │   ├── secrets.ts        # Secrets management
 │   │   │   ├── stateReset.ts     # State reset utilities
 │   │   │   ├── migrationRunner.ts # Schema migration runner
-│   │   │   └── migrations/       # 214 versioned SQL migration files│   │   ├── evals/                # Eval runner and scheduler
+│   │   │   └── migrations/       # 214 versioned SQL migration files
+│   │   ├── evals/                # Eval runner and scheduler
 │   │   ├── memory/               # Persistent conversational memory
 │   │   │   ├── extraction.ts     # Memory extraction from conversations
 │   │   │   ├── injection.ts      # Memory injection into context

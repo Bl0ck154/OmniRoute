@@ -108,6 +108,14 @@ export function isFreeModel(provider: string, model: FreeModelCandidate): boolea
   if (resolveProviderId(provider) === "siliconflow") {
     return !hasPayloadPaidEvidence(model) && hasPayloadFreeEvidence(model);
   }
+  // Token Harbor retires promotional :free routes. A suffix alone is not proof
+  // that a route is still free (Haiku 5.5's free campaign ended 2026-10-26).
+  // Trust the current curated allowlist or unambiguously free live API metadata.
+  if (resolveProviderId(provider) === "tokenharbor") {
+    if (hasPayloadPaidEvidence(model)) return false;
+    const explicitLiveFree = model.isFree === true || model.is_free === true || model.free === true;
+    return isCatalogFreeModel(provider, model.id) || explicitLiveFree;
+  }
   if (isCatalogFreeModel(provider, model.id)) return true;
   return providerHasFreeModels(provider) && hasPayloadFreeEvidence(model);
 }
@@ -155,7 +163,8 @@ export function isModelFreeBadge(
 ): boolean {
   // A display name, truthy string or cached Free badge is not proof against
   // SiliconFlow billing. Apply the same live-evidence gate as free-only import.
-  if (resolveProviderId(provider) === "siliconflow") {
+  if (resolveProviderId(provider) === "siliconflow" ||
+      resolveProviderId(provider) === "tokenharbor") {
     return isFreeModel(provider, {
       id: model.id,
       pricing: model.pricing,

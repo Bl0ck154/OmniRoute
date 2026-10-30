@@ -467,6 +467,30 @@
       "verifiedBy": "OmniRoute maintainers",
       "summary": "The unauthenticated onomeo /api/info endpoint lists this exact model id in its freeModels field (not in modelsPaused), served with no per-token charge.",
       "limitations": "Metered by calls, not tokens: 30 calls per 5 hours per account (perAccountWindowMax 30, windowMinutes 300) and 12 requests/min per key, inside a site-wide pool shared by all accounts; the pool can be exhausted for everyone. The site is in public beta and the free set and pauses change without notice. Upstream training is per model (modelTraining) and the terms-of-service rating stays at caution. This record does not establish unlimited capacity or billing protection."
+    },
+    {
+      "provider": "tokenharbor",
+      "modelId": "deepseek-v4.1-flash:free",
+      "catalogHash": "8fb6456c60000aedd34cbe5ae8971cda61bce8111a6ee8ca3f177f756aea8d90",
+      "sourceType": "public-page",
+      "sourceUrl": "https://tokenharbor.ai/models?category=free",
+      "checkedAt": "2026-10-30",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Public catalog checked via ChatGPT on 2026-10-30",
+      "summary": "Token Harbor live model catalog Free filter lists this exact DeepSeek V4.1 Flash route as free as of 2026-10-30.",
+      "limitations": "Free-route access is opt-in. Usage shares a personal rolling 7-day, value-based allowance rather than unlimited tokens or requests. Once exhausted, free requests stop; providers/models may be changed or retired at any time. Free prompts/responses may be retained after opt-in. No live account API call was used to verify account eligibility."
+    },
+    {
+      "provider": "tokenharbor",
+      "modelId": "mimo-v2.6-flash:free",
+      "catalogHash": "8fb6456c60000aedd34cbe5ae8971cda61bce8111a6ee8ca3f177f756aea8d90",
+      "sourceType": "public-page",
+      "sourceUrl": "https://tokenharbor.ai/models?category=free",
+      "checkedAt": "2026-10-30",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Public catalog checked via ChatGPT on 2026-10-30",
+      "summary": "Token Harbor live model catalog Free filter lists this exact MiMo V2.6 Flash route as free as of 2026-10-30.",
+      "limitations": "Free-route access is opt-in. Usage shares a personal rolling 7-day, value-based allowance rather than unlimited tokens or requests. Once exhausted, free requests stop; providers/models may be changed or retired at any time. Free prompts/responses may be retained after opt-in. No live account API call was used to verify account eligibility."
     }
   ]
 }
