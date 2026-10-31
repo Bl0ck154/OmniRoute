@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { nodeTypeFromId } from "@/lib/db/providerNodeSelect";
 import { hydrateConnectionProviderSpecificData } from "./compatibleNodeBaseUrl.ts"; // #13452
 import { extractGoogApiKeyHeader } from "./googApiKeyAuth.ts";
+import { classifyGeminiProjectBlock } from "./geminiProjectBlock.ts";
 import { describeUpstreamFailure } from "@/shared/utils/upstreamError";
 import { buildAllExpiredCredentials } from "./authExpiredCredentials.ts";
 import { pickExpiryFirstConnection } from "./expiryFirstAccountSelection.ts";
@@ -2958,6 +2959,24 @@ export async function markAccountUnavailable(
     // as-is — extending disableCooling to model lockout is a follow-up.
     const disableCooling = connProviderSpecificData.disableCooling === true;
     const isPerModelQuotaProvider = hasPerModelQuota(provider, model, connectionPassthroughModels);
+
+    // Google's account and project status is not a model-scoped quota.
+    // Keep credentials enabled but avoid repeated requests until reprobe.
+    const geminiBlock = classifyGeminiProjectBlock(provider, status, errorText);
+    if (geminiBlock) {
+      const cooldownMs = 6 * 60 * 60 * 1000;
+      await updateProviderConnection(connectionId, {
+        lastErrorType: geminiBlock,
+        lastError: geminiBlock,
+        lastErrorAt: new Date().toISOString(),
+        errorCode: status,
+        backoffLevel: 0,
+        rateLimitedUntil: getUnavailableUntil(cooldownMs),
+        testStatus: "unavailable",
+      });
+      return { shouldFallback: true, cooldownMs };
+    }
+
 
     // #10334 — connection-scope branch: the matched provider rule declared scope
     // "connection" for account-wide quota exhaustion (agentrouter "额度不足";
