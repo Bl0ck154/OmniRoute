@@ -830,10 +830,13 @@ async function patchedFetchUnrecorded(
     }
 
     let lastDispatcherError: unknown = null;
-    const directBodyForTimeout = typeof options.body === "string" ? options.body : null;
+    // Bind body, caller deadline and target URL once. The previous fork merge
+    // called an unimported resolver here (and timeoutFor below), breaking every
+    // ordinary direct-provider request with ReferenceError in production.
+    const timeoutFor = directHeadersTimeoutResolver(directOptions, targetUrl);
     const directHeadersTimeoutMs = dedicatedCodexImageRequest
       ? codexImageResponseStartTimeoutMs()
-      : resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout);
+      : timeoutFor(0);
     let targetHostForLogs = "";
     try {
       targetHostForLogs = new URL(targetUrl).host;
@@ -858,9 +861,7 @@ async function patchedFetchUnrecorded(
                 : getRetryDispatcher(),
           },
           _undiciDirect,
-          dedicatedCodexImageRequest
-            ? directHeadersTimeoutMs
-            : resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout, attempt, !!options.signal)
+          dedicatedCodexImageRequest ? directHeadersTimeoutMs : timeoutFor(attempt)
         );
       } catch (dispatcherError) {
         if (isCallerAbort(dispatcherError, directOptions.signal)) throw dispatcherError;
