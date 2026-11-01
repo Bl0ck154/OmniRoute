@@ -1010,22 +1010,35 @@ export function parseSSEToResponsesOutput(rawSSE, fallbackModel) {
               ? "completed"
               : "in_progress";
 
-  return {
-    id: picked.id != null ? String(picked.id) : `resp_${Date.now()}`,
-    object: picked.object || "response",
-    model: picked.model || fallbackModel || "unknown",
-    output: chosenOutput.map((item) => {
-      const record = toRecord(item);
-      return {
-        ...record,
-        id: record.id != null ? String(record.id) : record.id,
-        call_id: record.call_id != null ? String(record.call_id) : record.call_id,
-      };
-    }),
-    usage: picked.usage || null,
-    status: picked.status || statusFallback,
-    ...(picked.error != null ? { error: picked.error } : {}),
-    created_at: picked.created_at || Math.floor(Date.now() / 1000),
-    metadata: picked.metadata || {},
-  };
+  const terminalStatus = resolveResponsesTerminalStatus(
+    picked,
+    picked.status || statusFallback,
+    !!terminalResponse,
+    responsesOutputHasContent(chosenOutput)
+  );
+  // #18460 follow-up — a function_call cut mid arguments must not reach the client.
+  const streamCut = !terminalResponse && terminalStatus.status === "incomplete";
+  const finalOutput = withholdCutResponsesFunctionCalls(streamCut, chosenOutput);
+
+  return markTruncatedStreamBody(
+    {
+      id: picked.id != null ? String(picked.id) : `resp_${Date.now()}`,
+      object: picked.object || "response",
+      model: picked.model || fallbackModel || "unknown",
+      output: finalOutput.map((item) => {
+        const record = toRecord(item);
+        return {
+          ...record,
+          id: record.id != null ? String(record.id) : record.id,
+          call_id: record.call_id != null ? String(record.call_id) : record.call_id,
+        };
+      }),
+      usage: picked.usage || null,
+      ...terminalStatus,
+      ...(picked.error != null ? { error: picked.error } : {}),
+      created_at: picked.created_at || Math.floor(Date.now() / 1000),
+      metadata: picked.metadata || {},
+    },
+    streamCut
+  );
 }

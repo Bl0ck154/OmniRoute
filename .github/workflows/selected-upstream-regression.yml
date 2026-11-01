@@ -66,6 +66,9 @@ jobs:
             tests/unit/account-fallback-retry-after-json.test.ts \
             tests/unit/classify429.test.ts \
             tests/unit/responses-transformer-tail-drain.test.ts \
+            tests/unit/sse-truncated-stream-finish-reason.test.ts \
+            tests/unit/sse-cut-tool-call-arguments.test.ts \
+            tests/unit/combo-retry-cut-stream.test.ts \
             tests/unit/stream-readiness-replay-rejection-16364.test.ts \
             tests/unit/call-log-artifact-file-perms.test.ts \
             tests/unit/chat-helpers.test.ts \
