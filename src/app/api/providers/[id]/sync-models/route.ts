@@ -742,14 +742,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     let staleComboRefs: StaleComboModelRef[] = [];
     let prunedComboRefs: StaleComboModelRef[] = [];
     try {
-      staleComboRefs = await findStaleComboModelRefs(logProvider);
+      staleComboRefs = await timings.measure("stale-combo", () =>
+        findStaleComboModelRefs(logProvider)
+      );
       if (
         staleComboRefs.length > 0 &&
         !importFreeOnly &&
         !freeFilterEmpty &&
         isStaleComboAutoPruneEnabled()
       ) {
-        prunedComboRefs = await pruneStaleComboModelRefs(staleComboRefs);
+        prunedComboRefs = await timings.measure("stale-combo-prune", () =>
+          pruneStaleComboModelRefs(staleComboRefs)
+        );
         for (const ref of prunedComboRefs) {
           logAuditEvent({
             action: "combo.stale_model_ref.pruned",

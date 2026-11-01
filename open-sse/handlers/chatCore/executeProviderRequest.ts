@@ -140,6 +140,7 @@ export type ExecuteProviderRequestDeps = {
   settings: Record<string, unknown> | null | undefined;
   toolDisclosure?: ToolDisclosureConfig | null;
   skipUpstreamRetry: boolean;
+  requestUpstreamStartTimeoutMs?: number;
   stream: boolean;
   streamController: { signal: AbortSignal };
   targetFormat: string;
@@ -186,6 +187,7 @@ export async function executeProviderRequest(
     resilienceSettings,
     settings,
     skipUpstreamRetry,
+    requestUpstreamStartTimeoutMs,
     stream,
     streamController,
     targetFormat,
@@ -337,6 +339,7 @@ export async function executeProviderRequest(
                   provider,
                   model: modelToCall,
                   connectionTimeoutMs: resolveConnectionTimeoutMs(execCreds?.providerSpecificData),
+                  requestTimeoutMs: requestUpstreamStartTimeoutMs,
                   signal: streamController.signal,
                   log,
                   execute: (signal) =>
@@ -543,6 +546,7 @@ export async function executeProviderRequest(
                       connectionTimeoutMs: resolveConnectionTimeoutMs(
                         execCreds?.providerSpecificData
                       ),
+                      requestTimeoutMs: requestUpstreamStartTimeoutMs,
                       signal: streamController.signal,
                       log,
                       execute: (signal) =>

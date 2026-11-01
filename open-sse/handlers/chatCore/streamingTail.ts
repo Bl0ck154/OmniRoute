@@ -1,4 +1,8 @@
 import { inheritEmptyTurnPolicy } from "../../utils/emptyTurnPolicy.ts";
+import {
+  drainOrderForgeImageArtifactStream,
+  persistOrderForgeImageArtifacts,
+} from "@/lib/usage/orderForgeImageArtifactSink";
 import { getCodexClientSessionId } from "../../config/codexIdentity.ts";
 import { modelAfterFamilyFallback } from "../../services/modelFamilyFallbackPolicy.ts";
 import {
@@ -86,6 +90,7 @@ function flushPendingStreamCapture(reqLogger: unknown): void {
 export async function runStreamingTail(deps: StreamingTailDeps) {
   const {
     agentGoalPolicy,
+    orderForgeImageArtifactCapture,
     apiKeyInfo,
     attachCompressionUsageReceiptAfterAnalytics,
     body,
@@ -422,6 +427,26 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
           : undefined
       );
       streamConnectionId = getCurrentConnectionId();
+
+      if (normalizedStreamStatus === 200 && orderForgeImageArtifactCapture) {
+        try {
+          const artifacts = persistOrderForgeImageArtifacts({
+            capture: orderForgeImageArtifactCapture,
+            responseBody: clientPayload ?? streamResponseBody ?? providerPayload,
+          });
+          for (const artifact of artifacts) {
+            log?.info?.(
+              "ETSY_IMAGE_ARTIFACT",
+              `stored artifactId=${artifact.artifactId || "none"} correlationId=${artifact.correlationId} imageCallId=${artifact.imageCallId} format=${artifact.format} bytes=${artifact.sizeBytes} sha256=${artifact.sha256}`
+            );
+          }
+        } catch (error) {
+          log?.error?.(
+            "ETSY_IMAGE_ARTIFACT",
+            `store failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
 
       if (normalizedStreamStatus === 200) {
         clearPostOutputFailureStreak(provider, streamConnectionId, modelInfo.model);
@@ -834,7 +859,18 @@ export async function runStreamingTail(deps: StreamingTailDeps) {
       credentials
     ),
   });
-  const clientFacingStream = wrapReadableStreamWithFinalize(finalStream, releaseTurnExecution);
+  let clientStream = finalStream;
+  if (orderForgeImageArtifactCapture) {
+    const [downstreamStream, artifactStream] = finalStream.tee();
+    clientStream = downstreamStream;
+    void drainOrderForgeImageArtifactStream(artifactStream).catch((error) => {
+      log?.error?.(
+        "ETSY_IMAGE_ARTIFACT",
+        `drain failed correlationId=${orderForgeImageArtifactCapture.correlationId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+  }
+  const clientFacingStream = wrapReadableStreamWithFinalize(clientStream, releaseTurnExecution);
 
   // ── Gamification event (fire-and-forget) ──
   await emitRequestGamificationEvent({ apiKeyId: apiKeyInfo?.id, model, provider });

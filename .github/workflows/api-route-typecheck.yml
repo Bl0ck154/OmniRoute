@@ -32,5 +32,13 @@ jobs:
       - uses: ./.github/actions/npm-ci-retry
       - name: Reject new API-route TypeScript diagnostics
         run: node scripts/check/check-api-typecheck.mjs
+      - name: Temporary PR #94 raw TypeScript diagnostics
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          ./node_modules/.bin/tsc -p tsconfig.typecheck-api.json --noEmit --pretty false > /tmp/pr94-typescript-diagnostics.log 2>&1
+          sed -n '1,240p' /tmp/pr94-typescript-diagnostics.log
+          exit 0
       - name: API typecheck gate unit tests
         run: node --import tsx/esm --test tests/unit/build/check-api-typecheck.test.ts
