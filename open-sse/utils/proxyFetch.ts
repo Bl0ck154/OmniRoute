@@ -809,6 +809,9 @@ async function patchedFetchUnrecorded(
     // Direct undici path: bound response-start, fresh-socket retry, and body guard.
     const directOptions = { ...options, signal: getEffectiveSignal(input, options) };
     const hasNonReplayableBody = requestHasNonReplayableBody(input, options);
+    // Only replay ambiguous response-start timeouts for safe methods.
+    // For POST/stream requests, defer to the caller deadline instead.
+    const canReplayResponseStartTimeout = isAmbiguousFailureReplaySafe(input, options);
     // Never replay image generation: the first request may still complete upstream.
     const maxAttempts = hasNonReplayableBody || dedicatedCodexImageRequest ? 1 : 2;
     const _undiciDirect =
@@ -852,16 +855,18 @@ async function patchedFetchUnrecorded(
         return await directFetchWithBoundedResponseStart(
           input,
           {
-            ...options,
+            ...directOptions,
             // Start paid image generation on a fresh socket rather than risking a stale pooled socket.
             dispatcher: dedicatedCodexImageRequest
               ? getDedicatedCodexImageDispatcher(directHeadersTimeoutMs)
               : attempt === 0
-                ? getDefaultDispatcher()
-                : getRetryDispatcher(),
+                ? getDefaultDispatcher(hostnameForDispatcher)
+                : getRetryDispatcher(hostnameForDispatcher),
           },
           _undiciDirect,
-          dedicatedCodexImageRequest ? directHeadersTimeoutMs : timeoutFor(attempt)
+          dedicatedCodexImageRequest
+            ? directHeadersTimeoutMs
+            : timeoutFor(attempt === 0 && canReplayResponseStartTimeout ? 0 : 1)
         );
       } catch (dispatcherError) {
         if (isCallerAbort(dispatcherError, directOptions.signal)) throw dispatcherError;
