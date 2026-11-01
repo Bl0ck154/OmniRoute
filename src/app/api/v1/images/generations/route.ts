@@ -419,7 +419,6 @@ async function postHandler(request, context) {
       const generateImage = async () => {
         const imageResult = await runWithCallLogApiKeyContext(
           {
-            endpoint: "/v1/images/generations",
             provider,
             model: isCustomModel ? body.model : requestedModel,
             apiKeyInfo: policy.apiKeyInfo,
