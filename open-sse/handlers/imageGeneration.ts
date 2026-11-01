@@ -67,6 +67,7 @@ import { buildXaiImageRequest } from "./imageGeneration/providers/xaiImage.ts";
 import { handleMaxaiImageGeneration } from "./imageGeneration/providers/maxaiImage.ts";
 import { handleAdobeFireflyImageGeneration } from "./imageGeneration/providers/adobeFirefly.ts";
 import { handleSyntxImageGeneration } from "./imageGeneration/providers/syntx.ts";
+export { handleSyntxImageGeneration } from "./imageGeneration/providers/syntx.ts";
 import {
   geminiInlineImagePart,
   geminiReferenceImageError,
