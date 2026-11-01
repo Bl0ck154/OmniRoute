@@ -18,7 +18,8 @@ const providersDb = await import("../../src/lib/db/providers.ts");
 const compliance = await import("../../src/lib/compliance/index.ts");
 const scheduler = await import("../../src/shared/services/modelSyncScheduler.ts");
 const modelSyncRoute = await import("../../src/app/api/providers/[id]/sync-models/route.ts");
-const { findStaleComboModelRefs } = await import("../../src/lib/combos/staleModelRefs.ts");
+const { findStaleComboModelRefs, findAllStaleComboModelRefs } =
+  await import("../../src/lib/combos/staleModelRefs.ts");
 
 const PROVIDER = "openrouter";
 const AUDIT_ACTION = "combo.stale_model_refs.flagged";
@@ -104,6 +105,24 @@ test("#13505 flags only steps pinned to models missing from the synced catalog",
     [["mixed-13505", `${PROVIDER}/retired-model`]]
   );
   assert.equal(await comboModels("mixed-13505"), before, "detection must not modify combos");
+});
+
+test("#13505 builder-wide stale badges use the same authoritative per-provider gate", async () => {
+  await seedConnection([{ id: "kept" }]);
+  await combosDb.createCombo({
+    name: "builder-badges-13505",
+    strategy: "priority",
+    models: [
+      `${PROVIDER}/kept`,
+      `${PROVIDER}/retired`,
+      "openai/not-synced-here",
+    ],
+  });
+  const stale = await findAllStaleComboModelRefs();
+  assert.deepEqual(
+    stale.map((entry) => [entry.comboName, entry.model]),
+    [["builder-badges-13505", `${PROVIDER}/retired`]]
+  );
 });
 
 test("#13505 flags nothing without an authoritative catalog", async () => {
