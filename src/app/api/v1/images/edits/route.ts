@@ -303,6 +303,7 @@ async function handleSyntxEditRequest(params: {
   imageBytes: Buffer | null;
   imageMime: string | null;
   artifactCapture: OrderForgeImageArtifactCapture | null;
+  signal?: AbortSignal | null;
 }): Promise<Response> {
   const {
     parsed,
@@ -316,6 +317,7 @@ async function handleSyntxEditRequest(params: {
     imageBytes,
     imageMime,
     artifactCapture,
+    signal = null,
   } = params;
 
   const preflight = await syntxEditPreflight(parsed.provider, allowedConnections, resolvedModel);
@@ -1025,7 +1027,7 @@ async function postHandler(request: Request, _context?: unknown) {
 
   // Adobe Firefly: edit = storage upload + generate-async referenceBlobs (same as i2i generate).
   if (providerConfig?.format === "adobe-firefly-image") {
-    return handleAdobeFireflyEditRequest({
+    const response = await handleAdobeFireflyEditRequest({
       parsed,
       providerConfig,
       allowedConnections,
@@ -1036,8 +1038,19 @@ async function postHandler(request: Request, _context?: unknown) {
       images,
       imageBytes,
       imageMime,
-      artifactCapture: orderForgeImageArtifactCapture,
+      accounting,
     });
+    if (response.ok && orderForgeImageArtifactCapture) {
+      try {
+        persistOrderForgeImageResponse(
+          orderForgeImageArtifactCapture,
+          await response.clone().json()
+        );
+      } catch (error) {
+        log.warn("ETSY_IMAGE_ARTIFACT", `Firefly response not captured: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return response;
   }
 
   // Built-in OpenRouter uses its unified Image API for reference-image
