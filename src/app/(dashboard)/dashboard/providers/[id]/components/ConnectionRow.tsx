@@ -712,20 +712,10 @@ export default function ConnectionRow({
         </div>
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          icon="refresh"
-          loading={isRetesting}
-          disabled={connection.isActive === false}
-          onClick={onRetest}
-          className="!h-7 !px-2 text-xs"
-          title={t("retestAuthentication")}
-        >
-          {t("retest")}
-        </Button>
-        {/* T12: Manual token refresh for OAuth accounts */}
-        {onRefreshToken && (
+          <ConnectionTestButton
+            connectionId={connection.id}
+            disabled={connection.isActive === false}
+          />
           <Button
             size="sm"
             variant="ghost"
@@ -885,7 +875,6 @@ export default function ConnectionRow({
             />
           </div>
         </div>
-      </div>
       </div>
       {isCodex && connection.codexAccountPool ? (
         <div className="basis-full min-w-0">
