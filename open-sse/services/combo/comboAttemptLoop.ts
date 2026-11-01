@@ -169,7 +169,7 @@ async function computeEarliestSkippedModelLockUntil(
       const connectionId = typeof target?.connectionId === "string" ? target.connectionId : "";
       const rawModel = parseModel(target?.modelStr ?? "").model || "";
       if (!rawModel) continue;
-      const info = getModelLockoutInfo(provider, connectionId, rawModel);
+      const info = lookupComboModelLockout(provider, connectionId, rawModel);
       if (!info || !isTransientComboCooldownReason(info.reason)) continue;
       if (typeof info.remainingMs !== "number" || !(info.remainingMs > 0)) continue;
       const untilMs = Date.now() + info.remainingMs;
@@ -182,6 +182,12 @@ async function computeEarliestSkippedModelLockUntil(
 }
 
 /** Earliest of two optional ISO instants (null-safe). */
+/** Pinned lookups stay exact. An empty connection id scans every account. */
+function lookupComboModelLockout(provider: string, connectionId: string, rawModel: string) {
+  if (!connectionId) return scanTransientModelLock(provider, rawModel);
+  return getModelLockoutInfo(provider, connectionId, rawModel);
+}
+
 function earliestIsoInstant(a: string | null, b: string | null): string | null {
   if (a && b) return Date.parse(a) <= Date.parse(b) ? a : b;
   return a || b;
@@ -645,7 +651,7 @@ export async function dispatchWithCooldownRetry(opts: {
           lookupLock: (provider, connectionId, target) => {
             const rawModel = parseModel(target?.modelStr ?? "").model || "";
             if (!rawModel) return null;
-            return getModelLockoutInfo(provider, connectionId, rawModel);
+            return lookupComboModelLockout(provider, connectionId, rawModel);
           },
           computeWaitMs: () => null,
         });

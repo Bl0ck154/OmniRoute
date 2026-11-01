@@ -2237,7 +2237,7 @@ async function handleSingleModelChat(
         agyLease.release(leaseId);
         return execution.localResourcePressureResult.response;
       }
-      const { result, tlsFingerprintUsed } = execution;
+      const { result, tlsFingerprintUsed, wasProviderProbe } = execution;
       if (antigravityHealthAttempt) {
         if (requestSignal?.aborted || result.status === 499) antigravityHealthAttempt.finish("ignored");
         else if (result.success && requestBody.stream === true) {

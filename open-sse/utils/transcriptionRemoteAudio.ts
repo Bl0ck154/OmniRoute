@@ -52,7 +52,7 @@ export class TranscriptionAudioUrlError extends Error {
   }
 }
 
-type RemoteMediaFetcher = typeof fetchRemoteMedia;
+export type RemoteMediaFetcher = typeof fetchRemoteMedia;
 
 /**
  * A multipart file takes precedence to preserve existing file+url clients.

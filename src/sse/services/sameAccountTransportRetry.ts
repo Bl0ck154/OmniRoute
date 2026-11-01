@@ -93,7 +93,6 @@ export function sameAccountTransportRetryDelayMs(random: () => number = Math.ran
 }
 
 export function shouldRetrySameAccountTransport(options: {
-  provider?: string;
   status: unknown;
   errorText?: string | null;
   errorCode?: string | null;

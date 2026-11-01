@@ -586,7 +586,7 @@ export function translateNonStreamingResponse(
           && Number.isFinite(usage.cachedContentTokenCount)
           && usage.cachedContentTokenCount >= 0) {
           (result.usage as JsonRecord).prompt_tokens_details = {
-            cached_tokens: cachedTokens,
+            cached_tokens: usage.cachedContentTokenCount,
           };
         }
       }

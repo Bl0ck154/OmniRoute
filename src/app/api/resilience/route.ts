@@ -198,8 +198,8 @@ export async function PATCH(request) {
     // it cannot be lost when two admins change different sections concurrently.
     const expectedRevision = await getSettingsRevision();
     const currentSettings = await getSettings();
-    const currentResilience = resolveResilienceSettings(currentSettings);
-    const nextResilience = mergeResilienceSettings(currentResilience, {
+    const sparseBase = resolveResilienceSettings(currentSettings);
+    const mergedFull = mergeResilienceSettings(sparseBase, {
       ...(body.antigravity ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] } : {}),
       ...(body.requestQueue
         ? { requestQueue: body.requestQueue as ResilienceSettingsPatch["requestQueue"] }

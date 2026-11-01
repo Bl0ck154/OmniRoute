@@ -370,7 +370,7 @@ export function resolveResilienceSettings(
   const current = asRecord(record.resilienceSettings);
   const fallback = buildLegacyFallback(record);
 
-  return {
+  const resolved: ResilienceSettings = {
     antigravity: normalizeAntigravitySettings(current.antigravity),
     requestQueue: normalizeRequestQueueSettings(current.requestQueue, fallback.requestQueue),
     connectionCooldown: {

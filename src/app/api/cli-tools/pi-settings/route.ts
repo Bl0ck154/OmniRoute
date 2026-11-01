@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 
-import path from "path";
 import { guardCliConfigWrite } from "@/lib/api/cliConfigWriteGuard";
 import { requireCliToolsAuth } from "@/lib/api/requireCliToolsAuth";
 import { saveCliToolLastConfigured, deleteCliToolLastConfigured } from "@/lib/db/cliToolState";
@@ -20,23 +19,15 @@ import {
   readPiModelsJson,
   removeOmniRoutePiProvider,
 } from "@/shared/services/piConfig";
-import { getCliRuntimeStatus, getCliPrimaryConfigPath } from "@/shared/services/cliRuntime";
+import { getCliRuntimeStatus } from "@/shared/services/cliRuntime";
 import { getRuntimePorts } from "@/lib/runtime/ports";
 import { resolveApiKey } from "@/shared/services/apiKeyResolver";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { cliModelConfigSchema } from "@/shared/validation/schemas";
 import {
+  ConfigClobberRefusedError,
   configClobberRefusalResponse,
-  parseJsonObject,
-  readExistingConfig,
 } from "../_lib/readExistingConfig";
-
-const TOOL_ID = "pi";
-
-const getPiConfigPath = (): string =>
-  getCliPrimaryConfigPath(TOOL_ID) ?? path.join(process.env.HOME ?? "~", ".pi", "config.json");
-
-const getPiDir = () => path.dirname(getPiConfigPath());
 
 /**
  * /api/cli-tools/pi-settings
@@ -161,13 +152,14 @@ export async function POST(request: Request) {
 
     const modelsPath = getPiModelsPath();
 
-    // Backup current config before modifying
-    await createBackup(TOOL_ID, configPath);
-
-    // Read existing config or start fresh. Only a missing file starts fresh —
-    // an unreadable/unparsable one is refused (409) instead of being replaced.
-    const existing: Record<string, unknown> =
-      (await readExistingConfig(configPath, parseJsonObject)) ?? {};
+    // Only a missing models.json starts fresh. One that exists but is unreadable
+    // as a models.json (bad JSON, no `providers` object, wrong shape) would be
+    // replaced by our single provider and lose the user's other providers, so it
+    // is refused with the shared 409 contract (#16523) and left untouched.
+    const { error: modelsError } = await readPiModelsJson();
+    if (modelsError) {
+      throw new ConfigClobberRefusedError(modelsPath, { cause: new Error(modelsError) });
+    }
 
     await createBackup(PI_TOOL_ID, modelsPath);
     await applyOmniRoutePiProvider({ baseUrl, apiKey, model, modelName: model });

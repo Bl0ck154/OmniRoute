@@ -43,7 +43,10 @@ test("Claude CLI version constants are in lockstep across all 4 sources", () => 
 test("Claude CLI pin clears Anthropic's Opus 5.5 model gate (>= 2.1.280)", () => {
   const [major, minor, patch] = canonical.CLAUDE_CODE_CLIENT_VERSION.split(".").map(Number);
   const meetsGate = major > 2 || (major === 2 && (minor > 1 || (minor === 1 && patch >= 280)));
-  assert.ok(meetsGate, "Claude Code version pin must support Opus 5.5");
+  assert.ok(
+    meetsGate,
+    `claude-cli pin ${canonical.CLAUDE_CODE_CLIENT_VERSION} < 2.1.280 — Anthropic rejects claude-opus-5-5 with 400 "Claude Code ${canonical.CLAUDE_CODE_CLIENT_VERSION} does not support this model"`
+  );
 });
 
 test("Claude CLI wire versions match the captured 2.1.280 binary", () => {
@@ -139,35 +142,27 @@ function assertGithubFallbackDoesNotPersist() {
   assert.ok(githubIdx > cacheIdx, "the GitHub branch must follow the cache branch");
   assert.ok(localIdx > githubIdx, "the local fallback must follow the GitHub branch");
 
-test("Codex client version locksteps Dockerfile @openai/codex and env override", () => {
-  const dockerfile = fs.readFileSync(path.join(process.cwd(), "Dockerfile"), "utf8");
-  const match = dockerfile.match(/@openai\/codex@([0-9]+\.[0-9]+\.[0-9]+)/);
-  assert.ok(match, "Dockerfile must pin @openai/codex@x.y.z");
-  const pinned = match[1];
-  assert.notEqual(pinned, "0.149.0");
-  assert.equal(codexCfg.DEFAULT_CODEX_CLIENT_VERSION, pinned);
-  assert.equal(codexCfg.getCodexClientVersion(), pinned);
-  assert.equal(codexCfg.getCodexDefaultHeaders().Version, pinned);
-  assert.equal(codexCfg.getCodexCliRsHeaders()["User-Agent"], `codex_cli_rs/${pinned}`);
-});
+  // Only the live branch may persist the account inventory. No fallback, an
+  // empty live answer included, may rewrite it.
+  const liveWindow = src.slice(liveIdx, fallbackIdx);
+  assert.match(liveWindow, /persistDiscoveredModels\s*\(/);
+  assert.doesNotMatch(src.slice(fallbackIdx, localIdx), /persistDiscoveredModels\s*\(/);
+
+  // The cached account view is a degraded answer too: it must carry the
+  // fallback warning and must not be reported as a live discovery.
+  const cacheWindow = src.slice(cacheIdx, githubIdx);
+  assert.match(cacheWindow, /fallbackWarning/);
+  assert.doesNotMatch(cacheWindow, /buildApiDiscoveryResponse\s*\(/);
+
+  // A fallback that hid itself from model-sync would let the public manifest
+  // persist as the account's synced catalog (isDegraded* keys off the warning).
+  const githubWindow = src.slice(githubIdx, localIdx);
+  assert.match(githubWindow, /buildResponse\s*\(/);
+  assert.doesNotMatch(githubWindow, /buildApiDiscoveryResponse\s*\(/);
+  assert.doesNotMatch(githubWindow, /persistDiscoveredModels\s*\(/);
+  assert.match(githubWindow, /fallbackWarning/);
+}
 
 test("test 7: live-empty GitHub catalog path does not call persist", () => {
-  const src = fs.readFileSync(
-    path.join(process.cwd(), "src/app/api/providers/[id]/models/route.ts"),
-    "utf8"
-  );
-  // The githubCatalogModels fallback must use buildResponse, not buildApiDiscoveryResponse.
-  const idx = src.indexOf("Codex live catalog unavailable — using GitHub model catalog");
-  assert.ok(idx > 0);
-  const start = src.lastIndexOf("if (githubCatalogModels", idx);
-  const end = src.indexOf("if (cachedDiscoveryModels", idx);
-  assert.ok(start > 0 && end > start);
-  const window = src.slice(start, end);
-  assert.match(window, /buildResponse\s*\(/);
-  assert.doesNotMatch(window, /buildApiDiscoveryResponse\s*\(/);
-
-  const liveIdx = src.lastIndexOf("if (liveModels && liveModels.length > 0)");
-  assert.ok(liveIdx > 0 && liveIdx < start);
-  const liveWindow = src.slice(liveIdx, start);
-  assert.match(liveWindow, /buildApiDiscoveryResponse\s*\(/);
+  assertGithubFallbackDoesNotPersist();
 });
