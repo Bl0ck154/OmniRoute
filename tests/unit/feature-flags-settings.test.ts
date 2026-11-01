@@ -61,6 +61,33 @@ describe("featureFlagDefinitions", () => {
     assert.strictEqual(FEATURE_FLAG_DEFINITIONS.length, EXPECTED_FEATURE_FLAG_COUNT);
   });
 
+  it("keeps the documented catalog total in sync with the registry", () => {
+    const catalog = fs.readFileSync(
+      new URL("../../docs/reference/FEATURE_FLAGS.md", import.meta.url),
+      "utf8"
+    );
+    const count = catalog.match(/^(\d+) flags across \d+ categories\./m);
+    assert.ok(count, "Feature Flags catalog must declare its total");
+    assert.equal(Number(count[1]), FEATURE_FLAG_DEFINITIONS.length);
+  });
+
+  it("resolves the unpriced budget policy description from every locale", () => {
+    const def = FEATURE_FLAG_DEFINITIONS.find((d) => d.key === "UNPRICED_USAGE_BUDGET_POLICY");
+    assert.ok(def);
+    assert.equal(
+      def.descriptionI18nKey,
+      "featureFlags.definitions.UNPRICED_USAGE_BUDGET_POLICY.description"
+    );
+    const messagesDir = new URL("../../src/i18n/messages/", import.meta.url);
+    for (const filename of fs.readdirSync(messagesDir).filter((name) => name.endsWith(".json"))) {
+      const messages = JSON.parse(fs.readFileSync(new URL(filename, messagesDir), "utf8"));
+      const description =
+        messages.featureFlags?.definitions?.UNPRICED_USAGE_BUDGET_POLICY?.description;
+      assert.equal(typeof description, "string", `missing policy description in ${filename}`);
+      assert.ok(description.trim(), `blank policy description in ${filename}`);
+    }
+  });
+
   it("has unique keys for all flags", () => {
     const keys = FEATURE_FLAG_DEFINITIONS.map((d) => d.key);
     assert.strictEqual(new Set(keys).size, EXPECTED_FEATURE_FLAG_COUNT);
@@ -291,6 +318,17 @@ describe("featureFlagDefinitions", () => {
     // Guards the UI default: the read-only panel under a proxy pool stays hidden unless opted in.
     const def = FEATURE_FLAG_DEFINITIONS.find((d) => d.key === "PROXY_POOL_EGRESS_OBSERVATION");
     assert.ok(def, "PROXY_POOL_EGRESS_OBSERVATION should exist");
+    assert.strictEqual(def.category, "network");
+    assert.strictEqual(def.type, "boolean");
+    assert.strictEqual(def.defaultValue, "false");
+    assert.strictEqual(def.requiresRestart, false);
+  });
+
+  it("defines the operator egress push as a network boolean flag disabled by default", () => {
+    // Guards the push default: the operator-egress route answers 404 and pool reads
+    // stay journal-only unless opted in.
+    const def = FEATURE_FLAG_DEFINITIONS.find((d) => d.key === "PROXY_OPERATOR_EGRESS_ENABLED");
+    assert.ok(def, "PROXY_OPERATOR_EGRESS_ENABLED should exist");
     assert.strictEqual(def.category, "network");
     assert.strictEqual(def.type, "boolean");
     assert.strictEqual(def.defaultValue, "false");

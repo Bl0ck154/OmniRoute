@@ -1,4 +1,5 @@
 import type { ProxyItem } from "./proxyRegistryTypes";
+import type { BlockedHistoryEntry } from "@/lib/proxyHealth/blockedHistory";
 import type { SweepVerdict } from "@/lib/proxyHealth/sweepVerdict";
 
 export type UsageInfo = {
@@ -16,11 +17,14 @@ export type HealthInfo = {
   measured: boolean;
   transportOk: number;
   transportFailures: number;
+  slowAbandoned: number;
+  clientAborted: number;
   upstream4xx: number;
   upstream5xx: number;
   connectionTests: number;
   connectionTestSuccess: number;
   sweep?: SweepVerdict & { ageMs: number };
+  blockedHistory?: BlockedHistoryEntry & { ageMs: number };
 };
 
 export type TestResult = {
@@ -59,6 +63,9 @@ export const BULK_IMPORT_PLACEHOLDER = `# Proxy Bulk Import
 #   user:pass:ip:port                 → with auth (user-pass-first)
 #   protocol://ip:port               → explicit protocol
 #   protocol://user:pass@ip:port     → explicit protocol + auth
+#   protocol://host:port:user:pass:name → explicit protocol + auth + chosen name
+#   Names may contain spaces. Use pipe-delimited input when fields contain colons.
+#   socks5://gateway.example.invalid:12000:session-1:example-password:UK 1
 #
 # FORMAT 3 — Protocol header mode:
 #   Put a bare protocol (http, https, socks5) on its own line to set

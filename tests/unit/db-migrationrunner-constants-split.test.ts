@@ -63,7 +63,7 @@ describe("migrationRunner/constants — exact small-table snapshots", () => {
 
   it("OPTIONAL_FTS5_MIGRATION_VERSIONS includes dependent FTS migrations", () => {
     assert.ok(OPTIONAL_FTS5_MIGRATION_VERSIONS instanceof Set);
-    assert.deepEqual([...OPTIONAL_FTS5_MIGRATION_VERSIONS].sort(), ["022", "023", "178"]);
+    assert.deepEqual([...OPTIONAL_FTS5_MIGRATION_VERSIONS].sort(), ["022", "023", "178", "203"]);
   });
 });
 
@@ -141,17 +141,24 @@ describe("migrationRunner/constants — large-table integrity", () => {
       toVersion: "139",
       toName: "ccr_blocks",
     });
-    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-6), {
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-7), {
       fromVersion: "139",
       fromName: "job_registry",
       toVersion: "146",
       toName: "job_registry",
     });
-    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-5), {
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-6), {
       fromVersion: "143",
       fromName: "radar_local_model_state",
       toVersion: "153",
       toName: "radar_local_model_state",
+    });
+    // npm 3.8.50 shipped model_capabilities as 163; it now lives at 169
+    assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-5), {
+      fromVersion: "163",
+      fromName: "model_capabilities",
+      toVersion: "169",
+      toName: "model_capabilities",
     });
     // #12036: renamed migrations 056/073/077/101 appended as compatibility renames
     assert.deepEqual(RENAMED_MIGRATION_COMPATIBILITY.at(-4), {
@@ -178,6 +185,18 @@ describe("migrationRunner/constants — large-table integrity", () => {
       toVersion: "101",
       toName: "api_key_usage_limits",
     });
+  });
+
+  it("name-locks every published Team draft slot to canonical migration 215", () => {
+    assert.deepEqual(
+      RENAMED_MIGRATION_COMPATIBILITY.filter((entry) => entry.toName === "team_cost_centers"),
+      ["153", "154", "155", "161", "163", "164"].map((fromVersion) => ({
+        fromVersion,
+        fromName: "team_cost_centers",
+        toVersion: "215",
+        toName: "team_cost_centers",
+      }))
+    );
   });
 
   it("PHYSICAL_SCHEMA_SENTINELS has 15 well-formed entries incl. the newest 064", () => {

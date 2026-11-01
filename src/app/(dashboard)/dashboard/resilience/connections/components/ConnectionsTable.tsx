@@ -155,10 +155,8 @@ export default function ConnectionsTable({
             case "id":
               return <span>{r.id.length > 8 ? `${r.id.slice(0, 8)}...` : r.id}</span>;
             case "cooldown":
+              // memoized: isolates the 1s tick to a single cell
               return <CountdownCell connection={r} receivedAt={receivedAt} />;
-              {
-                /* memoized: isolates 1s tick to single cell */
-              }
             case "lastError":
               return <span>{r.lastErrorType ?? t("table.never")}</span>;
             case "lockouts":

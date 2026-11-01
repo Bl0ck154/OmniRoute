@@ -20,12 +20,27 @@ import {
   CODEX_SPARK_QUOTA_SESSION,
   CODEX_SPARK_QUOTA_WEEKLY,
   getCodexModelScope,
-  isCodexSparkLimitDescriptor,
 } from "../config/codexQuotaScopes.ts";
-import { registerQuotaFetcher, registerQuotaWindows, type QuotaInfo } from "./quotaPreflight.ts";
+import {
+  registerQuotaCacheInvalidator,
+  registerQuotaFetcher,
+  registerQuotaWindows,
+  type QuotaInfo,
+} from "./quotaPreflight.ts";
 import { registerMonitorFetcher } from "./quotaMonitor.ts";
 import { throttleQuotaFetch } from "./quotaFetchThrottle.ts";
+import { fetchWithConnectionProxy } from "./connectionProxyFetch.ts";
 import { getCodexBackendIdentityHeaders } from "../config/codexClient.ts";
+import {
+  parseCodexUsageResponse,
+  CODEX_WINDOW_SESSION,
+  CODEX_WINDOW_WEEKLY,
+} from "./codexQuotaParser.ts";
+export {
+  parseCodexUsageResponse,
+  CODEX_WINDOW_SESSION,
+  CODEX_WINDOW_WEEKLY,
+} from "./codexQuotaParser.ts";
 
 /**
  * Stable identifiers for Codex's quota windows. These match the quota keys
@@ -35,8 +50,6 @@ import { getCodexBackendIdentityHeaders } from "../config/codexClient.ts";
  * Codex fetcher exposes only session + weekly today; the plan-dependent
  * code_review window is surfaced by the generic path when present.
  */
-export const CODEX_WINDOW_SESSION = "session"; // primary 5-hour window
-export const CODEX_WINDOW_WEEKLY = "weekly"; //  secondary 7-day window
 
 // Codex usage endpoint (same as usage.ts CODEX_CONFIG)
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
@@ -176,19 +189,6 @@ function getCodexConnectionMeta(
   return connectionRegistry.get(connectionId) || null;
 }
 
-function getDominantResetAt(quota: {
-  window5h: { percentUsed: number; resetAt: string | null };
-  window7d: { percentUsed: number; resetAt: string | null };
-}): string | null {
-  if (quota.window7d.percentUsed > quota.window5h.percentUsed) {
-    return quota.window7d.resetAt || quota.window5h.resetAt;
-  }
-  if (quota.window5h.percentUsed > quota.window7d.percentUsed) {
-    return quota.window5h.resetAt || quota.window7d.resetAt;
-  }
-  return quota.window7d.resetAt || quota.window5h.resetAt;
-}
-
 // ─── Core Fetcher ────────────────────────────────────────────────────────────
 
 /**
@@ -239,11 +239,12 @@ export async function fetchCodexQuota(
     // configurable (OMNIROUTE_QUOTA_FETCH_MIN_INTERVAL_MS, 0 = disabled).
     await throttleQuotaFetch();
 
-    const response = await fetch(CODEX_USAGE_URL, {
+    const response = await fetchWithConnectionProxy(connectionId, CODEX_USAGE_URL, {
       method: "GET",
       headers,
       signal: AbortSignal.timeout(8_000),
     });
+    if (!response) return null;
 
     if (!response.ok) {
       // Non-2xx: could be token expired or quota API down.
@@ -526,6 +527,7 @@ export function invalidateCodexQuotaCache(connectionId: string): void {
  */
 export function registerCodexQuotaFetcher(): void {
   registerQuotaFetcher("codex", fetchCodexQuota);
+  registerQuotaCacheInvalidator("codex", invalidateCodexQuotaCache);
   registerMonitorFetcher("codex", fetchCodexQuota);
   registerQuotaWindows("codex", [
     CODEX_WINDOW_SESSION,

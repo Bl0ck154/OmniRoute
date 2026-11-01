@@ -72,6 +72,16 @@ curl -i \
 
 Ei-manage-avain (tai ei Bearer-otsaketta) palauttaa `403 LOCAL_ONLY`. Sisarprefiksin `/api/cli-tools/runtime/*` ohitus ei ole tarkoituksellisesti mahdollista – katso [Route Guard Tiers — Manage-scope carve-out](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
 
+### Origin-tarkistus
+
+Todennuksen jälkeen jokaisen `/api/mcp/*`-pyynnön — transporttien ja hallintareittien, kuten `status`, `tools`, `audit`, `restart` — `Origin`-otsake tarkistetaan kutsujasta riippumatta (API-avain, CLI-tunniste, hallintapaneelin istunto tai anonyymi loopback kirjautumisen ollessa pois päältä). Tämä on MCP Streamable HTTP -määrityksen vaatima suojaus DNS rebindingia vastaan.
+
+- **Ei `Origin`-otsaketta** → sallittu. OmniRoute CLI, SDK ja IDE-asiakkaat eivät lähetä sitä.
+- **Sallittu `Origin`** → `localhost` / `127.0.0.1` / `[::1]` missä tahansa portissa tai OmniRouten oma julkinen origin: `OMNIROUTE_PUBLIC_BASE_URL` / `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_APP_URL`, luotetun käänteisvälityspalvelimen välittämä origin (`OMNIROUTE_TRUST_PROXY`, vain kun base URL -osoitetta ei ole asetettu) tai suoraan käytetty loopback-/LAN-IP-isäntä. Pelkkä `Host`-otsake ei koskaan tee originista luotettua.
+- **Mikä tahansa muu `Origin`, myös `null`** → `403` ja JSON-RPC-virherunko: `id: null`, `error.code: -32000`, `error.data.code: "INVALID_ORIGIN"`. Hallintapaneelin istunto, jolla on kelvollinen CSRF-tunniste, hyväksytään edelleen kuten muissakin hallintapaneelin kirjoituksissa.
+
+Käänteisvälityspalvelimen takana tarjoiltu selainpohjainen MCP-asiakas tarvitsee `OMNIROUTE_PUBLIC_BASE_URL`-asetuksen; muille origineille ei ole sallittujen luetteloa. CORS-esipyyntöä (`OPTIONS`) ei tarkisteta Originin osalta; sitä seuraava pyyntö tarkistetaan.
+
 ## IDE-kokoonpano
 
 Katso [MCP-asiakaskokoonpano](../guides/SETUP_GUIDE.md#mcp-client-configuration) Claude Desktopin, Cursorin, Clinen ja yhteensopivien MCP-asiakasohjelmien asetuksia varten.
@@ -277,184 +287,202 @@ Sekä SSE- että suoratoistettavat HTTP-siirrot ovat estettyjä, kunnes MCP-palv
 
 ---
 
-## Todennus ja laajuudet
+## Todennus ja scopes
 
-MCP-työkalu kutsuu lukulaajuusmerkkijonoja kutsujalta. Tämä tarkistus on yksi kolmesta
-itsenäisestä nimiavaruudesta. Yhden tarkistajan läpäisy ei ole läpäisy muilta.
-Säännöt ovat [Kolme laajuusnimiavaruutta](#kolme-laajuusnimiavaruutta).
-Työkaluluettelo on [MCP-työkalun laajuudet](#mcp-työkalun-laajuudet).
+MCP-työkalujen kutsut lukevat scope-merkinnät kutsujalta. Tämä tarkistus on yksi kolmesta toisistaan riippumattomasta nimiavaruudesta. Yhden tarkistimen hyväksyntä ei tarkoita muiden hyväksyntää.
+Säännöt on kuvattu kohdassa [Kolme scope-nimiavaruutta](#three-scope-namespaces).
+Työkaluvalikoima on kohdassa [MCP-työkalujen scopes](#mcp-tool-scopes).
 
-### Kolme laajuusnimiavaruutta
+### Kolme scope-nimiavaruutta
 
-`manage` API-avaimella, `read:compression` MCP-työkalulla ja `read`
-`oma_live_…` -käyttöoikeustunnuksella ovat kolme eri myöntämistä. Kutsujat, jotka lähettävät `read`
--käyttöoikeustunnuksen muuttavalle hallintareitille, saavat HTTP 403
-`Access token scope 'read' is insufficient; 'write' required.`
-Tämä sijoitus on `scopeSatisfies`. Se ei konsultoi MCP-taulukkoa, eikä MCP-vastaaja konsultoi sitä.
+`manage` API-avaimessa, `read:compression` MCP-työkalussa ja `read` `oma_live_…`-käyttöoikeustunnisteessa ovat kolme eri valtuutusta. Kutsujat, jotka lähettävät `read`-käyttöoikeustunnisteen muokkaavaan hallintareittiin, saavat HTTP 403 -virheen`Access token scope 'read' is insufficient; 'write' required.`
+Tämä arvioidaan `scopeSatisfies`-toiminnolla. Se ei viittaa MCP-taulukkoon, eikä MCP-vertailija viittaa siihen.
 
-| Nimiavaruus            | Tunnus                                                           | Tarkistaja         | Läpäisy sallii                                                      |
-| :--------------------- | :--------------------------------------------------------------- | :----------------- | :------------------------------------------------------------------ |
-| API-avaimen hallinta   | `api_keys.scopes`                                                | `hasManageScope`   | Hallinta-REST kyseiselle Bearer-avaimelle                           |
-| API-avaimen lisäys     | sama taulukko, yksi tarkka merkkijono                            | alla nimetty apuri | Vain kyseinen ominaisuus                                            |
-| MCP-työkalun laajuudet | sama taulukko, muuten MCP `_meta`, muuten `OMNIROUTE_MCP_SCOPES` | `scopeMatches`     | Kyseinen työkalu, kun valvonta on päällä                            |
-| Käyttöoikeustunnus     | `oma_live_…`                                                     | `scopeSatisfies`   | Hallintareitti, jonka metodi ja polku vaativat kyseisen sijoituksen |
+| Namespace          | Credential                                                                       | Checker                 | Hyväksyntä sallii                                             |
+| :----------------- | :------------------------------------------------------------------------------- | :---------------------- | :------------------------------------------------------------ |
+| API-key management | `api_keys.scopes`                                                                | `hasManageScope`        | Hallinnan REST tälle Bearer-avaimelle                         |
+| API-key additive   | sama taulukko, yksi täsmäinen merkkijono                                         | alla nimetty apufunktio | Vain tuo yksi ominaisuus                                      |
+| MCP tool scopes    | sama taulukko, muuten MCP `_meta` (vain HTTP/SSE), muuten `OMNIROUTE_MCP_SCOPES` | `scopeMatches`          | Tuo työkalu, kun valvonta on päällä                           |
+| Access token       | `oma_live_…`                                                                     | `scopeSatisfies`        | Hallintareitti, jonka metodi ja polku vaativat kyseisen tason |
 
-Jokaisen tunnuksen luominen käsitellään kohdassa
+Kunkin tunnisteen myöntäminen on kuvattu kohdassa
 [Hallinnan todennus](../guides/MANAGEMENT-AUTH.md).
 
-#### API-avaimen laajuudet
+#### API-avainten scopes
 
-Yksi `api_keys.scopes` -taulukko syöttää kahta työtä. Ne käyttävät eri funktioita.
+Yksi `api_keys.scopes`-taulukko palvelee kahta tehtävää. Ne käyttävät eri funktioita.
 
-**Hallinta-REST.** `manage` ja `admin` ovat jäseniä
-`MANAGEMENT_API_KEY_SCOPES` -vakiossa (`src/shared/constants/managementScopes.ts`).
-`hasManageScope` valtuuttaa hallintareitit kyseiselle avaimelle. `admin` on
-hallintakykyinen kyseisillä reiteillä. Sana `admin` tässä ei ole
-käyttöoikeustunnuksen sijoitus, eikä se laajene MCP-työkalun laajuuksiin.
+**Hallinnan REST.** `manage` ja `admin` ovat `MANAGEMENT_API_KEY_SCOPES`-joukon jäseniä
+(`src/shared/constants/managementScopes.ts`). `hasManageScope` valtuuttaa hallintareitit
+kyseiselle avaimelle. `admin` on hallintakykyinen kyseisillä reiteillä. Sana `admin` ei
+tässä ole käyttöoikeustunnisteen taso, eikä se laajene MCP-työkalujen scopeiksi.
 
-**Lisämerkkijonot.** Jokainen on tarkka jäsenyystesti, ja jokainen pysyy
-`MANAGEMENT_API_KEY_SCOPES` -vakiosta ulkopuolella.
+**Additiiviset merkkijonot.** Kukin niistä on täsmäinen jäsenyystarkistus, ja kukin jää
+`MANAGEMENT_API_KEY_SCOPES`-joukon ulkopuolelle.
 
-| Laajuus                        | Läpäisy sallii                                                                                                                                                                    |
-| :----------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp:connect`                  | Ei-loopback `/api/mcp/` LOCAL_ONLY -leikkaus vain (`hasMcpConnectOrManageScope`). Avain, jolla on `manage` tai `admin`, läpäisee edelleen kyseisen leikkauksen.                   |
-| `self:usage`                   | `GET /api/v1/me/status` tälle avaimelle (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` lisää tämän laajuuden luonnin yhteydessä (`normalizeSelfServiceScopesForCreate`). |
-| `self:account-quota`           | Ylävirran tilikiintiöt kyseisen tilatiedon sisällä (`src/lib/usage/apiKeySelfService.ts`). Tilareitti vaatii edelleen `self:usage`.                                               |
-| `policy:bypass-provider-quota` | Tämän avaimen päättelykutsut ohittavat palveluntarjoajan kiintiöpolitiikan (`hasProviderQuotaBypassScope` tiedostossa `src/sse/handlers/chat.ts`).                                |
+| Scope                          | Hyväksyntä sallii                                                                                                                                                     |
+| :----------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp:connect`                  | Vain ei-loopback `/api/mcp/` LOCAL_ONLY -poikkeuksen (`hasMcpConnectOrManageScope`). Avain, jolla on `manage` tai `admin`, läpäisee silti kyseisen poikkeuksen.       |
+| `self:usage`                   | `GET /api/v1/me/status` tälle avaimelle (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` lisää tämän scopen luonnissa (`normalizeSelfServiceScopesForCreate`). |
+| `self:account-quota`           | Yläpuolen tilin kiintiöt kyseisen tilapaketin sisällä (`src/lib/usage/apiKeySelfService.ts`). Tilareitti vaatii silti `self:usage`-scopen.                            |
+| `policy:bypass-provider-quota` | Tämän avaimen päättelykutsut ohittavat palveluntarjoajan kiintiopolitiikan (`hasProviderQuotaBypassScope` tiedostossa `src/sse/handlers/chat.ts`).                    |
 
 #### Vastaavuus
 
-Luettelo on taulukko kohdassa [MCP-työkalun laajuudet](#mcp-työkalun-laajuudet). Älä
-käsittele `MCP_SCOPE_LIST` tiedostossa `src/shared/constants/mcpScopes.ts` luettelona:
-se on alkuperäinen tyypitetty alijoukko. Myöhemmät työkalut ilmoittavat lisälaajuuksia sen
-lisäksi (`read:notion`, `read:skills`, `read:local-corpus` ja loput taulukosta).
+Luettelo on taulukko kohdassa [MCP-työkalujen scopes](#mcp-tool-scopes). Älä käsittele
+`MCP_SCOPE_LIST`-vakioa tiedostossa `src/shared/constants/mcpScopes.ts` tämän luettelona:
+se on alkuperäinen tyypitetty osajoukko. Myöhemmät työkalut ilmoittavat lisäscopeja sen
+rinnalle (`read:notion`, `read:skills`, `read:local-corpus` ja loput taulukosta).
 
 `evaluateToolScopes` tiedostossa `open-sse/mcp-server/scopeEnforcement.ts` sallii kutsun,
-kun jokainen vaadittu laajuus vastaa jotakin myönnettyä laajuutta:
+kun jokainen vaadittu scope täsmää johonkin annettuun scopeen:
 
-- `*` vastaa jokaista vaadittua laajuutta.
-- Myönnetty laajuus, joka päättyy `*`-merkkiin, vastaa vaadittua laajuutta, joka alkaa
-  tähteä edeltävällä etuliitteellä. `read:*` vastaa `read:compression`.
-- Jokainen muu myönnetty laajuus vastaa vain identtistä vaadittua merkkijonoa.
+- `*` täsmää jokaiseen vaadittuun scopeen.
+- Annettu scope, joka päättyy `*`-merkkiin, täsmää vaadittuun scopeen, joka alkaa tähden
+  merkistä edeltävällä etuliitteellä. `read:*` täsmää `read:compression`-scopeen.
+- Jokainen muu annettu scope täsmää vain identtiseen vaadittuun merkkijonoon.
 
-Avain, jonka laajuudet ovat `["manage"]`, epäonnistuu `scopeMatches` -tarkistuksessa `read:compression` -laajuudelle.
-Sama kutsu epäonnistuu `admin`, `mcp:connect`, `read` ja `write` -laajuuksille, kun ne
-ovat ainoat myönnetyt merkkijonot. MCP-työkalun laajuuksissa ei ole hierarkiaa
-muuta kuin loppuva `*`.
+Avain, jonka scopes ovat `["manage"]`, hylkään `scopeMatches`-tarkistuksen osalta vaadittaessa
+`read:compression`. Sama kutsu hylkään myös `admin`-, `mcp:connect`-, `read`- ja `write`-scopen
+osalta, kun ne ovat ainoat annetut merkkijonot. MCP-työkalujen scopejen välillä ei ole
+hierarkiaa tähden `*`-merkin lisäksi.
 
-Valvonta on pois päältä, ellei `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (oletus
-`false`). Kun se on pois päältä, `evaluateToolScopes` sallii kutsun ja ohittaa
-luettelon. Kun se on päällä, HTTP käyttää Bearer-avaimen `api_keys.scopes`
-`authInfo` -tietona (katso [Avainkohtainen HTTP-laajuussidonta](#per-key-http-scope-binding-7895)).
-Kun avaimen laajuudet eivät ratkea, myönnetty joukko putoaa MCP `_meta` -tietoon, sitten
-`OMNIROUTE_MCP_SCOPES` -tietoon.
+Valvonta on pois päältä, ellei `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (oletusarvo `false`).
+Kun se on pois päältä, `evaluateToolScopes` sallii kutsun ja ohittaa luettelon. Kun se on
+päällä, HTTP käyttää Bearer-avaimen `api_keys.scopes`-arvoa `authInfo`-tietona (katso
+[Avainkohtainen HTTP-scope-sidonta](#per-key-http-scope-binding-7895)). Kun avainten scopeja
+ei ratkea, annettujen scopejen joukko putoaa MCP `_meta`-tietoon (huomioidaan vain
+HTTP/SSE-kutsujille HTTP-tunnistautumiskontekstissa; stio-kutsujan `_meta` jätetään
+huomiotta, koska asiakas hallitsee sitä eikä se sisällä kutsujakohtaista identiteettiä),
+sitten `OMNIROUTE_MCP_SCOPES`-ympäristömuuttujaan.
 
-#### Käyttöoikeustunnuksen laajuudet
+#### Käyttöoikeustunnisteiden scopes
 
-`oma_live_…` -tunnukset (`src/lib/accessTokens/scopes.ts`) sisältävät `read`, `write`
-tai `admin`. `scopeSatisfies` on sijoitus: `admin` kattaa `write` ja `read`, ja
-`write` kattaa `read`. Tuntemattomat laajuudet eivät kata mitään.
+`oma_live_…`-tunnisteet (`src/lib/accessTokens/scopes.ts`) kantavat `read`-, `write`- tai
+`admin`-scopen. `scopeSatisfies` on taso: `admin` kattaa `write`- ja `read`-scopet, ja
+`write` kattaa `read`-scopen. Tuntemattomat scopet eivät kata mitään.
 
-`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) vertaa tätä
-sijoitusta `inferRequiredScope` -funktioon (`src/server/authz/accessScopes.ts`):
+`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) vertaa tätä tasoa
+funktioon `inferRequiredScope` (`src/server/authz/accessScopes.ts`):
 
-- `GET`, `HEAD` ja `OPTIONS` vaativat `read`.
-- Jokainen muu metodi vaatii `write`.
-- Polut `ADMIN_SCOPE_PREFIXES` -vakiossa vaativat `admin` jokaiselle metodille. `/api/mcp`
-  on tällä listalla, joten `write` -käyttöoikeustunnus ei silti voi kutsua MCP HTTP -pintaa.
-- Polut `ADMIN_MUTATION_PREFIXES` -vakiossa vaativat `admin` vain mutaatioille.
+- `GET`, `HEAD` ja `OPTIONS` vaativat `read`-oikeuden.
+- Kaikki muut menetelmät vaativat `write`-oikeuden.
+- Polut, jotka on lueteltu `ADMIN_SCOPE_PREFIXES`-listassa, vaativat `admin`-oikeuden kaikkien menetelmien kohdalla. `/api/mcp`
+  kuuluu kyseiselle listalle, joten `write`-oikeudella varustettu access-token ei silti voi kutsua MCP:n HTTP-pintaa.
+- Polut, jotka on lueteltu `ADMIN_MUTATION_PREFIXES`-listassa, vaativat `admin`-oikeuden vain mutaatioiden kohdalla.
+- Polut, jotka on lueteltu `ADMIN_MUTATION_EXACT_PATHS`-listassa (`/api/settings`,
+  `/api/settings/require-login`), vaativat `admin`-oikeuden vain mutaatioiden kohdalla, ja vain tuolla täsmällisellä polulla — muut `/api/settings/*`-alipolut säilyttävät `write`-oikeuden.
 
-`PATCH /api/keys/{id}` on mutaatio eikä se ole näillä ylläpitäjälistoilla, joten `read`-tunnus saa 403-virheen `Access token scope 'read' is insufficient; 'write' required.`. `write`- tai `admin`-käyttötunnus kelpaa tälle reitille. Kojelaudan JWT, loopback CLI:n kone-ID-tunnus ja API-avain, jolla on `manage`- tai `admin`-oikeudet, käyttävät muita haaroja, eikä tämä rankki rajoita niitä.
+`PATCH /api/keys/{id}` on mutaatio eikä se kuulu noihin admin-listoihin, joten
+`read`-oikeudella varustettu token saa vastaukseksi 403
+`Access token scope 'read' is insufficient; 'write' required.`
+`write`- tai `admin`-oikeudella varustettu access-token täyttää tämän reitin vaatimukset. Hallintapaneelin JWT, loopback-CLI:n machine-id-token sekä API-avain, jossa on `manage` tai `admin`, kulkevat muiden haarukoiden kautta eikä tämä oikeustaso rajoita niitä.
 
-Käyttötunnus, joka läpäisee `scopeSatisfies`-tarkistuksen `/api/mcp`-reitille, on läpäissyt vain hallintaportin. Työkalukutsut suorittavat edelleen `scopeMatches`-tarkistuksen API-avaimen scopeja vastaan. Käyttötunnuksen rankki ei ole syöte `scopeMatches`-funktiolle.
+Access-token, joka läpäisee `scopeSatisfies`-tarkistuksen polulle `/api/mcp`, on läpäissyt vain hallintaportin tarkistuksen. Työkalukutsut suorittavat edelleen `scopeMatches`-tarkistuksen API-avainten oikeuksia vasten. Access-tokenin oikeustaso ei ole `scopeMatches`-tarkistuksen syöte.
 
-### MCP-työkalujen scopet
+### MCP-työkalujen oikeudet
 
-Scopen valvonta on keskitetty tiedostoon `open-sse/mcp-server/scopeEnforcement.ts`. Jokainen työkalu vaatii tietyt scopet:
+Oikeuksien valvonta on keskitetty tiedostoon `open-sse/mcp-server/scopeEnforcement.ts`.
+Jokainen työkalu vaatii määritetyt oikeudet:
 
-| Laajuus               | Työkalut                                                                                                                                                                       |
-| :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read:health`         | `get_health`, `get_provider_metrics`, `simulate_route`, `explain_route`, `best_combo_for_task`, `db_health_check`                                                              |
-| `read:combos`         | `list_combos`, `get_combo_metrics`, `simulate_route`, `best_combo_for_task`, `test_combo`                                                                                      |
-| `write:combos`        | `switch_combo`, `set_routing_strategy`                                                                                                                                         |
-| `read:quota`          | `check_quota`                                                                                                                                                                  |
-| `read:usage`          | `cost_report`, `get_session_snapshot`, `explain_route`                                                                                                                         |
-| `read:models`         | `list_models_catalog`                                                                                                                                                          |
-| `execute:completions` | `route_request`, `test_combo`                                                                                                                                                  |
-| `execute:search`      | `web_search`, `x_search`, `web_fetch`                                                                                                                                          |
-| `write:budget`        | `set_budget_guard`                                                                                                                                                             |
-| `write:resilience`    | `set_resilience_profile`, `db_health_check`                                                                                                                                    |
-| `pricing:write`       | `sync_pricing`                                                                                                                                                                 |
-| `read:cache`          | `cache_stats`                                                                                                                                                                  |
-| `write:cache`         | `cache_flush`                                                                                                                                                                  |
-| `read:compression`    | `compression_status`, `list_compression_combos`, `compression_combo_stats`                                                                                                     |
-| `write:compression`   | `compression_configure`, `set_compression_engine`                                                                                                                              |
-| `read:proxies`        | `oneproxy_fetch`, `oneproxy_rotate`, `oneproxy_stats`                                                                                                                          |
-| `read:notion`         | `notion_search`, `notion_get_page`, `notion_list_block_children`, `notion_query_database`, `notion_get_database`                                                               |
-| `write:notion`        | `notion_append_blocks`                                                                                                                                                         |
-| `read:memory`         | `memory_search`                                                                                                                                                                |
-| `write:memory`        | `memory_add`, `memory_clear`                                                                                                                                                   |
-| `read:skills`         | `skills_list`, `skills_executions`                                                                                                                                             |
-| `write:skills`        | `skills_enable`                                                                                                                                                                |
-| `execute:skills`      | `skills_execute`                                                                                                                                                               |
-| `read:catalog`        | `agent_skills_list`, `agent_skills_get`, `agent_skills_coverage`                                                                                                               |
-| `read:tools`          | `omniroute_tool_search`                                                                                                                                                        |
-| `read:radar`          | `omniroute_radar_catalog`                                                                                                                                                      |
-| `read:gamification`   | `gamification_profile`, `gamification_rank`, `gamification_leaderboard`, `gamification_badges`, `gamification_servers`, `gamification_anomalies`                               |
-| `write:gamification`  | `gamification_invite`, `gamification_transfer`                                                                                                                                 |
-| `read:plugins`        | `plugin_list`, `plugin_executions`                                                                                                                                             |
-| `write:plugins`       | `plugin_scan`, `plugin_install`, `plugin_uninstall`, `plugin_activate`, `plugin_deactivate`, `plugin_configure`                                                                |
-| `read:obsidian`       | 13 lukutyökalua — `obsidian_list_vault`, `obsidian_read_note`, `obsidian_search_simple`, `obsidian_search_structured`, `obsidian_get_periodic_note`, `obsidian_sync_status`, … |
-| `write:obsidian`      | 9 kirjoitustyökalua — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …           |
-| `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                              |
+| Soveltuvuusala        | Työkalut                                                                                                                                                                        |
+| :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read:health`         | `get_health`, `get_provider_metrics`, `simulate_route`, `explain_route`, `best_combo_for_task`, `db_health_check`                                                               |
+| `read:combos`         | `list_combos`, `get_combo_metrics`, `simulate_route`, `best_combo_for_task`, `test_combo`                                                                                       |
+| `write:combos`        | `switch_combo`, `set_routing_strategy`                                                                                                                                          |
+| `read:quota`          | `check_quota`                                                                                                                                                                   |
+| `read:usage`          | `cost_report`, `get_session_snapshot`, `explain_route`                                                                                                                          |
+| `read:models`         | `list_models_catalog`                                                                                                                                                           |
+| `execute:completions` | `route_request`, `test_combo`                                                                                                                                                   |
+| `execute:search`      | `web_search`, `x_search`, `web_fetch`                                                                                                                                           |
+| `write:budget`        | `set_budget_guard`                                                                                                                                                              |
+| `write:resilience`    | `set_resilience_profile`, `db_health_check`                                                                                                                                     |
+| `pricing:write`       | `sync_pricing`                                                                                                                                                                  |
+| `read:cache`          | `cache_stats`                                                                                                                                                                   |
+| `write:cache`         | `cache_flush`                                                                                                                                                                   |
+| `read:compression`    | `compression_status`, `list_compression_combos`, `compression_combo_stats`                                                                                                      |
+| `write:compression`   | `compression_configure`, `set_compression_engine`                                                                                                                               |
+| `read:proxies`        | `oneproxy_fetch`, `oneproxy_rotate`, `oneproxy_stats`                                                                                                                           |
+| `read:notion`         | `notion_search`, `notion_get_page`, `notion_list_block_children`, `notion_query_database`, `notion_get_database`                                                                |
+| `write:notion`        | `notion_append_blocks`                                                                                                                                                          |
+| `read:memory`         | `memory_search`                                                                                                                                                                 |
+| `write:memory`        | `memory_add`, `memory_clear`                                                                                                                                                    |
+| `read:skills`         | `skills_list`, `skills_executions`                                                                                                                                              |
+| `write:skills`        | `skills_enable`                                                                                                                                                                 |
+| `execute:skills`      | `skills_execute`                                                                                                                                                                |
+| `read:catalog`        | `agent_skills_list`, `agent_skills_get`, `agent_skills_coverage`                                                                                                                |
+| `read:tools`          | `omniroute_tool_search`                                                                                                                                                         |
+| `read:radar`          | `omniroute_radar_catalog`                                                                                                                                                       |
+| `read:gamification`   | `gamification_profile`, `gamification_rank`, `gamification_leaderboard`, `gamification_badges`, `gamification_servers`, `gamification_anomalies`                                |
+| `write:gamification`  | `gamification_invite`, `gamification_transfer`                                                                                                                                  |
+| `read:plugins`        | `plugin_list`, `plugin_executions`                                                                                                                                              |
+| `write:plugins`       | `plugin_scan`, `plugin_install`, `plugin_uninstall`, `plugin_activate`, `plugin_deactivate`, `plugin_configure`                                                                 |
+| `read:obsidian`       | 13 luku-työkalua — `obsidian_list_vault`, `obsidian_read_note`, `obsidian_search_simple`, `obsidian_search_structured`, `obsidian_get_periodic_note`, `obsidian_sync_status`, … |
+| `write:obsidian`      | 9 kirjoitus-työkalua — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …           |
+| `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                               |
 
-Wildcard-laajuudet ovat tuettuja: `read:*` myöntää kaikki lukulaajuudet, `*` myöntää täyden pääsyn.
+Jokeriscopeja tuetaan: `read:*` myöntää kaikki luku-scopet, `*` myöntää täyden pääsyn.
 
-### `mcp:connect` – kapea reittikyky (#7895)
+### `mcp:connect` — kapea reitin kyvykkyys (#7895)
 
-HTTP/SSE MCP-kuljetukseen (`/api/mcp/*`) pääsy muualta kuin loopbackista vaatii
-`/api/mcp/` LOCAL_ONLY -poikkeuksen (katso `docs/security/ROUTE_GUARD_TIERS.md`). Historiallisesti
-tämä poikkeus hyväksyi vain täyden `manage`/`admin`-laajuuden API-avaimen – liian laaja
-kutsujalle, joka tarvitsee vain MCP:n kanssa kommunikointia. `src/shared/constants/managementScopes.ts`
-vie nyt `MCP_CONNECT_SCOPE = "mcp:connect"`: lisätty, kapea laajuus (sama ennakkotapaus kuin
-`SELF_USAGE_SCOPE`), joka valtuuttaa AINOASTAAN `/api/mcp/` ohituksen
-`src/server/authz/policies/management.ts` -tiedostossa – se ei myönnä muuta hallintareitin pääsyä
-ja on tarkoituksella pidetty POISSA `MANAGEMENT_API_KEY_SCOPES` -listasta. Avain, jolla on `manage`/`admin`,
-läpäisee edelleen poikkeuksen muuttumattomana; `mcp:connect` on alemman etuoikeuden vaihtoehto
-etäisille vain MCP-kutsujille, tarkistettuna `hasMcpConnectOrManageScope()` -funktiolla.
+HTTP/SSE MCP -kuljetuksen (`/api/mcp/*`) tavoittaminen ei-loopback-verkosta vaatii
+`/api/mcp/`-poikkeuksen, joka on merkitty LOCAL_ONLY (katso `docs/security/ROUTE_GUARD_TIERS.md`). Historiallisesti
+poikkeus hyväksyi vain API-avaimen, jolla oli täysi `manage`/`admin`-scope — liian laajan kutsujalle, joka tarvitsee vain
+keskustella MCP:n kanssa. `src/shared/constants/managementScopes.ts` vie nyt
+`MCP_CONNECT_SCOPE = "mcp:connect"`: additiivinen, kapea scope (samaa ennakkoperiaatetta kuin
+`SELF_USAGE_SCOPE`), joka valtuuttaa VAIN `/api/mcp/`-ohituksen tiedostossa
+`src/server/authz/policies/management.ts` — se ei anna pääsyä millekään muulle hallintareitille
+eikä sitä ole tarkoituksella pidetty `MANAGEMENT_API_KEY_SCOPES`-joukossa. Avain, jolla on
+`manage`/`admin`, läpäisee poikkeuksen edelleen muuttumattomana; `mcp:connect` on vähemmän etuoikeuksin
+vaihtoehto etäkutsujille, jotka käyttävät vain MCP:tä, ja se tarkistetaan funktiolla
+`hasMcpConnectOrManageScope()`.
 
-### Avainkohtainen HTTP-laajuuden sidonta (#7895)
+### Avainkohtainen HTTP-scope-sidonta (#7895)
 
-HTTP/SSE:n kautta `open-sse/mcp-server/httpTransport.ts` ratkaisee nyt kutsujan todelliset
-`api_keys.scopes` -arvot `resolveMcpCallerAuthInfo()` -funktion kautta (`open-sse/mcp-server/httpAuthContext.ts`)
-ja välittää ne MCP SDK:n `transport.handleRequest(req, { authInfo })` -funktiolle, jotta
-`extra.authInfo.scopes`, joka saavuttaa jokaisen työkalukutsun, heijastaa Bearer-avaimen omia laajuuksia.
-`scopeEnforcement.ts`:n `resolveCallerScopeContext()` priorisoi jo `authInfo`:n
-`_meta` ja `OMNIROUTE_MCP_SCOPES` -ympäristömuuttujan varajärjestelmän yli – tämä vain täyttää sen ensimmäisen,
-korkeimman prioriteetin lähteen, joka oli aiemmin syöttämätön HTTP:n kautta. Kun API-avainta ei ratkaista
-(ei otsikkoa, virheellinen avain), `authInfo` pysyy `undefined` ja ratkaisu jatkuu
-olemassa olevaan `meta`/ympäristömuuttujan ketjuun muuttumattomana. Tämä EI muuta `OMNIROUTE_MCP_ENFORCE_SCOPES`:n
-oletusarvoa – valvonta on edelleen otettava käyttöön erikseen; tämä muutos vain saa
-avainkohtaisen polun etusijalle, kun se on käytössä. Stdio:lla ei ole kutsujakohtaista identiteettiä (katso
-`mcpCallerIdentity.ts`) ja se ei vaikuta – se pysyy `_meta`/ympäristömuuttujan varajärjestelmän ketjussa.
+HTTP/SSE:n yhteydessä `open-sse/mcp-server/httpTransport.ts` ratkaisee nyt kutsujan todellisen
+`api_keys.scopes`-arvon funktiolla `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`)
+ja välittää sen MCP-SDK:n `transport.handleRequest(req, { authInfo })` -kutsulle, jolloin jokaiseen
+työkalukutsuun tuleva `extra.authInfo.scopes` heijastaa Bearer-avaimen omia scopeja.
+`scopeEnforcement.ts`:n `resolveCallerScopeContext()` asetti jo `authInfo` etusijalle suhteessa
+`_meta` -lähteeseen ja `OMNIROUTE_MCP_SCOPES`-ympäristöarvoon — tämä täyttää vain sen ensimmäisen,
+korkeimman prioriteetin lähteen, joka jäi aiemmin HTTP:n yhteydessä täyttämättä. Kun mitään
+API-avainta ei ratkaista (ei otsakea, virheellinen avain), `authInfo` pysyy arvona `undefined` ja
+ratkaisu jatkuu nykyiseen `meta`/ympäristöketjuun muuttumattomana. stdio:lla ei ole
+kutsujakohtaista identiteettiä (katso `mcpCallerIdentity.ts`) eikä avainkohtainen sidonta vaikuta
+siihen — se ohittaa `_meta`-vaiheen
+(`_meta` huomioidaan vain HTTP-tunnistautumiskontekstissa, #15159) ja ratkaisee yksin
+`OMNIROUTE_MCP_SCOPES`-ympäristöavaimesta.
 
----
+**Pakotettu valvonta kytketään päälle kapeasti rajattujen HTTP/SSE-kutsujien kohdalla riippumatta
+`OMNIROUTE_MCP_ENFORCE_SCOPES`-asetuksesta.** `OMNIROUTE_MCP_ENFORCE_SCOPES`-asetuksen oletusarvo `false` on turvallinen
+vain paikallisessa/stdio-muotoisessa yhden käyttäjän työnkulussa, jossa ei ole kutsujakohtaista
+identiteettiä, jonka suhteen scopeja voisi rajata. `open-sse/mcp-server/server.ts::withScopeEnforcement()`
+kytkee työkalukohtaisen scope-valvonnan ehdottomasti päälle (`shouldForceScopeEnforcement()` tiedostossa
+`scopeEnforcement.ts`) aina kun `resolveCallerScopeContext()` on ratkaissut
+`source === "authInfo"` (ts. todellinen avainkohtainen HTTP Authorization -otsake, vain HTTP/SSE) EIKÄ
+kyseinen avain sisältää täyttä `manage`/`admin`-scopea. Tämä sulkee aukon, jossa avain, jolla on VAIN
+kapea `mcp:connect`-ohitus-scope — joka on yllä dokumentoitu valtuuttamaan mitään muuta kuin
+`/api/mcp/`-LOCAL_ONLY-poikkeuksen — muutoin voisi kutsua jokaista MCP-työkalua heti kun operaattori oli
+kytkenyt etä-/ei-loopback-MCP-käytön päälle, yksinkertaisesti siksi että `OMNIROUTE_MCP_ENFORCE_SCOPES`
+toimitetaan oletuksena `false`. Täysi `manage`/`admin`-avain HTTP:n yli sekä jokainen
+stdio-/paikallinen kutsuja säilyttävät nykyisen `OMNIROUTE_MCP_ENFORCE_SCOPES`-asetukseen sidotun
+toiminnan muuttumattomana.
 
 ## Ympäristömuuttujat
 
-| Muuttuja                                | Oletusarvo                                 | Tarkoitus                                                                                                                                     |
-| :-------------------------------------- | :----------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`                   | MCP-palvelimen käyttämä perus-URL kutsuessaan OmniRouten sisäisiä API-rajapintoja                                                             |
-| `OMNIROUTE_API_KEY`                     | (tyhjä)                                    | API-avain, joka välitetään `Authorization: Bearer` -muodossa sisäisiin API-kutsuihin                                                          |
-| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (vain `"true"` ottaa sen käyttöön) | Kun käytössä, puuttuvat laajuudet estävät työkalukutsut ja kirjaavat `scope_denied:<reason>` tarkastuslokiin                                  |
-| `OMNIROUTE_MCP_SCOPES`                  | (tyhjä)                                    | Pilkulla eroteltu sallittujen laajuuksien luettelo, joita pidetään oletuksena "saatavilla" (käytetään, kun kutsuja ei anna omia laajuuksiaan) |
-| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (määrittämätön = päällä)                   | Kun asetettu arvoon `0/false/off/no`, poistaa MCP-kuvausten pakkauksen käytöstä rekisteröinnin yhteydessä                                     |
-| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (määrittämätön = päällä)                   | Vaihtoehtoinen alias samalle kytkimelle kuin yllä                                                                                             |
-| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                                    | Keskeytysbudjetti sisäisille hallintalukemille (tila, joustavuus, yhdistelmät, kiintiö, käyttö)                                               |
-| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                                    | Keskeytysbudjetti hyppyille, jotka odottavat palveluntarjoajaa (`route_request`, `web_search`, `web_fetch`)                                   |
-| `MCP_TOOL_DENY`                         | (määrittämätön = ei suodatusta)            | Pilkulla erotellut työkalujen nimet, jotka poistetaan `tools/list` -luettelosta (työkalujen kardinaliteetin vähentäminen – katso alta)        |
-| `MCP_TOOL_ALLOW`                        | (määrittämätön = ei suodatusta)            | Pilkulla erotellut työkalujen nimet, jotka pidetään yksinomaan (sallittujen luettelon tila – katso alta)                                      |
-| `DATA_DIR`                              | `~/.omniroute`                             | Heartbeat-tiedosto kirjoitetaan kohteeseen `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                           |
+| Muuttuja                                | Oletusarvo                             | Tarkoitus                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| :-------------------------------------- | :------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`               | Perus-URL-osoite, jota MCP-palvelin käyttää kutsuessaan OmniRouten sisäisiä rajapintoja                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `OMNIROUTE_API_KEY`                     | (tyhjä)                                | API-avain, joka välitetään sisäisiin API-kutsuihin muodossa `Authorization: Bearer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (vain `"true"` ottaa käyttöön) | Kun tämä on käytössä, puuttuvat käyttöoikeusalueet estävät työkalukutsut ja kirjaavat valvontalokiin merkinnän `scope_denied:<reason>`. Valvonta pakotetaan käyttöön tästä asetuksesta riippumatta myös kaikille HTTP/SSE-kutsujille, jotka tunnistetaan avainkohtaisesta Authorization-otsakkeesta (`source === "authInfo"`) ja joilta puuttuu täydellinen `manage`/`admin`-käyttöoikeusalue — esimerkiksi avaimelle, jolla on vain rajattu ohituskäyttöoikeusalue `mcp:connect` — joten tämä oletusarvo on turvallinen vain paikallisessa yhden operaattorin stdio-käytössä, ei koskaan etäkäytössä muun kuin loopback-osoitteen kautta |
+| `OMNIROUTE_MCP_SCOPES`                  | (tyhjä)                                | Pilkuilla eroteltu sallittujen käyttöoikeusalueiden luettelo, joiden katsotaan olevan oletusarvoisesti käytettävissä (käytetään, kun kutsuja ei anna omia käyttöoikeusalueitaan)                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (ei asetettu = käytössä)               | Kun arvoksi asetetaan `0/false/off/no`, MCP-kuvausten pakkaus rekisteröinnin yhteydessä poistetaan käytöstä                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (ei asetettu = käytössä)               | Vaihtoehtoinen alias yllä olevalle samalle asetukselle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                                | Keskeytyksen aikaraja sisäisille hallintalukupyynnöille (terveys, häiriönsietokyky, yhdistelmät, kiintiö, käyttö)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                                | Keskeytyksen aikaraja vaiheille, jotka odottavat palveluntarjoajaa (`route_request`, `web_search`, `web_fetch`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `MCP_TOOL_DENY`                         | (ei asetettu = ei suodatusta)          | Pilkuilla erotellut työkalujen nimet, jotka jätetään pois `tools/list`-luettelosta (työkalujen määrän vähentäminen — katso jäljempänä)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `MCP_TOOL_ALLOW`                        | (asettamatta = ei suodatusta)          | Pilkuilla eroteltu luettelo yksinomaan säilytettävistä työkalujen nimistä (sallittujen luettelon tila — katso alta)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `DATA_DIR`                              | `~/.omniroute`                         | Sydämenlyöntitiedosto kirjoitetaan polkuun `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ---
 

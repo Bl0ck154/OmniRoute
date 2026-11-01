@@ -12,6 +12,7 @@ test("off-table free model is free, never premium-priced", () => {
   assert.equal(p.isFree, true);
   assert.equal(p.inputCostPer1M, 0);
   assert.equal(p.outputCostPer1M, 0);
+  assert.equal(p.isEstimated, false);
 });
 
 test("prefixed model id still resolves through the catalog", () => {
@@ -24,6 +25,13 @@ test("off-table paid model keeps the conservative fallback", () => {
   assert.equal(p.isFree, false);
   assert.equal(p.inputCostPer1M, 5.0);
   assert.equal(p.outputCostPer1M, 15.0);
+  assert.equal(p.isEstimated, true);
+});
+
+test("empty model id falls back to the estimated guess without throwing", () => {
+  const p = getModelPricing("openai", "");
+  assert.equal(p.inputCostPer1M, 5.0);
+  assert.equal(p.isEstimated, true);
 });
 
 test("table hits are untouched", () => {

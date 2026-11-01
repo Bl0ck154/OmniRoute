@@ -34,7 +34,7 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const authError = await requireManagementAuth(request);
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
   if (authError) return authError;
 
   let rawBody: unknown;

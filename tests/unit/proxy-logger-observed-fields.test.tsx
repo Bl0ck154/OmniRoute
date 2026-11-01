@@ -2,7 +2,17 @@
 import React from "react";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, beforeAll } from "vitest";
+
+// The kit Table (KEA-7886) mounts a persistent horizontal scrollbar that measures the table
+// with ResizeObserver, which jsdom does not implement.
+beforeAll(() => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+});
 
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string) => key,
@@ -20,6 +30,8 @@ const TRAFFIC = {
   latencyMs: 42,
   clientIp: "10.9.9.9",
   upstreamStatus: 200,
+  headersMs: 1234,
+  firstChunkMs: 5678,
   egressIp: "203.0.113.9",
   correlationId: "corr-abcdef-123456",
   account: "conn-traff",
@@ -32,6 +44,8 @@ const NULL_STATUS = {
   id: "log-null",
   targetUrl: "openai/gpt-5-null",
   upstreamStatus: null,
+  headersMs: null,
+  firstChunkMs: null,
   egressIp: null,
   correlationId: null,
   rotationAccount: null,
@@ -127,6 +141,28 @@ describe("ProxyLogger observed fields", () => {
     );
     expect(html).not.toContain("conn-traff");
     container.remove();
+  }, 15000);
+
+  it("shows when the headers and the first chunk arrived for the attempt", async () => {
+    const { default: ProxyLogDetail } = await import("@/shared/components/ProxyLogDetail");
+    const render = async (log: Record<string, unknown>) => {
+      const container = makeContainer();
+      const root = createRoot(container);
+      await act(async () => {
+        root.render(<ProxyLogDetail log={log} onClose={() => {}} />);
+      });
+      // The detail is a kit Dialog (Modal adapter): its content is portaled to document.body.
+      const text = document.body.textContent ?? "";
+      await act(async () => root.unmount());
+      container.remove();
+      return text;
+    };
+    const timed = await render(TRAFFIC);
+    expect(timed).toContain("headersAfter1.2s");
+    expect(timed).toContain("firstChunkAfter5.7s");
+    const unknown = await render(NULL_STATUS);
+    expect(unknown).toContain("headersAfter—");
+    expect(unknown).toContain("firstChunkAfter—");
   }, 15000);
 
   it("partitions connection tests by level or targetUrl suffix", async () => {

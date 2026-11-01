@@ -268,6 +268,5 @@ export const codexProvider: RegistryEntry = {
       maxInputTokens: 272000,
       maxOutputTokens: 128000,
     },
-    { id: "gpt-5.3-codex-spark", name: "GPT 5.3 Codex Spark" },
   ],
 };

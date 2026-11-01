@@ -72,6 +72,16 @@ curl -i \
 
 `manage` లేని కీ (లేదా Bearer లేకపోవడం) `403 LOCAL_ONLY`ను తిరిగి ఇస్తుంది. అనుబంధ ప్రిఫిక్స్ `/api/cli-tools/runtime/*`ను ఉద్దేశపూర్వకంగా బైపాస్ చేయడం సాధ్యం కాదు — [Route Guard స్థాయిలు — Manage-స్కోప్ మినహాయింపు](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out) చూడండి.
 
+### Origin ధృవీకరణ
+
+ప్రామాణీకరణ తర్వాత `/api/mcp/*` కు వచ్చే ప్రతి అభ్యర్థన — ట్రాన్స్‌పోర్ట్‌లు మరియు `status`, `tools`, `audit`, `restart` వంటి నిర్వహణ రూట్‌లు — యొక్క `Origin` హెడర్ ధృవీకరించబడుతుంది, కాలర్ ఎవరైనా సరే (API కీ, CLI టోకెన్, డాష్‌బోర్డ్ సెషన్, లేదా లాగిన్ నిలిపివేసినప్పుడు అనామక loopback). ఇది MCP Streamable HTTP స్పెసిఫికేషన్ కోరే DNS rebinding రక్షణ.
+
+- **`Origin` హెడర్ లేదు** → అనుమతించబడుతుంది. OmniRoute CLI, SDK మరియు IDE క్లయింట్‌లు దీన్ని పంపవు.
+- **అనుమతించబడిన `Origin`** → ఏ పోర్ట్‌లోనైనా `localhost` / `127.0.0.1` / `[::1]`, లేదా OmniRoute యొక్క సొంత పబ్లిక్ origin: `OMNIROUTE_PUBLIC_BASE_URL` / `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_APP_URL`, విశ్వసనీయ రివర్స్ ప్రాక్సీ ఫార్వర్డ్ చేసిన origin (`OMNIROUTE_TRUST_PROXY`, base URL సెట్ చేయనప్పుడు మాత్రమే), లేదా నేరుగా యాక్సెస్ చేసిన loopback/LAN IP హోస్ట్. కేవలం `Host` హెడర్ ఎప్పుడూ ఏ origin‌నూ విశ్వసనీయం చేయదు.
+- **`null` సహా ఇతర ఏ `Origin` అయినా** → JSON-RPC లోప బాడీతో `403`: `id: null`, `error.code: -32000`, `error.data.code: "INVALID_ORIGIN"`. చెల్లుబాటు అయ్యే CSRF టోకెన్‌ను చూపే డాష్‌బోర్డ్ సెషన్, ఇతర డాష్‌బోర్డ్ రైట్‌ల మాదిరిగానే, ఇప్పటికీ ఆమోదించబడుతుంది.
+
+రివర్స్ ప్రాక్సీ వెనుక అందించే బ్రౌజర్ MCP క్లయింట్‌కు `OMNIROUTE_PUBLIC_BASE_URL` అవసరం; ఇతర origins కోసం అనుమతి జాబితా లేదు. CORS ప్రీఫ్లైట్ (`OPTIONS`) Origin కోసం తనిఖీ చేయబడదు; దాని తర్వాతి అభ్యర్థన తనిఖీ చేయబడుతుంది.
+
 ## IDE కాన్ఫిగరేషన్
 
 Claude Desktop, Cursor, Cline మరియు అనుకూల MCP క్లయింట్ సెటప్ కోసం [MCP క్లయింట్ కాన్ఫిగరేషన్](../guides/SETUP_GUIDE.md#mcp-client-configuration) చూడండి.
@@ -283,137 +293,169 @@ MCP టూల్/రూట్ లేయర్ను చేరుకోవడా�
 
 ---
 
-## ప్రమాణీకరణ & స్కోప్లు
+# ప్రామాణీకరణ & స్కోపులు
 
-MCP సాధనం కాలర్ నుండి స్కోప్ స్ట్రింగ్లను చదువుతుంది. ఆ తనిఖీ మూడు స్వతంత్ర నేమ్స్పేస్లలో ఒకటి. ఒక చెకర్ నుండి పాస్ అనేది ఇతరుల నుండి పాస్ కాదు. నియమాలు [మూడు స్కోప్ నేమ్స్పేస్లు](#three-scope-namespaces). సాధన కేటలాగ్ [MCP సాధన స్కోప్లు](#mcp-tool-scopes).
+MCP tool కాల్స్‌లు caller నుండి scope స్ట్రింగ్‌లను చదువుతాయి. ఆ చెక్ మూడు స్వతంత్ర
+నేమ్‌స్పేస్‌లలో ఒకటి. ఒక చెకర్ నుండి పాస్ అయినది మిగతా చెకర్ల నుండి పాస్ అయినది కాదు.
+రూల్స్ [మూడు scope నేమ్‌స్పేస్‌లు](#three-scope-namespaces)లో ఉన్నాయి.
+tool కేటలాగ్ [MCP tool స్కోపులు](#mcp-tool-scopes)లో ఉంది.
 
-### మూడు స్కోప్ నేమ్స్పేస్లు
+### మూడు scope నేమ్‌స్పేస్‌లు
 
-ఒక API కీపై `manage`, ఒక MCP సాధనంపై `read:compression`, మరియు ఒక `oma_live_…` యాక్సెస్ టోకెన్పై `read` అనేవి మూడు విభిన్న అనుమతులు. మ్యూటేటింగ్ మేనేజ్మెంట్ రూట్కు `read` యాక్సెస్ టోకెన్ను పంపే కాలర్లు HTTP 403 `Access token scope 'read' is insufficient; 'write' required.` పొందుతారు. ఆ ర్యాంక్ `scopeSatisfies`. ఇది MCP పట్టికను సంప్రదించదు, మరియు MCP మ్యాచర్ దానిని సంప్రదించదు.
+ఒక API కీపై `manage`, ఒక MCP toolపై `read:compression`, మరియు ఒక
+`oma_live_…` యాక్సెస్ టోకన్‌పై `read` — ఇవి మూడు వేర్వేరు గ్రాంట్లు. `read`
+యాక్సెస్ టోకన్‌ను మార్పును ఉండే మేనేజ్‌మెంట్ routeకు పంపే callersకు HTTP 403
+`Access token scope 'read' is insufficient; 'write' required.`
+ఆ ర్యాంక్ `scopeSatisfies` దాని. ఇది MCP టేబుల్‌ను పరిశీలించదు, మరియు MCP
+మ్యాచర్ దాన్ని పరిశీలించదు.
 
-| నేమ్స్పేస్        | క్రెడెన్షియల్                                                   | చెకర్                     | పాస్ అనుమతిస్తుంది                                       |
-| :---------------- | :-------------------------------------------------------------- | :------------------------ | :------------------------------------------------------- |
-| API-కీ నిర్వహణ    | `api_keys.scopes`                                               | `hasManageScope`          | ఆ బేరర్ కీ కోసం నిర్వహణ REST                             |
-| API-కీ అడిటివ్    | అదే శ్రేణి, ఒక ఖచ్చితమైన స్ట్రింగ్                              | క్రింద పేర్కొన్న సహాయకుడు | ఆ ఒక్క సామర్థ్యం మాత్రమే                                 |
-| MCP సాధన స్కోప్లు | అదే శ్రేణి, లేకపోతే MCP `_meta`, లేకపోతే `OMNIROUTE_MCP_SCOPES` | `scopeMatches`            | ఆ సాధనం, అమలు ఆన్ అయిన తర్వాత                            |
-| యాక్సెస్ టోకెన్   | `oma_live_…`                                                    | `scopeSatisfies`          | దాని పద్ధతి మరియు మార్గం ఆ ర్యాంక్ను కోరే నిర్వహణ మార్గం |
+| Namespace           | Credential                                                                  | Checker               | A pass allows                                                      |
+| :------------------ | :-------------------------------------------------------------------------- | :-------------------- | :----------------------------------------------------------------- |
+| API కీ మేనేజ్‌మెంట్ | `api_keys.scopes`                                                           | `hasManageScope`      | ఆ Bearer కీకు మేనేజ్‌మెంట్ REST                                    |
+| API కీ యాడిటివ్     | అదే ఆర్రే, ఒక ఖచ్చిత స్ట్రింగ్                                              | కింద పేర్కొన్న helper | ఆ ఒక్కటే capability                                                |
+| MCP tool స్కోపులు   | అదే ఆర్రే, లేదా MCP `_meta` (HTTP/SSE మాత్రమే), లేదా `OMNIROUTE_MCP_SCOPES` | `scopeMatches`        | ఆ tool, enforcement ఆన్ అయిన తర్వాత                                |
+| యాక్సెస్ టోకన్      | `oma_live_…`                                                                | `scopeSatisfies`      | ఆ ర్యాంక్‌ను అభ్యర్థించే method మరియు path ఉన్న మేనేజ్‌మెంట్ route |
 
-ప్రతి క్రెడెన్షియల్ను మింట్ చేయడం [నిర్వహణ ప్రమాణీకరణ](../guides/MANAGEMENT-AUTH.md)లో కవర్ చేయబడింది.
+ప్రతి credential ను మింటింగ్ చేయడం
+[మేనేజ్‌మెంట్ ప్రామాణీకరణ](../guides/MANAGEMENT-AUTH.md)లో వివరించబడింది.
 
-#### API-కీ స్కోప్లు
+#### API కీ స్కోపులు
 
-ఒక `api_keys.scopes` శ్రేణి రెండు పనులకు ఉపయోగపడుతుంది. అవి వేర్వేరు ఫంక్షన్లను ఉపయోగిస్తాయి.
+ఒక `api_keys.scopes` ఆర్రే రెండు పనులకు సేవ చేస్తుంది. అవి వేర్వేరు ఫంక్షన్లను
+ఉపయోగిస్తాయి.
 
-**నిర్వహణ REST.** `manage` మరియు `admin` అనేవి `MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`) సభ్యులు. `hasManageScope` అనేది ఆ కీ కోసం నిర్వహణ మార్గాలను అధికారం చేస్తుంది. `admin` అనేది ఆ మార్గాలపై నిర్వహణ-సామర్థ్యం కలిగి ఉంటుంది. ఇక్కడ `admin` అనే పదం యాక్సెస్-టోకెన్ ర్యాంక్ కాదు మరియు అది MCP సాధన స్కోప్లలోకి విస్తరించదు.
+**మేనేజ్‌మెంట్ REST.** `manage` మరియు `admin` అనేవి
+`MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`) సభ్యులు.
+ఆ కీకు మేనేజ్‌మెంట్ routeలను అధికారం ఇచ్చేది `hasManageScope`. ఆ routeలపై `admin`
+మేనేజ్‌మెంట్ సామర్థ్యం కలిగి ఉంటుంది. ఇక్కడ `admin` అనే పదం యాక్సెస్-టోకన్ ర్యాంక్
+కాదు, మరియు అది MCP tool స్కోపులుగా విస్తరించదు.
 
-**అడిటివ్ స్ట్రింగ్లు.** ప్రతి ఒక్కటి ఖచ్చితమైన సభ్యత్వ పరీక్ష, మరియు ప్రతి ఒక్కటి `MANAGEMENT_API_KEY_SCOPES` వెలుపల ఉంటుంది.
+**యాడిటివ్ స్ట్రింగ్‌లు.** ప్రతి ఒక్కటి ఖచ్చితమైన సభ్యత్వ పరీక్ష, మరియు ప్రతి ఒక్కటి
+`MANAGEMENT_API_KEY_SCOPES` బయటే ఉంటుంది.
 
-| స్కోప్                         | పాస్ అనుమతిస్తుంది                                                                                                                                                         |
-| :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp:connect`                  | నాన్-లూప్బ్యాక్ `/api/mcp/` LOCAL_ONLY కార్వ్-అవుట్ మాత్రమే (`hasMcpConnectOrManageScope`). `manage` లేదా `admin` ఉన్న కీ ఇప్పటికీ ఆ కార్వ్-అవుట్ను పాస్ చేస్తుంది.        |
-| `self:usage`                   | ఈ కీ కోసం `GET /api/v1/me/status` (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` సృష్టించేటప్పుడు ఈ స్కోప్ను జోడిస్తుంది (`normalizeSelfServiceScopesForCreate`). |
-| `self:account-quota`           | ఆ స్థితి పేలోడ్ లోపల అప్స్ట్రీమ్ ఖాతా కోటాలు (`src/lib/usage/apiKeySelfService.ts`). స్థితి మార్గం ఇప్పటికీ `self:usage` అవసరం.                                            |
-| `policy:bypass-provider-quota` | ఈ కీ యొక్క ఇన్ఫరెన్స్ కాల్స్ ప్రొవైడర్-కోటా పాలసీని దాటవేస్తాయి (`hasProviderQuotaBypassScope` in `src/sse/handlers/chat.ts`).                                             |
+| Scope                          | A pass allows                                                                                                                                                            |
+| :----------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp:connect`                  | non-loopback `/api/mcp/` LOCAL_ONLY మినహాయింపు మాత్రమే (`hasMcpConnectOrManageScope`). `manage` లేదా `admin` ఉన్న కీ కూడా ఆ మినహాయింపును పాస్ చేస్తుంది.                 |
+| `self:usage`                   | ఆ కీకు `GET /api/v1/me/status` (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` సృష్టించేటప్పుడు ఈ స్కోప్‌ను జోడిస్తుంది (`normalizeSelfServiceScopesForCreate`). |
+| `self:account-quota`           | ఆ status payloadలోని అప్‌స్ట్రీమ్ ఖాతా క్వోటాలు (`src/lib/usage/apiKeySelfService.ts`). status route కూడా `self:usage` ఇప్పటికీ అవసరం.                                   |
+| `policy:bypass-provider-quota` | ఆ కీ యొక్క inference కాల్స్ provider-quota policyని దాటిపోతాయి (`hasProviderQuotaBypassScope` `src/sse/handlers/chat.ts`లో).                                             |
 
-#### సరిపోల్చడం
+#### మ్యాచింగ్
 
-కేటలాగ్ [MCP సాధన స్కోప్లు](#mcp-tool-scopes) కింద ఉన్న పట్టిక. `src/shared/constants/mcpScopes.ts`లోని `MCP_SCOPE_LIST`ను ఆ కేటలాగ్గా పరిగణించవద్దు: ఇది అసలు టైప్ చేయబడిన ఉపసమితి. తర్వాతి సాధనాలు దాని పక్కన మరిన్ని స్కోప్లను ప్రకటిస్తాయి (`read:notion`, `read:skills`, `read:local-corpus`, మరియు పట్టికలోని మిగిలినవి).
+కేటలాగ్ [MCP tool స్కోపులు](#mcp-tool-scopes) కింద ఉన్న పట్టిక.
+`src/shared/constants/mcpScopes.ts`లోని `MCP_SCOPE_LIST`ను ఆ కేటలాగ్‌గా పరిగణించవద్దు:
+అది అసలు టైప్ చేసిన సబ్‌సెట్. తర్వాతి tools దాని పక్కనే మరిన్ని స్కోపులను ప్రకటిస్తాయి
+(`read:notion`, `read:skills`, `read:local-corpus`, మరియు పట్టికలోని మిగతా వాటి).
 
-`open-sse/mcp-server/scopeEnforcement.ts`లోని `evaluateToolScopes` ప్రతి అవసరమైన స్కోప్ కొన్ని మంజూరు చేయబడిన స్కోప్తో సరిపోలినప్పుడు కాల్ను అనుమతిస్తుంది:
+`open-sse/mcp-server/scopeEnforcement.ts`లోని `evaluateToolScopes`, ప్రతి తప్పనిసరి
+స్కోప్ ఏదైనా గ్రాంట్ చేసిన స్కోప్‌తో సరిపోలిస్తే కాల్‌ను అనుమతిస్తుంది:
 
-- `*` ప్రతి అవసరమైన స్కోప్తో సరిపోలుతుంది.
-- `*`తో ముగిసే మంజూరు చేయబడిన స్కోప్ నక్షత్రానికి ముందు ఉన్న ప్రిఫిక్స్తో ప్రారంభమయ్యే అవసరమైన స్కోప్తో సరిపోలుతుంది. `read:*` `read:compression`తో సరిపోలుతుంది.
-- ప్రతి ఇతర మంజూరు చేయబడిన స్కోప్ ఒకే అవసరమైన స్ట్రింగ్తో మాత్రమే సరిపోలుతుంది.
+- `*` ప్రతి తప్పనిసరి స్కోప్‌తో సరిపోలుతుంది.
+- `*`తో ముగుస్తున్న గ్రాంట్ చేసిన స్కోప్, స్టార్ ముందు ఉన్న ప్రిఫిక్స్‌తో మొదలవడే తప్పనిసరి స్కోప్‌ను సరిపోలుస్తుంది. `read:*` `read:compression`ను సరిపోలుస్తుంది.
+- మిగతా ప్రతి గ్రాంట్ చేసిన స్కోప్ గుర్తింపు సరిపోల్చే ఒకే తప్పనిసరి స్ట్రింగ్‌తో మాత్రమే సరిపోలుతుంది.
 
-`["manage"]` స్కోప్లు ఉన్న కీ `read:compression` కోసం `scopeMatches`లో విఫలమవుతుంది. `admin`, `mcp:connect`, `read`, మరియు `write` మాత్రమే మంజూరు చేయబడిన స్ట్రింగ్లు అయినప్పుడు అదే కాల్ విఫలమవుతుంది. ట్రైలింగ్ `*`కు మించి MCP సాధన స్కోప్ల మధ్య ఎటువంటి క్రమానుగత సంబంధం లేదు.
+స్కోపులు `["manage"]` ఉన్న కీ `read:compression`కు `scopeMatches`లో వెలుపుతుంది.
+గ్రాంట్ చేసిన స్ట్రింగ్‌లు ఆవే మాత్రమే ఉన్నప్పుడు, అదే కాల్ `admin`, `mcp:connect`,
+`read`, మరియు `write` కోసం కూడా వెలుపుతుంది. చివరి `*` తప్ప MCP tool స్కోపుల మధ్య
+ఏ సోచనా హిరాచరం లేదు.
 
-`OMNIROUTE_MCP_ENFORCE_SCOPES=true` (డిఫాల్ట్ `false`) అయితే తప్ప అమలు ఆఫ్ చేయబడుతుంది. అది ఆఫ్ అయినప్పుడు, `evaluateToolScopes` కాల్ను అనుమతిస్తుంది మరియు కేటలాగ్ను దాటవేస్తుంది. అది ఆన్ అయినప్పుడు, HTTP బేరర్ కీ యొక్క `api_keys.scopes`ను `authInfo`గా ఉపయోగిస్తుంది ([ప్రతి-కీ HTTP స్కోప్ బైండింగ్](#per-key-http-scope-binding-7895) చూడండి). కీ స్కోప్లు పరిష్కరించబడనప్పుడు, మంజూరు చేయబడిన సమితి MCP `_meta`కు, ఆపై `OMNIROUTE_MCP_SCOPES`కు వస్తుంది.
+`OMNIROUTE_MCP_ENFORCE_SCOPES=true` ఉన్నప్పుడు మాత్రమే enforcement ఆన్‌లో ఉంటుంది
+(డిఫాల్ట్ `false`). అది ఆఫ్‌లో ఉన్నప్పుడు `evaluateToolScopes` కాల్‌ను అనుమతిస్తుంది,
+కేటలాగ్‌ను దాటిపోతుంది. అది ఆన్‌లో ఉన్నప్పుడు, HTTP Bearer కీ యొక్క
+`api_keys.scopes`ను `authInfo`గా ఉపయోగిస్తుంది
+([Per-key HTTP scope binding](#per-key-http-scope-binding-7895) చూడండి).
+ఏ కీ స్కోపులు రిజల్వ్ కాలేదంటే, గ్రాంట్ చేసిన సెట్ MCP `_meta`కు వెళ్తుంది (HTTP/SSE
+callersకు మాత్రమే గౌరవించబడుతుంది, HTTP auth context లోపల; stdio caller యొక్క `_meta`
+విస్మరించబడుతుంది, ఎందుకంటే దాన్ని client నియంత్రిస్తుంది, అందులో per-caller గుర్తింపు
+లేదు), తర్వాత `OMNIROUTE_MCP_SCOPES`.
 
-#### యాక్సెస్-టోకెన్ స్కోప్లు
+#### యాక్సెస్-టోకన్ స్కోపులు
 
-`oma_live_…` టోకెన్లు (`src/lib/accessTokens/scopes.ts`) `read`, `write`, లేదా `admin`ను కలిగి ఉంటాయి. `scopeSatisfies` అనేది ఒక ర్యాంక్: `admin` `write` మరియు `read`ను కవర్ చేస్తుంది, మరియు `write` `read`ను కవర్ చేస్తుంది. తెలియని స్కోప్లు దేనినీ కవర్ చేయవు.
+`oma_live_…` టోకన్‌లు (`src/lib/accessTokens/scopes.ts`) `read`, `write`, లేదా
+`admin`ను కలిగి ఉంటాయి. `scopeSatisfies` ఒక ర్యాంక్: `admin` `write` మరియు
+`read`ను కవర్ చేస్తుంది, మరియు `write` `read`ను కవర్ చేస్తుంది. తెలియని స్కోపులు ఏదీ
+కవర్ చేయవు.
 
-`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) ఆ ర్యాంక్ను `inferRequiredScope` (`src/server/authz/accessScopes.ts`)తో పోలుస్తుంది:
+`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) ఆ ర్యాంక్‌ను
+`inferRequiredScope` (`src/server/authz/accessScopes.ts`)తో పోలుస్తుంది:
 
-- `GET`, `HEAD`, మరియు `OPTIONS`కు `read` అవసరం.
-- ప్రతి ఇతర పద్ధతికి `write` అవసరం.
-- `ADMIN_SCOPE_PREFIXES`లోని మార్గాలకు ప్రతి పద్ధతికి `admin` అవసరం. `/api/mcp` ఆ జాబితాలో ఉంది, కాబట్టి `write` యాక్సెస్ టోకెన్ ఇప్పటికీ MCP HTTP ఉపరితలాన్ని కాల్ చేయదు.
-- `ADMIN_MUTATION_PREFIXES`లోని మార్గాలకు మ్యూటేషన్లకు మాత్రమే `admin` అవసరం.
+- `GET`, `HEAD`, `OPTIONS` మెథడ్‌లకు `read` అవసరం.
+- మిగతా ప్రతి మెథడ్‌కు `write` అవసరం.
+- `ADMIN_SCOPE_PREFIXES`లోని పాథ్‌లకు ప్రతి మెథడ్‌కు `admin` అవసరం. `/api/mcp` ఆ జాబితాలో ఉంది, కాబట్టి `write` యాక్సెస్ టోకెన్‌తో కూడా MCP HTTP సర్ఫేస్‌ను కాల్ చేయలేరు.
+- `ADMIN_MUTATION_PREFIXES`లోని పాథ్‌లకు మ్యూటేషన్‌ల కోసం మాత్రమే `admin` అవసరం.
+- `ADMIN_MUTATION_EXACT_PATHS`లోని (`/api/settings`, `/api/settings/require-login`) పాథ్‌లకు మ్యూటేషన్‌ల కోసం మాత్రమే, అదే ఖచ్చితమైన పాథ్‌పై మాత్రమే `admin` అవసరం — మిగతా `/api/settings/*` సబ్-రూట్‌లు `write`ని కొనసాగిస్తాయి.
 
-`PATCH /api/keys/{id}` అనేది ఒక మ్యుటేషన్ మరియు ఆ అడ్మిన్ జాబితాలలో లేదు, కాబట్టి ఒక `read` టోకెన్ 403ని అందుకుంటుంది.
-`యాక్సెస్ టోకెన్ స్కోప్ 'read' సరిపోదు; 'write' అవసరం.`
-ఒక `write` లేదా `admin` యాక్సెస్ టోకెన్ ఆ రూట్ను సంతృప్తిపరుస్తుంది. ఒక డాష్బోర్డ్ JWT, లూప్బ్యాక్ CLI మెషిన్-ఐడి టోకెన్, మరియు `manage` లేదా `admin` ఉన్న API కీ ఇతర బ్రాంచ్లను తీసుకుంటాయి మరియు ఈ ర్యాంక్ ద్వారా పరిమితం చేయబడవు.
+`PATCH /api/keys/{id}` ఒక మ్యూటేషన్ మరియు ఆ అడ్మిన్ జాబితాల్లో లేదు, కాబట్టి `read` టోకెన్‌కు 403 `Access token scope 'read' is insufficient; 'write' required.` వస్తుంది. ఆ రూట్‌కు `write` లేదా `admin` యాక్సెస్ టోకెన్‌ సరిపోతుంది. డాష్‌బోర్డ్ JWT, లూప్‌బ్యాక్ CLI మెషీన్-ఐడి టోకెన్, మరియు `manage` లేదా `admin` పరిమితులు ఉన్న API కీ — ఇవి ఇతర బ్రాంచ్‌లను అనుసరిస్తాయి, ఈ ర్యాంక్ వల్ల వాటి పరిమితి పెరగదు.
 
-`/api/mcp` కోసం `scopeSatisfies`ని పాస్ చేసే యాక్సెస్ టోకెన్ మేనేజ్మెంట్ గేట్ను మాత్రమే క్లియర్ చేసింది. టూల్ కాల్స్ ఇప్పటికీ API-కీ స్కోప్లకు వ్యతిరేకంగా `scopeMatches`ని అమలు చేస్తాయి. యాక్సెస్-టోకెన్ ర్యాంక్ `scopeMatches`కి ఇన్పుట్ కాదు.
+`/api/mcp` కోసం `scopeSatisfies`ను పాస్ చేసే యాక్సెస్ టోకెన్ మేనేజ్‌మెంట్ గేట్‌ను మాత్రమే క్లియర్ చేసింది. టూల్ కాల్‌లు ఇప్పటికీ API-కీ స్కోప్‌లతో పోలిస్తూ `scopeMatches`ను రన్ చేస్తాయి. యాక్సెస్-టోకెన్ ర్యాంక్ `scopeMatches`కు ఇన్‌పుట్ కాదు.
 
-### MCP టూల్ స్కోప్లు
+### MCP టూల్ స్కోప్‌లు
 
-స్కోప్ ఎన్ఫోర్స్మెంట్ `open-sse/mcp-server/scopeEnforcement.ts`లో కేంద్రీకరించబడింది.
-ప్రతి టూల్కు నిర్దిష్ట స్కోప్లు అవసరం:
+స్కోప్ ఎన్‌ఫోర్స్‌మెంట్ `open-sse/mcp-server/scopeEnforcement.ts`లో కేంద్రీకృతం చేయబడింది. ప్రతి టూల్‌కు నిర్దిష్ట స్కోప్‌లు అవసరం:
 
-| పరిధి                 | ఉపకరణాలు                                                                                                                                                                      |
-| :-------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read:health`         | `get_health`, `get_provider_metrics`, `simulate_route`, `explain_route`, `best_combo_for_task`, `db_health_check`                                                             |
-| `read:combos`         | `list_combos`, `get_combo_metrics`, `simulate_route`, `best_combo_for_task`, `test_combo`                                                                                     |
-| `write:combos`        | `switch_combo`, `set_routing_strategy`                                                                                                                                        |
-| `read:quota`          | `check_quota`                                                                                                                                                                 |
-| `read:usage`          | `cost_report`, `get_session_snapshot`, `explain_route`                                                                                                                        |
-| `read:models`         | `list_models_catalog`                                                                                                                                                         |
-| `execute:completions` | `route_request`, `test_combo`                                                                                                                                                 |
-| `execute:search`      | `web_search`, `x_search`, `web_fetch`                                                                                                                                         |
-| `write:budget`        | `set_budget_guard`                                                                                                                                                            |
-| `write:resilience`    | `set_resilience_profile`, `db_health_check`                                                                                                                                   |
-| `pricing:write`       | `sync_pricing`                                                                                                                                                                |
-| `read:cache`          | `cache_stats`                                                                                                                                                                 |
-| `write:cache`         | `cache_flush`                                                                                                                                                                 |
-| `read:compression`    | `compression_status`, `list_compression_combos`, `compression_combo_stats`                                                                                                    |
-| `write:compression`   | `compression_configure`, `set_compression_engine`                                                                                                                             |
-| `read:proxies`        | `oneproxy_fetch`, `oneproxy_rotate`, `oneproxy_stats`                                                                                                                         |
-| `read:notion`         | `notion_search`, `notion_get_page`, `notion_list_block_children`, `notion_query_database`, `notion_get_database`                                                              |
-| `write:notion`        | `notion_append_blocks`                                                                                                                                                        |
-| `read:memory`         | `memory_search`                                                                                                                                                               |
-| `write:memory`        | `memory_add`, `memory_clear`                                                                                                                                                  |
-| `read:skills`         | `skills_list`, `skills_executions`                                                                                                                                            |
-| `write:skills`        | `skills_enable`                                                                                                                                                               |
-| `execute:skills`      | `skills_execute`                                                                                                                                                              |
-| `read:catalog`        | `agent_skills_list`, `agent_skills_get`, `agent_skills_coverage`                                                                                                              |
-| `read:tools`          | `omniroute_tool_search`                                                                                                                                                       |
-| `read:radar`          | `omniroute_radar_catalog`                                                                                                                                                     |
-| `read:gamification`   | `gamification_profile`, `gamification_rank`, `gamification_leaderboard`, `gamification_badges`, `gamification_servers`, `gamification_anomalies`                              |
-| `write:gamification`  | `gamification_invite`, `gamification_transfer`                                                                                                                                |
-| `read:plugins`        | `plugin_list`, `plugin_executions`                                                                                                                                            |
-| `write:plugins`       | `plugin_scan`, `plugin_install`, `plugin_uninstall`, `plugin_activate`, `plugin_deactivate`, `plugin_configure`                                                               |
-| `read:obsidian`       | 13 రీడ్ టూల్స్ — `obsidian_list_vault`, `obsidian_read_note`, `obsidian_search_simple`, `obsidian_search_structured`, `obsidian_get_periodic_note`, `obsidian_sync_status`, … |
-| `write:obsidian`      | 9 రైట్ టూల్స్ — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …                |
-| `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                             |
+| Scope                 | Tools                                                                                                                                                                          |
+| :-------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read:health`         | `get_health`, `get_provider_metrics`, `simulate_route`, `explain_route`, `best_combo_for_task`, `db_health_check`                                                              |
+| `read:combos`         | `list_combos`, `get_combo_metrics`, `simulate_route`, `best_combo_for_task`, `test_combo`                                                                                      |
+| `write:combos`        | `switch_combo`, `set_routing_strategy`                                                                                                                                         |
+| `read:quota`          | `check_quota`                                                                                                                                                                  |
+| `read:usage`          | `cost_report`, `get_session_snapshot`, `explain_route`                                                                                                                         |
+| `read:models`         | `list_models_catalog`                                                                                                                                                          |
+| `execute:completions` | `route_request`, `test_combo`                                                                                                                                                  |
+| `execute:search`      | `web_search`, `x_search`, `web_fetch`                                                                                                                                          |
+| `write:budget`        | `set_budget_guard`                                                                                                                                                             |
+| `write:resilience`    | `set_resilience_profile`, `db_health_check`                                                                                                                                    |
+| `pricing:write`       | `sync_pricing`                                                                                                                                                                 |
+| `read:cache`          | `cache_stats`                                                                                                                                                                  |
+| `write:cache`         | `cache_flush`                                                                                                                                                                  |
+| `read:compression`    | `compression_status`, `list_compression_combos`, `compression_combo_stats`                                                                                                     |
+| `write:compression`   | `compression_configure`, `set_compression_engine`                                                                                                                              |
+| `read:proxies`        | `oneproxy_fetch`, `oneproxy_rotate`, `oneproxy_stats`                                                                                                                          |
+| `read:notion`         | `notion_search`, `notion_get_page`, `notion_list_block_children`, `notion_query_database`, `notion_get_database`                                                               |
+| `write:notion`        | `notion_append_blocks`                                                                                                                                                         |
+| `read:memory`         | `memory_search`                                                                                                                                                                |
+| `write:memory`        | `memory_add`, `memory_clear`                                                                                                                                                   |
+| `read:skills`         | `skills_list`, `skills_executions`                                                                                                                                             |
+| `write:skills`        | `skills_enable`                                                                                                                                                                |
+| `execute:skills`      | `skills_execute`                                                                                                                                                               |
+| `read:catalog`        | `agent_skills_list`, `agent_skills_get`, `agent_skills_coverage`                                                                                                               |
+| `read:tools`          | `omniroute_tool_search`                                                                                                                                                        |
+| `read:radar`          | `omniroute_radar_catalog`                                                                                                                                                      |
+| `read:gamification`   | `gamification_profile`, `gamification_rank`, `gamification_leaderboard`, `gamification_badges`, `gamification_servers`, `gamification_anomalies`                               |
+| `write:gamification`  | `gamification_invite`, `gamification_transfer`                                                                                                                                 |
+| `read:plugins`        | `plugin_list`, `plugin_executions`                                                                                                                                             |
+| `write:plugins`       | `plugin_scan`, `plugin_install`, `plugin_uninstall`, `plugin_activate`, `plugin_deactivate`, `plugin_configure`                                                                |
+| `read:obsidian`       | 13 రీడ్ టూల్‌లు — `obsidian_list_vault`, `obsidian_read_note`, `obsidian_search_simple`, `obsidian_search_structured`, `obsidian_get_periodic_note`, `obsidian_sync_status`, … |
+| `write:obsidian`      | 9 రైట్ టూల్‌లు — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …                |
+| `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                              |
 
-వైల్డ్కార్డ్ స్కోప్లు మద్దతు ఇవ్వబడతాయి: `read:*` అన్ని రీడ్-స్కోప్లను మంజూరు చేస్తుంది, `*` పూర్తి ప్రాప్యతను మంజూరు చేస్తుంది.
+వైల్డ్‌కార్డ్ స్కోప్‌లు మద్దతు ఉన్నాయి: `read:*` అన్ని రీడ్-స్కోప్‌లను ఇస్తుంది, `*` పూర్తి యాక్సెస్ ఇస్తుంది.
 
-### `mcp:connect` — ఇరుకైన రూట్ సామర్థ్యం (#7895)
+### `mcp:connect` — సంకుచిత మార్గ్ సామర్థ్యం (#7895)
 
-HTTP/SSE MCP రవాణా (`/api/mcp/*`) ను నాన్-లూప్బ్యాక్ నుండి చేరుకోవడానికి `/api/mcp/` LOCAL_ONLY కార్వ్-అవుట్ అవసరం (చూడండి `docs/security/ROUTE_GUARD_TIERS.md`). చారిత్రాత్మకంగా ఆ కార్వ్-అవుట్ పూర్తి `manage`/`admin`-స్కోప్ API కీని మాత్రమే అంగీకరించింది — MCP తో మాత్రమే మాట్లాడాల్సిన కాలర్కు ఇది చాలా విస్తృతమైనది. `src/shared/constants/managementScopes.ts` ఇప్పుడు `MCP_CONNECT_SCOPE = "mcp:connect"` ను ఎగుమతి చేస్తుంది: ఇది ఒక అడిటివ్, ఇరుకైన స్కోప్ (`SELF_USAGE_SCOPE` వలె అదే పూర్వగామి) ఇది `src/server/authz/policies/management.ts` లోని `/api/mcp/` బైపాస్ను మాత్రమే అధికారం చేస్తుంది — ఇది ఇతర మేనేజ్మెంట్-రూట్ యాక్సెస్ను మంజూరు చేయదు మరియు `MANAGEMENT_API_KEY_SCOPES` నుండి ఉద్దేశపూర్వకంగా దూరంగా ఉంచబడింది. `manage`/`admin` కలిగి ఉన్న కీ ఇప్పటికీ కార్వ్-అవుట్ను మార్చకుండానే పాస్ చేస్తుంది; `mcp:connect` అనేది రిమోట్ MCP-మాత్రమే కాలర్ల కోసం తక్కువ-ప్రత్యేకాధికార ప్రత్యామ్నాయం, ఇది `hasMcpConnectOrManageScope()` ద్వారా తనిఖీ చేయబడుతుంది.
+HTTP/SSE MCP ట్రాన్స్‌పోర్ట్ (`/api/mcp/*`) వరకు non-loopback నుండి చేరుకోవడానికి `/api/mcp/` LOCAL_ONLY carve-out అవసరం (see `docs/security/ROUTE_GUARD_TIERS.md`). చారిత్రకంగా ఈ carve-out పూర్తి `manage`/`admin`-స్కోప్ API కీని మాత్రమే ఒప్పుకుంటేది — MCPతో మాత్రమే మాట్లాడాలనుకునే కాలీన్‌కర్‌కు ఇది చాలా విస్తారం. ఇప్పుడు `src/shared/constants/managementScopes.ts` `MCP_CONNECT_SCOPE = "mcp:connect"`ను ఎగుమతి చేస్తుంది: ఇది జోడించే స్కోప్ (`SELF_USAGE_SCOPE` ప్రకారం ఉన్న అదే ముందుగా), `src/server/authz/policies/management.ts`లోని `/api/mcp/` బైపాస్‌ను మాత్రమే అధికారం ఇస్తుంది — ఇతర మేనేజ్‌మెంట్ మార్గ్ యాక్సెస్‌ను ఏదీ ఇవ్వదు, `MANAGEMENT_API_KEY_SCOPES`లో ఉద్దేశ్యంగా ఉంచబడలేదు. `manage`/`admin` కలిగిన కీ carve-outను ఇప్పటికీ మారని రీతిగా అనుమతిస్తుంది; `mcp:connect` అనేది remote MCP-కే కాలీన్‌కర్‌లకు తక్కువ ప్రివిలేజ్ ఇచ్చే వికల్పం, `hasMcpConnectOrManageScope()` ద్వారా తనిఖీ చేయబడుతుంది.
 
 ### ప్రతి-కీ HTTP స్కోప్ బైండింగ్ (#7895)
 
-HTTP/SSE పై, `open-sse/mcp-server/httpTransport.ts` ఇప్పుడు కాలర్ యొక్క నిజమైన `api_keys.scopes` ను `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) ద్వారా పరిష్కరిస్తుంది మరియు దానిని MCP SDK యొక్క `transport.handleRequest(req, { authInfo })` కు పంపుతుంది, తద్వారా ప్రతి టూల్ కాల్ను చేరుకునే `extra.authInfo.scopes` బేరర్ కీ యొక్క స్వంత స్కోప్లను ప్రతిబింబిస్తుంది. `scopeEnforcement.ts` యొక్క `resolveCallerScopeContext()` ఇప్పటికే `_meta` మరియు `OMNIROUTE_MCP_SCOPES` env ఫాల్బ్యాక్ కంటే `authInfo` కు ప్రాధాన్యత ఇచ్చింది — ఇది గతంలో HTTP పై అన్ఫెడ్ చేయబడిన మొదటి, అత్యధిక-ప్రాధాన్యత మూలాన్ని మాత్రమే నింపుతుంది. API కీ పరిష్కరించబడనప్పుడు (హెడర్ లేదు, చెల్లని కీ), `authInfo` నిర్వచించబడకుండా ఉంటుంది మరియు పరిష్కారం ఇప్పటికే ఉన్న `meta`/env చైన్ ద్వారా మార్చకుండానే కొనసాగుతుంది. ఇది `OMNIROUTE_MCP_ENFORCE_SCOPES` యొక్క డిఫాల్ట్ను తిప్పికొట్టదు — అమలు ఇప్పటికీ స్పష్టంగా ప్రారంభించబడాలి; ఈ మార్పు అది ప్రారంభించబడిన తర్వాత ప్రతి-కీ మార్గాన్ని ప్రాధాన్యతనిస్తుంది. stdio కు ప్రతి-కాలర్ గుర్తింపు లేదు (`mcpCallerIdentity.ts` చూడండి) మరియు ప్రభావితం కాదు — ఇది `_meta`/env ఫాల్బ్యాక్ చైన్లోనే ఉంటుంది.
+HTTP/SSE ద్వారా, `open-sse/mcp-server/httpTransport.ts` ఇప్పుడు `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) ద్వారా కాలీన్‌కర్ యొక్క నిజమైన `api_keys.scopes`ను పరిష్కరించి, దానిని MCP SDK యొక్క `transport.handleRequest(req, { authInfo })`కు పంపుతుంది, అందువల్ల ప్రతి టూల్ కాల్‌కు చేరే `extra.authInfo.scopes` అనేది Bearer కీ యొక్క స్కోప్‌లను ప్రతిబింబిస్తుంది. `scopeEnforcement.ts`లోని `resolveCallerScopeContext()` ఇప్పటికే `_meta` మరియు `OMNIROUTE_MCP_SCOPES` env ఫాల్‌బ్యాక్ కంటే `authInfo`కు అధిక ప్రాధాన్యం ఇచ్చేది — ఇది ఆ మొదటి, అత్యధిక ప్రాధాన్యం ఉన్న మూలాన్ని మాత్రమే నింపుతుంది, అది HTTP ద్వారా గతంలో నింపబడేది కాదు. ఏ API కీ పరిష్కరించబడకపోతే (హెడర్ లేదు, చెల్లని కీ), `authInfo` `undefined`గానే ఉంటుంది, మరియు పరిష్కరణ ఇప్పటికీ ఉన్న `meta`/env గొలుసులోకి మారని రీతిగా దిగుతుంది. stdio కి ప్రతి-కాలీన్‌కర్ గుర్తింపు లేదు (see `mcpCallerIdentity.ts`), మరియు అది ప్రతి-కీ బైండింగ్ ద్వారా ప్రభావితం కాదు — ఇది `_meta` దశను దాట్తుంది (`_meta` HTTP ఆథ్ కాంటెక్స్ట్ లోపల మాత్రమే గౌరవించబడుతుంది, #15159), మరియు `OMNIROUTE_MCP_SCOPES` env కీ నుండి మాత్రమే పరిష్కరిస్తుంది.
 
----
+**సంకుచిత స్కోప్ ఉన్న HTTP/SSE కాలీన్‌కర్‌లకు `OMNIROUTE_MCP_ENFORCE_SCOPES` ఎంతైనా ఉన్నా, నిల్వ వేయడం (enforcement) బలవంతంగా ఆన్‌గా ఉంటుంది.** `OMNIROUTE_MCP_ENFORCE_SCOPES` `false`గా డిఫాల్ట్ అయ్యే అర్థం ఇది local/stdio ఒకే-ఆపరేటర్ ఫ్లో కోసం మాత్రమే సురక్షితం, అక్కడ ప్రతి-కాలీన్‌కర్ గుర్తింపు ఉండదు కాబట్టి స్కోప్ చేయాల్సిన లక్ష్యం ఉండదు. `resolveCallerScopeContext()` `source === "authInfo"`ను పరిష్కరించినప్పుడు (అంటే నిజమైన ప్రతి-కీ HTTP Authorization హెడర్, HTTP/SSE మాత్రమే) మరియు ఆ కీ పూర్తి `manage`/`admin` స్కోప్‌ను కలిగి లేకపోతే, `open-sse/mcp-server/server.ts::withScopeEnforcement()` ప్రతి-టూల్ స్కోప్ నిల్వను ఎలాంటి పరిస్థితిలోనూ ఆన్ చేస్తుంది (`scopeEnforcement.ts`లో `shouldForceScopeEnforcement()`). ఇది ఆ లోటును మూసివేస్తుంది: సంకుచిత `mcp:connect` బైపాస్ స్కోప్ మాత్రమే కలిగిన కీ — పైన డాక్యుమెంట్ చేసినట్లు `/api/mcp/` LOCAL_ONLY carve-out కంటే ఏదీ అధికారం ఇవ్వని — ఆపరేటర్ remote/non-loopback MCP యాక్సెస్‌ను ప్రారంభించిన తర్వాత, `OMNIROUTE_MCP_ENFORCE_SCOPES` డిఫాల్ట్‌గా `false`గా ఉండటి మాత్రమే కారణంగా ప్రతి MCP టూల్‌ను పిలువుకోగలిగే విధంగా ఉండేదు. HTTP ద్వారా పూర్తి `manage`/`admin` కీ, మరియు ప్రతి stdio/local కాలీన్‌కర్, ఇప్పటికీ ఉన్న `OMNIROUTE_MCP_ENFORCE_SCOPES`-ఆధారిత ప్రవర్తనను మారని రీతిగా ఉంచుతాయి.
 
-## పర్యావరణ చరరాశులు
+## పర్యావరణ వేరియబుల్స్
 
-| చరరాశి                                  | డిఫాల్ట్                                          | ఉద్దేశ్యం                                                                                                                                    |
-| :-------------------------------------- | :------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`                          | OmniRoute అంతర్గత APIలకు కాల్ చేసేటప్పుడు MCP సర్వర్ ఉపయోగించే మూల URL                                                                       |
-| `OMNIROUTE_API_KEY`                     | (ఖాళీ)                                            | అంతర్గత API కాల్లకు `Authorization: Bearer`గా ఫార్వర్డ్ చేయబడే API కీ                                                                        |
-| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (`"true"` మాత్రమే దీన్ని ప్రారంభిస్తుంది) | ప్రారంభించినప్పుడు, లేని స్కోప్లు టూల్ కాల్లను తిరస్కరిస్తాయి మరియు ఆడిట్ లాగ్లో `scope_denied:<reason>`ను నమోదు చేస్తాయి                    |
-| `OMNIROUTE_MCP_SCOPES`                  | (ఖాళీ)                                            | డిఫాల్ట్గా "అందుబాటులో ఉన్నవి"గా పరిగణించే స్కోప్ల కామాతో వేరు చేసిన అనుమతి జాబితా (కాలర్ తన స్వంత స్కోప్లను అందించనప్పుడు ఉపయోగించబడుతుంది) |
-| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (సెట్ చేయకపోతే = ఆన్)                             | `0/false/off/no`కు సెట్ చేసినప్పుడు, నమోదు సమయంలో MCP వివరణ కుదింపును నిలిపివేస్తుంది                                                        |
-| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (సెట్ చేయకపోతే = ఆన్)                             | పైన పేర్కొన్న అదే టాగుల్కు ప్రత్యామ్నాయ అలియాస్                                                                                              |
-| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                                           | అంతర్గత నిర్వహణ రీడ్లకు (ఆరోగ్యం, స్థితిస్థాపకత, కాంబోలు, కోటా, వినియోగం) అబార్ట్ సమయ పరిమితి                                                |
-| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                                           | ప్రొవైడర్ కోసం వేచి ఉండే హాప్లకు (`route_request`, `web_search`, `web_fetch`) అబార్ట్ సమయ పరిమితి                                            |
-| `MCP_TOOL_DENY`                         | (సెట్ చేయకపోతే = ఫిల్టర్ లేదు)                    | `tools/list` నుండి తొలగించాల్సిన టూల్ పేర్ల కామాతో వేరు చేసిన జాబితా (టూల్-కార్డినాలిటీ తగ్గింపు — క్రింద చూడండి)                            |
-| `MCP_TOOL_ALLOW`                        | (సెట్ చేయకపోతే = ఫిల్టర్ లేదు)                    | ప్రత్యేకంగా ఉంచాల్సిన టూల్ పేర్ల కామాతో వేరు చేసిన జాబితా (అనుమతి-జాబితా మోడ్ — క్రింద చూడండి)                                               |
-| `DATA_DIR`                              | `~/.omniroute`                                    | హార్ట్బీట్ ఫైల్ `${DATA_DIR}/runtime/mcp-heartbeat.json`కు వ్రాయబడుతుంది                                                                     |
+| వేరియబుల్                               | డిఫాల్ట్                                          | ప్రయోజనం                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| :-------------------------------------- | :------------------------------------------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`                          | OmniRoute అంతర్గత APIలను కాల్ చేసేటప్పుడు MCP సర్వర్ ఉపయోగించే బేస్ URL                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `OMNIROUTE_API_KEY`                     | (ఖాళీ)                                            | అంతర్గత API కాల్లకు `Authorization: Bearer`గా ఫార్వర్డ్ చేయబడే API కీ                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (`"true"` మాత్రమే దీన్ని ప్రారంభిస్తుంది) | ప్రారంభించినప్పుడు, లేని స్కోప్లు టూల్ కాల్లను తిరస్కరిస్తాయి మరియు ఆడిట్ లాగ్లో `scope_denied:<reason>`ను నమోదు చేస్తాయి. ఒక్కో కీ Authorization హెడర్ (`source === "authInfo"`) నుండి నిర్ధారించబడిన, పూర్తి `manage`/`admin` స్కోప్ లేని ఏ HTTP/SSE కాలర్కైనా — ఉదా. కేవలం పరిమిత `mcp:connect` బైపాస్ స్కోప్ను కలిగి ఉన్న కీ — ఈ ఫ్లాగ్తో సంబంధం లేకుండా అమలు కూడా తప్పనిసరిగా ప్రారంభించబడుతుంది; అందువల్ల ఈ డిఫాల్ట్ స్థానిక/stdio ఏకైక-ఆపరేటర్ ప్రవాహానికి మాత్రమే సురక్షితం, రిమోట్ నాన్-లూప్బ్యాక్ యాక్సెస్కు ఎప్పటికీ కాదు |
+| `OMNIROUTE_MCP_SCOPES`                  | (ఖాళీ)                                            | డిఫాల్ట్గా "అందుబాటులో" ఉన్నవిగా పరిగణించబడే స్కోప్ల కామాతో వేరు చేసిన అనుమతి జాబితా (కాలర్ తన స్వంత స్కోప్లను అందించనప్పుడు ఉపయోగించబడుతుంది)                                                                                                                                                                                                                                                                                                                                                                                       |
+| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (సెట్ చేయలేదు = ఆన్)                              | `0/false/off/no`కు సెట్ చేసినప్పుడు, రిజిస్ట్రేషన్ సమయంలో MCP వివరణ కంప్రెషన్ను నిలిపివేస్తుంది                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (సెట్ చేయలేదు = ఆన్)                              | పైన పేర్కొన్న అదే టాగుల్కు ప్రత్యామ్నాయ అలియాస్                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                                           | అంతర్గత నిర్వహణ రీడ్ల కోసం (హెల్త్, రెసిలియన్స్, కాంబోలు, కోటా, వినియోగం) అబార్ట్ సమయ పరిమితి                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                                           | ప్రొవైడర్ కోసం వేచి ఉండే హాప్లకు (`route_request`, `web_search`, `web_fetch`) అబార్ట్ సమయ పరిమితి                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `MCP_TOOL_DENY`                         | (సెట్ చేయలేదు = ఫిల్టర్ లేదు)                     | `tools/list` నుండి తొలగించాల్సిన టూల్ పేర్ల కామాతో వేరు చేసిన జాబితా (టూల్-కార్డినాలిటీ తగ్గింపు — క్రింద చూడండి)                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `MCP_TOOL_ALLOW`                        | (సెట్ చేయకపోతే = ఫిల్టర్ లేదు)                    | ప్రత్యేకంగా ఉంచాల్సిన కామాతో వేరు చేసిన టూల్ పేర్లు (అనుమతి-జాబితా మోడ్ — క్రింద చూడండి)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `DATA_DIR`                              | `~/.omniroute`                                    | హార్ట్బీట్ ఫైల్ `${DATA_DIR}/runtime/mcp-heartbeat.json`కు వ్రాయబడుతుంది                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ---
 

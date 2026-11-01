@@ -5,6 +5,7 @@ import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import {
   buildLegacyResilienceCompat,
   mergeResilienceSettings,
+  pruneResilienceSettingsToProvided,
   resolveResilienceSettings,
   type ResilienceSettings,
   type ResilienceSettingsPatch,
@@ -139,6 +140,7 @@ export async function GET(request?: Request) {
       requestQueue: resilience.requestQueue,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
+      tokenRefreshBreaker: resilience.tokenRefreshBreaker,
       waitForCooldown: {
         enabled: resilience.waitForCooldown.enabled,
         maxRetries: resilience.waitForCooldown.maxRetries,
@@ -146,6 +148,9 @@ export async function GET(request?: Request) {
       },
       comboCooldownWait: resilience.comboCooldownWait,
       quotaShareConcurrencyLimit: resilience.quotaShareConcurrencyLimit,
+      streamStallCooldown: resilience.streamStallCooldown,
+      p2cLatency: resilience.p2cLatency,
+      streamRecovery: resilience.streamRecovery,
       providerCooldown: resilience.providerCooldown,
       quotaPreflight: resilience.quotaPreflight,
       providerQuotaOverrides: resilience.providerQuotaOverrides,
@@ -208,6 +213,12 @@ export async function PATCH(request) {
       ...(body.providerBreaker
         ? { providerBreaker: body.providerBreaker as ResilienceSettingsPatch["providerBreaker"] }
         : {}),
+      ...(body.tokenRefreshBreaker
+        ? {
+            tokenRefreshBreaker:
+              body.tokenRefreshBreaker as ResilienceSettingsPatch["tokenRefreshBreaker"],
+          }
+        : {}),
       ...(body.waitForCooldown
         ? { waitForCooldown: body.waitForCooldown as ResilienceSettingsPatch["waitForCooldown"] }
         : {}),
@@ -221,6 +232,20 @@ export async function PATCH(request) {
         ? {
             quotaShareConcurrencyLimit:
               body.quotaShareConcurrencyLimit as ResilienceSettingsPatch["quotaShareConcurrencyLimit"],
+          }
+        : {}),
+      ...(body.streamStallCooldown
+        ? {
+            streamStallCooldown:
+              body.streamStallCooldown as ResilienceSettingsPatch["streamStallCooldown"],
+          }
+        : {}),
+      ...(body.p2cLatency
+        ? { p2cLatency: body.p2cLatency as ResilienceSettingsPatch["p2cLatency"] }
+        : {}),
+      ...(body.streamRecovery
+        ? {
+            streamRecovery: body.streamRecovery as ResilienceSettingsPatch["streamRecovery"],
           }
         : {}),
       ...(body.providerCooldown
@@ -245,9 +270,17 @@ export async function PATCH(request) {
         : {}),
       ...normalizeLegacyPatch(body),
     });
+    const nextSparse = pruneResilienceSettingsToProvided(
+      mergedFull,
+      resolveResilienceSettings(null)
+    );
+    const nextResilience = resolveResilienceSettings({
+      ...currentSettings,
+      resilienceSettings: nextSparse,
+    });
 
     await updateSettings({
-      resilienceSettings: nextResilience,
+      resilienceSettings: nextSparse,
       requestRetry: nextResilience.waitForCooldown.maxRetries,
       maxRetryIntervalSec: nextResilience.waitForCooldown.maxRetryWaitSec,
     }, { expectedRevision });
@@ -259,9 +292,9 @@ export async function PATCH(request) {
     // `null` (PATCH input) → undefined (stored) is correctly detected as
     // "unset request" when the previous stored value was a boolean.
     const breakerHintsChanged =
-      currentResilience.connectionCooldown.oauth.useUpstream429BreakerHints !==
+      sparseBase.connectionCooldown.oauth.useUpstream429BreakerHints !==
         nextResilience.connectionCooldown.oauth.useUpstream429BreakerHints ||
-      currentResilience.connectionCooldown.apikey.useUpstream429BreakerHints !==
+      sparseBase.connectionCooldown.apikey.useUpstream429BreakerHints !==
         nextResilience.connectionCooldown.apikey.useUpstream429BreakerHints;
     if (breakerHintsChanged) {
       resetAllCircuitBreakers();
@@ -273,6 +306,7 @@ export async function PATCH(request) {
       requestQueue: nextResilience.requestQueue,
       connectionCooldown: nextResilience.connectionCooldown,
       providerBreaker: nextResilience.providerBreaker,
+      tokenRefreshBreaker: nextResilience.tokenRefreshBreaker,
       waitForCooldown: {
         enabled: nextResilience.waitForCooldown.enabled,
         maxRetries: nextResilience.waitForCooldown.maxRetries,
@@ -280,6 +314,9 @@ export async function PATCH(request) {
       },
       comboCooldownWait: nextResilience.comboCooldownWait,
       quotaShareConcurrencyLimit: nextResilience.quotaShareConcurrencyLimit,
+      streamStallCooldown: nextResilience.streamStallCooldown,
+      p2cLatency: nextResilience.p2cLatency,
+      streamRecovery: nextResilience.streamRecovery,
       providerCooldown: nextResilience.providerCooldown,
       quotaPreflight: nextResilience.quotaPreflight,
       providerQuotaOverrides: nextResilience.providerQuotaOverrides,
