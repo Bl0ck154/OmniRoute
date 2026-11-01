@@ -112,5 +112,5 @@ jobs:
           git archive FETCH_HEAD:src/lib/db/migrations | tar -x -C "$RUNNER_TEMP/old-migrations"
       - name: Run historical fork upgrade with synthetic SQLite data
         run: |
-          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs seed "$RUNNER_TEMP/fork-upgrade.sqlite" "$RUNNER_TEMP/old-migrations"
-          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs upgrade "$RUNNER_TEMP/fork-upgrade.sqlite" src/lib/db/migrations
+          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs seed "$RUNNER_TEMP/fork-upgrade/storage.sqlite" "$RUNNER_TEMP/old-migrations"
+          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs upgrade "$RUNNER_TEMP/fork-upgrade/storage.sqlite" src/lib/db/migrations
