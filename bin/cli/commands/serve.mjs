@@ -315,7 +315,8 @@ export async function runServe(opts = {}) {
   // findListeningPids() returning null means the discovery tool itself is
   // missing or unusable (Termux, slim containers, #14518) — fall back to a
   // bind probe so the guard still answers before spawning the doomed child.
-  const busyPids = await resolveListeningPidsForServe(dashboardPort);
+  const serverHost = resolveServerHost();
+  const busyPids = await resolveServeBusyPids(dashboardPort, { host: serverHost });
   if (busyPids.length > 0) {
     reportPortInUse(dashboardPort, busyPids);
     process.exit(1);
