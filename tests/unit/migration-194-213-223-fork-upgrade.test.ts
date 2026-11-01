@@ -61,7 +61,8 @@ for (const previousTiming of [[], ["headers_ms"], ["first_chunk_ms"], ["headers_
         { version: "213", name: "api_key_preferred_connections" },
         { version: "223", name: "proxy_logs_attempt_timing" },
       ]);
-      assert.equal(db.prepare("SELECT preferred_connections AS p FROM api_keys WHERE id='fixture-key'").get()?.p, '["conn-a","conn-b"]');
+      const originalKey = db.prepare("SELECT preferred_connections AS p FROM api_keys WHERE id='fixture-key'").get() as { p: string } | undefined;
+      assert.equal(originalKey?.p, '["conn-a","conn-b"]');
       const cols = (db.prepare("PRAGMA table_info(proxy_logs)").all() as Array<{ name: string }>).map(c => c.name);
       assert.equal(cols.filter(c => c === "headers_ms").length, 1);
       assert.equal(cols.filter(c => c === "first_chunk_ms").length, 1);
