@@ -2395,6 +2395,7 @@ export function buildExhaustionOptions(
     headers?: Headers | Record<string, string> | null;
     structuredError?: { code?: string | null; type?: string | null } | null;
     healthAttempt?: AntigravityHealthAttempt;
+    streamOutputEmitted?: boolean;
   } = {}
 ): {
   persistUnavailableState?: boolean;
@@ -2402,6 +2403,7 @@ export function buildExhaustionOptions(
   headers?: Headers | Record<string, string> | null;
   structuredError?: { code?: string | null; type?: string | null } | null;
   healthAttempt?: AntigravityHealthAttempt;
+  streamOutputEmitted?: boolean;
   correlationId: string | null;
 } {
   return { ...rest, correlationId };
