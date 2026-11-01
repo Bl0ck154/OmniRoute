@@ -72,6 +72,16 @@ curl -i \
 
 `manage` kapsamına sahip olmayan bir anahtar (veya Bearer bilgisinin bulunmaması) `403 LOCAL_ONLY` döndürür. Kardeş `/api/cli-tools/runtime/*` öneki kasıtlı olarak bu yöntemle ATLANAMAZ — bkz. [Route Guard Katmanları — Manage kapsamı istisnası](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
 
+### Origin doğrulaması
+
+Kimlik doğrulamasından sonra `/api/mcp/*` adresine giden her isteğin — transport'lar ve `status`, `tools`, `audit`, `restart` gibi yönetim rotaları — `Origin` başlığı, çağıran kim olursa olsun (API anahtarı, CLI token'ı, dashboard oturumu veya oturum açma kapalıyken anonim loopback) doğrulanır. Bu, MCP Streamable HTTP spesifikasyonunun gerektirdiği DNS rebinding korumasıdır.
+
+- **`Origin` başlığı yok** → izin verilir. OmniRoute CLI, SDK ve IDE istemcileri bu başlığı göndermez.
+- **İzin verilen `Origin`** → herhangi bir portta `localhost` / `127.0.0.1` / `[::1]` ya da OmniRoute'un kendi genel origin'i: `OMNIROUTE_PUBLIC_BASE_URL` / `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_APP_URL`, güvenilir bir ters proxy'nin ilettiği origin (`OMNIROUTE_TRUST_PROXY`, yalnızca base URL ayarlanmamışsa) veya doğrudan erişilen loopback/LAN IP host'u. Tek başına `Host` başlığı bir origin'i asla güvenilir yapmaz.
+- **`null` dahil diğer tüm `Origin` değerleri** → JSON-RPC hata gövdesiyle `403`: `id: null`, `error.code: -32000`, `error.data.code: "INVALID_ORIGIN"`. Geçerli bir CSRF token'ı sunan dashboard oturumu, diğer dashboard yazma işlemlerinde olduğu gibi kabul edilmeye devam eder.
+
+Ters proxy arkasında sunulan tarayıcı tabanlı bir MCP istemcisi `OMNIROUTE_PUBLIC_BASE_URL` gerektirir; diğer origin'ler için izin listesi yoktur. CORS ön kontrol isteği (`OPTIONS`) Origin açısından denetlenmez; ardından gelen istek denetlenir.
+
 ## IDE Yapılandırması
 
 Claude Desktop, Cursor, Cline ve uyumlu MCP istemcilerinin kurulumu için [MCP İstemcisi Yapılandırması](../guides/SETUP_GUIDE.md#mcp-client-configuration) bölümüne bakın.
@@ -282,76 +292,83 @@ Hem SSE hem de Akış Destekli HTTP aktarımları, MCP sunucusu Ayarlar'da etkin
 
 ## Kimlik Doğrulama ve Kapsamlar
 
-MCP aracı, çağırandan kapsam dizelerini okur. Bu kontrol, üç bağımsız ad alanından biridir. Bir denetleyiciden geçmek, diğerlerinden geçmek anlamına gelmez. Kurallar [Üç kapsam ad alanı](#three-scope-namespaces) bölümündedir. Araç kataloğu [MCP araç kapsamları](#mcp-tool-scopes) bölümündedir.
+MCP araç çağrıları, kapsam dizelerini çağırandan okur. Bu denetim, birbirinden bağımsız üç ad alanından biridir. Bir denetleyiciden geçmek, diğerlerinden geçmek anlamına gelmez. Kurallar [Üç kapsam ad alanı](#three-scope-namespaces) bölümündedir. Araç kataloğu ise [MCP araç kapsamları](#mcp-tool-scopes) bölümündedir.
 
 ### Üç kapsam ad alanı
 
-Bir API anahtarındaki `manage`, bir MCP aracındaki `read:compression` ve bir `oma_live_…` erişim belirtecindeki `read` üç farklı izindir. Değişiklik yapan bir yönetim rotasına `read` erişim belirteci gönderen çağırıcılar HTTP 403 `Access token scope 'read' is insufficient; 'write' required.` hatası alırlar. Bu rütbe `scopeSatisfies`'dir. MCP tablosuna başvurmaz ve MCP eşleştiricisi de buna başvurmaz.
+Bir API anahtarındaki `manage`, bir MCP aracındaki `read:compression` ve bir `oma_live_…` erişim jetonundaki `read` üç farklı yetkidir. Değiştirici bir yönetim rotasına `read` erişim jetonu gönderen çağıranlar HTTP 403 alır: `Access token scope 'read' is insufficient; 'write' required.` Bu sıralama `scopeSatisfies` tarafından yapılır. Bu, MCP tablosuna başvurmaz; MCP eşleştiricisi de buna başvurmaz.
 
-| Ad Alanı              | Kimlik Bilgisi                                                             | Denetleyici                | Geçiş şunlara izin verir                            |
-| :-------------------- | :------------------------------------------------------------------------- | :------------------------- | :-------------------------------------------------- |
-| API anahtarı yönetimi | `api_keys.scopes`                                                          | `hasManageScope`           | O Bearer anahtarı için Yönetim REST                 |
-| API anahtarı ekleme   | aynı dizi, bir tam dize                                                    | aşağıda adı geçen yardımcı | Yalnızca o tek yetenek                              |
-| MCP araç kapsamları   | aynı dizi, aksi takdirde MCP `_meta`, aksi takdirde `OMNIROUTE_MCP_SCOPES` | `scopeMatches`             | O araç, zorlama açıldığında                         |
-| Erişim belirteci      | `oma_live_…`                                                               | `scopeSatisfies`           | Yöntemi ve yolu o rütbeyi gerektiren yönetim rotası |
+| Ad alanı               | Kimlik bilgisi                                                                           | Denetleyici                | Geçişe izin verir                                      |
+| :--------------------- | :--------------------------------------------------------------------------------------- | :------------------------- | :----------------------------------------------------- |
+| API anahtarı yönetimi  | `api_keys.scopes`                                                                        | `hasManageScope`           | O Bearer anahtarı için yönetim REST çağrıları          |
+| API anahtarı ek kapsam | aynı dizi, tek bir tam dize                                                              | aşağıda adı geçen yardımcı | Yalnızca o tek yetenek                                 |
+| MCP araç kapsamları    | aynı dizi, aksi hâlde MCP `_meta` (yalnızca HTTP/SSE), aksi hâlde `OMNIROUTE_MCP_SCOPES` | `scopeMatches`             | Zorlama açıldığında o araç                             |
+| Erişim jetonu          | `oma_live_…`                                                                             | `scopeSatisfies`           | Yöntemi ve yolu o sıralamayı gerektiren yönetim rotası |
 
-Her kimlik bilgisinin oluşturulması [Yönetim Kimlik Doğrulaması](../guides/MANAGEMENT-AUTH.md) bölümünde ele alınmıştır.
+Her kimlik bilgisinin oluşturulması [Yönetim Kimlik Doğrulama](../guides/MANAGEMENT-AUTH.md) belgesinde ele alınmıştır.
 
 #### API anahtarı kapsamları
 
-Bir `api_keys.scopes` dizisi iki işi besler. Farklı işlevler kullanırlar.
+Tek bir `api_keys.scopes` dizisi iki işleve besler. Bu işlevler farklı fonksiyonlar kullanır.
 
-**Yönetim REST.** `manage` ve `admin`, `MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`) üyeleridir. `hasManageScope`, o anahtar için yönetim rotalarını yetkilendiren şeydir. `admin`, bu rotalarda yönetim yeteneğine sahiptir. Buradaki `admin` kelimesi erişim belirteci rütbesi değildir ve MCP araç kapsamlarına genişlemez.
+**Yönetim REST.** `manage` ve `admin`, `MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`) dizisinin üyeleridir. `hasManageScope`, o anahtar için yönetim rotalarına yetki veren işlevdir. `admin`, bu rotalarda yönetim yeteneğine sahiptir. Buradaki `admin` sözcüğü erişim jetonu sıralaması değildir ve MCP araç kapsamlarına genişlemez.
 
-**Ek dizeler.** Her biri tam bir üyelik testidir ve her biri `MANAGEMENT_API_KEY_SCOPES` dışında kalır.
+**Ek kapsam dizeleri.** Her biri tam üyelik testidir ve her biri `MANAGEMENT_API_KEY_SCOPES` dışında kalır.
 
-| Kapsam                         | Geçiş şunlara izin verir                                                                                                                                                      |
-| :----------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp:connect`                  | Yalnızca döngüsel olmayan `/api/mcp/` LOCAL_ONLY oyuğu (`hasMcpConnectOrManageScope`). `manage` veya `admin` içeren bir anahtar yine de bu oyuğu geçer.                       |
-| `self:usage`                   | Bu anahtar için `GET /api/v1/me/status` (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` oluşturma sırasında bu kapsamı ekler (`normalizeSelfServiceScopesForCreate`). |
-| `self:account-quota`           | Bu durum yükü içindeki yukarı akış hesap kotaları (`src/lib/usage/apiKeySelfService.ts`). Durum rotası hala `self:usage` gerektirir.                                          |
-| `policy:bypass-provider-quota` | Bu anahtarın çıkarım çağrıları sağlayıcı-kota politikasını atlar (`src/sse/handlers/chat.ts` içindeki `hasProviderQuotaBypassScope`).                                         |
+| Kapsam                         | Geçişe izin verir                                                                                                                                                              |
+| :----------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp:connect`                  | Yalnızca loopback dışı `/api/mcp/` LOCAL_ONLY muafiyeti (`hasMcpConnectOrManageScope`). `manage` veya `admin` içeren bir anahtar da bu muafiyetten geçer.                      |
+| `self:usage`                   | Bu anahtar için `GET /api/v1/me/status` (`src/app/api/v1/me/status/route.ts`). `POST /api/keys`, oluşturma sırasında bu kapsamı ekler (`normalizeSelfServiceScopesForCreate`). |
+| `self:account-quota`           | O durum yükünün içindeki üst hesap kotaları (`src/lib/usage/apiKeySelfService.ts`). Durum rotası yine de `self:usage` gerektirir.                                              |
+| `policy:bypass-provider-quota` | Bu anahtarın çıkarım çağrıları, sağlayıcı kotası politikasını atlar (`src/sse/handlers/chat.ts` içinde `hasProviderQuotaBypassScope`).                                         |
 
 #### Eşleştirme
 
-Katalog, [MCP araç kapsamları](#mcp-tool-scopes) altındaki tablodur. `src/shared/constants/mcpScopes.ts` içindeki `MCP_SCOPE_LIST`'i bu katalog olarak ele almayın: bu, orijinal yazılı alt kümedir. Daha sonraki araçlar bunun yanında başka kapsamlar da bildirir (`read:notion`, `read:skills`, `read:local-corpus` ve tablonun geri kalanı).
+Katalog, [MCP araç kapsamları](#mcp-tool-scopes) başlığı altındaki tablodur. `src/shared/constants/mcpScopes.ts` içindeki `MCP_SCOPE_LIST` dizisini bu katalog sanmayın: o, özgün tipli alt kümedir. Sonraki araçlar bunun yanına daha fazla kapsam tanımlar (`read:notion`, `read:skills`, `read:local-corpus` ve tablonun kalanı).
 
-`open-sse/mcp-server/scopeEnforcement.ts` içindeki `evaluateToolScopes`, her gerekli kapsamın bazı verilen kapsamlarla eşleşmesi durumunda bir çağrıya izin verir:
+`open-sse/mcp-server/scopeEnforcement.ts` içindeki `evaluateToolScopes`, her gerekli kapsam verilmiş bir kapsamla eşleştiğinde çağrıya izin verir:
 
 - `*` her gerekli kapsamla eşleşir.
-- `*` ile biten verilen bir kapsam, yıldızdan önceki önekle başlayan gerekli bir kapsamla eşleşir. `read:*`, `read:compression` ile eşleşir.
-- Diğer her verilen kapsam yalnızca aynı gerekli dizeyle eşleşir.
+- Yıldızdan önceki önek ile başlayan bir gerekli kapsam, `*` ile biten verilmiş bir kapsamla eşleşir. `read:*`, `read:compression` ile eşleşir.
+- Diğer tüm verilmiş kapsamlar yalnızca birebir aynı gerekli dizeyle eşleşir.
 
-Kapsamları `["manage"]` olan bir anahtar, `read:compression` için `scopeMatches`'i geçemez. Aynı çağrı, yalnızca `admin`, `mcp:connect`, `read` ve `write` verilen dizeler olduğunda başarısız olur. Sondaki `*` dışında MCP araç kapsamları arasında bir hiyerarşi yoktur.
+Kapsamları `["manage"]` olan bir anahtar, `read:compression` için `scopeMatches` denetiminden geçemez. Aynı çağrı, bunlar verilmiş tek dizeler olduğunda `admin`, `mcp:connect`, `read` ve `write` için de başarısız olur. Sondaki `*` dışında MCP araç kapsamları arasında bir hiyerarşi yoktur.
 
-Zorlama, `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (varsayılan `false`) olmadığı sürece kapalıdır. Kapalıyken, `evaluateToolScopes` çağrıya izin verir ve kataloğu atlar. Açıkken, HTTP, Bearer anahtarının `api_keys.scopes`'ini `authInfo` olarak kullanır ([Anahtar başına HTTP kapsam bağlama](#per-key-http-scope-binding-7895) bölümüne bakın). Anahtar kapsamları çözümlenmediğinde, verilen küme MCP `_meta`'ya, ardından `OMNIROUTE_MCP_SCOPES`'e düşer.
+`OMNIROUTE_MCP_ENFORCE_SCOPES=true` olmadıkça (varsayılan `false`) zorlama kapalıdır. Kapalıyken `evaluateToolScopes` çağrıya izin verir ve kataloğu atlar. Açıkken, HTTP, Bearer anahtarının `api_keys.scopes` değerini `authInfo` olarak kullanır (bkz. [Anahtar başına HTTP kapsam bağlama](#per-key-http-scope-binding-7895)). Hiçbir anahtar kapsamı çözümlenemediğinde, verilmiş küme MCP `_meta` alanına düşer (yalnızca HTTP bağlamı içinde, HTTP/SSE çağıranları için dikkate alınır; stdio çağıranının `_meta` alanı yok sayılır, çünkü istemci onu kontrol eder ve çağıran kimliği taşımaz), ardından `OMNIROUTE_MCP_SCOPES` alanına düşer.
 
-#### Erişim belirteci kapsamları
+#### Erişim jetonu kapsamları
 
-`oma_live_…` belirteçleri (`src/lib/accessTokens/scopes.ts`) `read`, `write` veya `admin` taşır. `scopeSatisfies` bir rütbedir: `admin`, `write` ve `read`'i kapsar ve `write`, `read`'i kapsar. Bilinmeyen kapsamlar hiçbir şeyi kapsamaz.
+`oma_live_…` jetonları (`src/lib/accessTokens/scopes.ts`), `read`, `write` veya `admin` taşır. `scopeSatisfies` bir sıralamadır: `admin`, `write` ve `read` kapsamlarını kapsar; `write` ise `read` kapsamını kapsar. Bilinmeyen kapsamlar hiçbir şeyi kapsamaz.
 
-`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`), bu rütbeyi `inferRequiredScope` (`src/server/authz/accessScopes.ts`) ile karşılaştırır:
+`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`), bu sıralamayı `inferRequiredScope` (`src/server/authz/accessScopes.ts`) ile karşılaştırır:
 
-- `GET`, `HEAD` ve `OPTIONS` `read` gerektirir.
-- Diğer her yöntem `write` gerektirir.
-- `ADMIN_SCOPE_PREFIXES` içindeki yollar, her yöntem için `admin` gerektirir. `/api/mcp` bu listede olduğundan, bir `write` erişim belirteci yine de MCP HTTP yüzeyini çağıramaz.
-- `ADMIN_MUTATION_PREFIXES` içindeki yollar, yalnızca mutasyonlar için `admin` gerektirir.
+- `GET`, `HEAD` ve `OPTIONS` için `read` gerekir.
+- Diğer tüm metotlar için `write` gerekir.
+- `ADMIN_SCOPE_PREFIXES` içindeki yollar her metot için `admin` gerektirir.
+  `/api/mcp` bu listede yer aldığından, `write` erişim jetonu MCP HTTP yüzeyini çağırmaya
+  devam edemez.
+- `ADMIN_MUTATION_PREFIXES` içindeki yollar yalnızca mutasyonlar için `admin`
+  gerektirir.
+- `ADMIN_MUTATION_EXACT_PATHS` (`/api/settings`, `/api/settings/require-login`)
+  içindeki yollar yalnızca mutasyonlar ve yalnızca o tam yol üzerinde `admin`
+  gerektirir — diğer `/api/settings/*` alt yolları `write` olarak kalır.
 
-`PATCH /api/keys/{id}` bir mutasyondur ve bu yönetici listelerinde değildir, bu nedenle bir
-`read` belirteci 403 alır
-`Erişim belirteci kapsamı 'read' yetersiz; 'write' gerekli.`
-Bir `write` veya `admin` erişim belirteci bu rotayı karşılar. Bir kontrol paneli JWT'si,
-loopback CLI makine-kimliği belirteci ve `manage` veya `admin` yetkisine sahip bir API anahtarı
-başka dallara gider ve bu rütbe tarafından daraltılmaz.
+`PATCH /api/keys/{id}` bir mutasyondur ve bu admin listelerinde yer almaz; dolayısıyla
+bir `read` jetonu 403
+`Access token scope 'read' is insufficient; 'write' required.`
+yanıtını alır. `write` veya `admin` erişim jetonu bu yolu karşılar. Bir dashboard
+JWT'si, loopback CLI machine-id jetonu ve `manage` veya `admin` yetkisine sahip bir
+API anahtarı diğer dallara girer ve bu sıralama tarafından daraltılmaz.
 
-`/api/mcp` için `scopeSatisfies`'ı geçen bir erişim belirteci yalnızca
-yönetim geçidini temizlemiştir. Araç çağrıları hala API anahtarı
-kapsamlarına karşı `scopeMatches`'ı çalıştırır. Erişim belirteci rütbesi `scopeMatches`'a bir girdi değildir.
+`/api/mcp` için `scopeSatisfies` kontrolünden geçen bir erişim jetonu yalnızca yönetim
+kapısını geçmiştir. Araç çağrıları hâlâ API anahtarı kapsamları karşısında
+`scopeMatches` çalıştırır. Erişim jetonu sıralaması `scopeMatches` girdisi
+değildir.
 
 ### MCP araç kapsamları
 
-Kapsam uygulaması `open-sse/mcp-server/scopeEnforcement.ts` içinde merkezileştirilmiştir.
-Her araç belirli kapsamlar gerektirir:
+Kapsam zorlaması `open-sse/mcp-server/scopeEnforcement.ts` dosyasında
+merkezileştirilmiştir. Her araç belirli kapsamlar gerektirir:
 
 | Kapsam                | Araçlar                                                                                                                                                                       |
 | :-------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -389,40 +406,33 @@ Her araç belirli kapsamlar gerektirir:
 | `write:obsidian`      | 9 yazma aracı — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …                |
 | `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                             |
 
-Joker kapsamlar desteklenir: `read:*` tüm okuma kapsamlarını verir, `*` tam erişim sağlar.
+Joker kapsamlar desteklenir: `read:*` tüm okuma kapsamlarını, `*` ise tam erişimi verir.
 
-### `mcp:connect` — dar yol yeteneği (#7895)
+### `mcp:connect` — dar kapsamlı rota yeteneği (#7895)
 
-HTTP/SSE MCP taşıyıcısına (`/api/mcp/*`) yerel olmayan bir yerden erişmek için
-`/api/mcp/` LOCAL_ONLY istisnası gereklidir (bkz. `docs/security/ROUTE_GUARD_TIERS.md`). Tarihsel olarak
-bu istisna yalnızca tam bir `manage`/`admin` kapsamlı API anahtarını kabul ediyordu — yalnızca MCP ile konuşması gereken bir arayan için çok geniş. `src/shared/constants/managementScopes.ts` şimdi
-`MCP_CONNECT_SCOPE = "mcp:connect"` değerini dışa aktarır: yalnızca `src/server/authz/policies/management.ts` içindeki `/api/mcp/` atlamasını yetkilendiren ek, dar bir kapsamdır (`SELF_USAGE_SCOPE` ile aynı emsal) — başka hiçbir yönetim yolu erişimi sağlamaz ve kasıtlı olarak `MANAGEMENT_API_KEY_SCOPES` dışında tutulur. `manage`/`admin` içeren bir anahtar, istisnayı değişmeden geçer; `mcp:connect`, `hasMcpConnectOrManageScope()` aracılığıyla kontrol edilen, uzaktan yalnızca MCP arayanları için daha düşük ayrıcalıklı bir alternatiftir.
+HTTP/SSE MCP taşımasına (`/api/mcp/*`) döngüsel olmayan (non-loopback) adreslerden erişmek, `/api/mcp/` LOCAL_ONLY muafiyetini gerektirir (bkz. `docs/security/ROUTE_GUARD_TIERS.md`). Tarihsel olarak bu muafiyet yalnızca tam `manage`/`admin` kapsamlı bir API anahtarını kabul ediyordu — yalnızca MCP ile konuşması gereken bir çağıran için fazla genişti. `src/shared/constants/managementScopes.ts` artık `MCP_CONNECT_SCOPE = "mcp:connect"` değerini dışa aktarıyor: `src/server/authz/policies/management.ts` içindeki `/api/mcp/` muafiyetine YALNIZCA yetki veren, ekleyici (additive) ve dar kapsamlı bir yetki (`SELF_USAGE_SCOPE` ile aynı emsal) — başka hiçbir yönetim rotası erişimi vermez ve bilinçli olarak `MANAGEMENT_API_KEY_SCOPES` içinde TUTULMAZ. `manage`/`admin` kapsamına sahip bir anahtar muafiyetten değişmeden geçmeye devam eder; `mcp:connect` yalnızca uzak MCP çağıranları için daha düşük yetkili bir alternatiftir ve `hasMcpConnectOrManageScope()` ile denetlenir.
 
 ### Anahtar başına HTTP kapsam bağlama (#7895)
 
-HTTP/SSE üzerinden, `open-sse/mcp-server/httpTransport.ts` şimdi arayanın gerçek
-`api_keys.scopes` değerini `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) aracılığıyla çözer
-ve bunu MCP SDK'sının `transport.handleRequest(req, { authInfo })` öğesine iletir, böylece
-her araç çağrısına ulaşan `extra.authInfo.scopes`, Bearer anahtarının kendi kapsamlarını yansıtır.
-`scopeEnforcement.ts`'nin `resolveCallerScopeContext()` öğesi zaten `authInfo`'yu `_meta` ve `OMNIROUTE_MCP_SCOPES` ortam yedeklemesinden öncelikli hale getiriyordu — bu yalnızca daha önce HTTP üzerinden beslenmeyen bu ilk, en yüksek öncelikli kaynağı doldurur. Hiçbir API anahtarı çözülmediğinde (başlık yok, geçersiz anahtar), `authInfo` `undefined` kalır ve çözümleme mevcut `meta`/ortam zincirine değişmeden düşer. Bu, `OMNIROUTE_MCP_ENFORCE_SCOPES`'un varsayılanını DEĞİŞTİRMEZ — uygulama hala açıkça etkinleştirilmelidir; bu değişiklik yalnızca etkinleştirildiğinde anahtar başına yolun öncelik almasını sağlar. stdio'nun arayan başına kimliği yoktur (bkz. `mcpCallerIdentity.ts`) ve etkilenmez — `_meta`/ortam yedekleme zincirinde kalır.
+HTTP/SSE üzerinden `open-sse/mcp-server/httpTransport.ts` artık çağıranın gerçek `api_keys.scopes` değerini `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) ile çözüyor ve bunu MCP SDK'nın `transport.handleRequest(req, { authInfo })` çağrısına geçiriyor; böylece her araç çağrısına ulaşan `extra.authInfo.scopes`, Bearer anahtarının kendi kapsamlarını yansıtıyor. `scopeEnforcement.ts` dosyasındaki `resolveCallerScopeContext()` zaten `authInfo`'yu `_meta` ve `OMNIROUTE_MCP_SCOPES` ortam değişkeni yedeğine göre önceliklendiriyordu — bu değişiklik yalnızca bu ilk, en yüksek öncelikli kaynağı dolduruyor; o kaynak daha önce HTTP üzerinden hiç beslenmiyordu. Hiçbir API anahtarı çözümlenemediğinde (başlık yok, geçersiz anahtar), `authInfo` `undefined` kalır ve çözümleme mevcut `meta`/ortam zincirine hiç değişmeden düşer. stdio'nun çağıran başına kimliği yoktur (bkz. `mcpCallerIdentity.ts`) ve anahtar başına bağlamadan etkilenmez — `_meta` adımını atlar (`_meta` yalnızca bir HTTP kimlik bağlamı içinde dikkate alınır, #15159) ve yalnızca `OMNIROUTE_MCP_SCOPES` ortam anahtarından çözümler.
 
----
+**Zorunlu uygulama, dar kapsamlı HTTP/SSE çağıranları için `OMNIROUTE_MCP_ENFORCE_SCOPES` ayarından bağımsız olarak açıktır.** `OMNIROUTE_MCP_ENFORCE_SCOPES` değerinin varsayılan olarak `false` olması yalnızca yerel/stdio tek operatör akışı için güvenlidir; bu akışta kapsama tabi tutulacak çağıran başına kimlik bulunmaz. `open-sse/mcp-server/server.ts::withScopeEnforcement()`, `resolveCallerScopeContext()` çözümlediğinde (`source === "authInfo"` — yani gerçek bir anahtar başına HTTP Authorization başlığı, yalnızca HTTP/SSE) ve o anahtar tam `manage`/`admin` kapsamına sahip değilse, araç başına kapsam uygulamasını koşulsuz olarak açar (`scopeEnforcement.ts` içindeki `shouldForceScopeEnforcement()`). Bu, yalnızca dar `mcp:connect` muafiyet kapsamına sahip bir anahtarın — yukarıda `/api/mcp/` LOCAL_ONLY muafiyetinden başka hiçbir şeye yetki vermediği belgelenen — operatör uzak/döngüsel olmayan MCP erişimini etkinleştirdikten sonra, sadece `OMNIROUTE_MCP_ENFORCE_SCOPES` varsayılan olarak `false` geldiği için aksi halde her MCP aracını çağırabilmesi durumundaki boşluğu kapatır. HTTP üzerinden tam `manage`/`admin` kapsamlı bir anahtar ile her stdio/yerel çağıran, mevcut `OMNIROUTE_MCP_ENFORCE_SCOPES` kontrollü davranışını değişmeden korur.
 
 ## Ortam Değişkenleri
 
-| Değişken                                | Varsayılan                                | Amaç                                                                                                                                              |
-| :-------------------------------------- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`                  | MCP sunucusunun OmniRoute dahili API'lerini çağırırken kullandığı temel URL                                                                       |
-| `OMNIROUTE_API_KEY`                     | (boş)                                     | Dahili API çağrılarına `Authorization: Bearer` olarak iletilen API anahtarı                                                                       |
-| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (yalnızca `"true"` etkinleştirir) | Etkinleştirildiğinde, eksik kapsamlar araç çağrılarını reddeder ve denetim günlüğüne `scope_denied:<reason>` kaydını ekler                        |
-| `OMNIROUTE_MCP_SCOPES`                  | (boş)                                     | Varsayılan olarak "kullanılabilir" kabul edilen kapsamların virgülle ayrılmış izin listesi (çağıran kendi kapsamlarını sağlamadığında kullanılır) |
-| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (ayarlanmamış = açık)                     | `0/false/off/no` olarak ayarlandığında, kayıt sırasında MCP açıklama sıkıştırmasını devre dışı bırakır                                            |
-| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (ayarlanmamış = açık)                     | Yukarıdaki ayarla aynı işlevi gören alternatif takma ad                                                                                           |
-| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                                   | Dahili yönetim okumaları (sağlık, dayanıklılık, kombinasyonlar, kota, kullanım) için iptal zaman sınırı                                           |
-| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                                   | Bir sağlayıcıyı bekleyen geçişler (`route_request`, `web_search`, `web_fetch`) için iptal zaman sınırı                                            |
-| `MCP_TOOL_DENY`                         | (ayarlanmamış = filtre yok)               | `tools/list` listesinden çıkarılacak, virgülle ayrılmış araç adları (araç sayısını azaltma — aşağıya bakın)                                       |
-| `MCP_TOOL_ALLOW`                        | (ayarlanmamış = filtre yok)               | Yalnızca tutulacak, virgülle ayrılmış araç adları (izin listesi modu — aşağıya bakın)                                                             |
-| `DATA_DIR`                              | `~/.omniroute`                            | Sinyal dosyası `${DATA_DIR}/runtime/mcp-heartbeat.json` konumuna yazılır                                                                          |
+| Değişken                                | Varsayılan                                | Amaç                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| :-------------------------------------- | :---------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`                  | MCP sunucusunun OmniRoute dahili API'lerini çağırırken kullandığı temel URL                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `OMNIROUTE_API_KEY`                     | (boş)                                     | Dahili API çağrılarına `Authorization: Bearer` olarak iletilen API anahtarı                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (yalnızca `"true"` etkinleştirir) | Etkinleştirildiğinde, eksik kapsamlar araç çağrılarını reddeder ve denetim günlüğüne `scope_denied:<reason>` kaydını ekler. Bu bayrağın değerinden bağımsız olarak, anahtar başına Authorization üst bilgisinden çözümlenen (`source === "authInfo"`) ve tam `manage`/`admin` kapsamına sahip olmayan tüm HTTP/SSE çağıranları için de zorlama etkinleştirilir; örneğin yalnızca dar kapsamlı `mcp:connect` atlama kapsamına sahip bir anahtar. Bu nedenle bu varsayılan yalnızca yerel/stdio tek operatörlü akış için güvenlidir, uzak geri döngü dışı erişim için asla güvenli değildir |
+| `OMNIROUTE_MCP_SCOPES`                  | (boş)                                     | Varsayılan olarak "kullanılabilir" kabul edilen kapsamların virgülle ayrılmış izin listesi (çağıran kendi kapsamlarını sağlamadığında kullanılır)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (ayarlanmamış = açık)                     | `0/false/off/no` olarak ayarlandığında, kayıt sırasında MCP açıklama sıkıştırmasını devre dışı bırakır                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (ayarlanmamış = açık)                     | Yukarıdakiyle aynı geçiş seçeneği için alternatif takma ad                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                                   | Dahili yönetim okumaları (sağlık, dayanıklılık, kombinasyonlar, kota, kullanım) için iptal zaman bütçesi                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                                   | Bir sağlayıcıyı bekleyen geçişler (`route_request`, `web_search`, `web_fetch`) için iptal zaman bütçesi                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `MCP_TOOL_DENY`                         | (ayarlanmamış = filtre yok)               | `tools/list` listesinden çıkarılacak, virgülle ayrılmış araç adları (araç kardinalitesini azaltma — aşağıya bakın)                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `MCP_TOOL_ALLOW`                        | (ayarlanmamış = filtre yok)               | Yalnızca tutulacak araç adlarının virgülle ayrılmış listesi (izin listesi modu — aşağıya bakın)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `DATA_DIR`                              | `~/.omniroute`                            | Sinyal dosyası `${DATA_DIR}/runtime/mcp-heartbeat.json` konumuna yazılır                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ---
 

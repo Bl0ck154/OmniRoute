@@ -165,12 +165,13 @@ test("a dashboard session wins over a manage key sent alongside it", async () =>
   assert.equal(res.status, 200);
 });
 
-test("with login disabled the instance is open and admin can be minted", async () => {
+test("admin token issuance requires operator auth even when ordinary login is disabled", async () => {
   await updateSettings({ requireLogin: false });
   try {
+    // Credential issuance belongs to ALWAYS_PROTECTED_API_PATHS.
+    // Disabling ordinary dashboard login must never permit anonymous admin minting.
     const res = await mintWith({}, { name: "open-instance-admin", scope: "admin" });
-    assert.equal(res.status, 200);
-    assert.equal((await res.json()).scope, "admin");
+    assert.equal(res.status, 401);
   } finally {
     await updateSettings({ requireLogin: true });
   }

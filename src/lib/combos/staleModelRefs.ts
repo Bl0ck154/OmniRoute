@@ -67,3 +67,34 @@ export async function findStaleComboModelRefs(providerId: string): Promise<Stale
   }
   return stale;
 }
+
+
+/**
+ * Builder-wide stale badges. Discover provider ids only from explicit combo
+ * steps; no broad network/live-model discovery is performed by this UI read.
+ * Reuse the same per-provider authoritative-catalog gate as model sync.
+ */
+export async function findAllStaleComboModelRefs(): Promise<StaleComboModelRef[]> {
+  const providerIds = new Set<string>();
+  for (const combo of await getCombos()) {
+    if (!Array.isArray(combo.models)) continue;
+    for (const step of combo.models as unknown[]) {
+      if (!isExplicitModelStep(step)) continue;
+      const model = getComboModelString(step);
+      if (!model) continue;
+      const provider = getComboModelProvider(step) || parseModel(model).provider;
+      if (provider) providerIds.add(provider);
+    }
+  }
+
+  const results: StaleComboModelRef[] = [];
+  for (const providerId of providerIds) {
+    // One provider's discovery/DB failure should not hide warnings for others.
+    try {
+      results.push(...(await findStaleComboModelRefs(providerId)));
+    } catch {
+      continue;
+    }
+  }
+  return results;
+}

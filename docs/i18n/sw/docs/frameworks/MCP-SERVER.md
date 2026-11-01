@@ -72,6 +72,16 @@ curl -i \
 
 Ufunguo usio na `manage` (au bila Bearer) hurejesha `403 LOCAL_ONLY`. Kiambishi awali kinachohusiana `/api/cli-tools/runtime/*` hakiruhusiwi kupitwa kimakusudi — tazama [Viwango vya Route Guard — ruhusa maalum ya upeo wa manage](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
 
+### Uthibitishaji wa Origin
+
+Baada ya uthibitishaji, kila ombi kwa `/api/mcp/*` — transport na njia za usimamizi kama `status`, `tools`, `audit`, `restart` — hukaguliwa kichwa chake cha `Origin`, bila kujali mpigaji ni nani (ufunguo wa API, tokeni ya CLI, kipindi cha dashibodi, au loopback isiyojulikana wakati kuingia kumezimwa). Hii ndiyo kinga dhidi ya DNS rebinding inayotakiwa na vipimo vya MCP Streamable HTTP.
+
+- **Hakuna kichwa cha `Origin`** → inaruhusiwa. OmniRoute CLI, SDK na wateja wa IDE hawakitumi.
+- **`Origin` inayoruhusiwa** → `localhost` / `127.0.0.1` / `[::1]` kwenye mlango wowote, au origin ya umma ya OmniRoute yenyewe: `OMNIROUTE_PUBLIC_BASE_URL` / `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_APP_URL`, origin iliyopitishwa na reverse proxy inayoaminika (`OMNIROUTE_TRUST_PROXY`, pale tu base URL haijawekwa), au seva pangishi ya IP ya loopback/LAN inayofikiwa moja kwa moja. Kichwa cha `Host` pekee hakiwezi kamwe kufanya origin iaminike.
+- **`Origin` nyingine yoyote, ikiwemo `null`** → `403` pamoja na mwili wa hitilafu wa JSON-RPC: `id: null`, `error.code: -32000`, `error.data.code: "INVALID_ORIGIN"`. Kipindi cha dashibodi kinachowasilisha tokeni halali ya CSRF bado kinakubaliwa, kama ilivyo kwa maandishi mengine ya dashibodi.
+
+Mteja wa MCP wa kivinjari anayehudumiwa nyuma ya reverse proxy anahitaji `OMNIROUTE_PUBLIC_BASE_URL`; hakuna orodha ya kuruhusu origin nyingine. Ombi la awali la CORS (`OPTIONS`) halikaguliwi Origin; ombi linalofuata hukaguliwa.
+
 ## Usanidi wa IDE
 
 Tazama [Usanidi wa Mteja wa MCP](../guides/SETUP_GUIDE.md#mcp-client-configuration) kwa usanidi wa Claude Desktop,
@@ -289,106 +299,108 @@ Usafirishaji wa SSE na HTTP Inayoweza Kutiririshwa huzuiwa hadi seva ya MCP iwas
 
 ---
 
-## Uthibitishaji & Wigo
+# Uthibitishaji & Maeneo
 
-Zana ya MCP huita mifumo ya wigo wa kusoma kutoka kwa mpigaji. Hundi hiyo ni moja
-kati ya nafasi tatu huru. Kupita kutoka kwa kikagua kimoja si kupita kutoka kwa
-vingine. Sheria ni [Nafasi tatu za wigo](#nafasi-tatu-za-wigo). Katalogi ya zana
-ni [Wigo wa zana ya MCP](#wigo-wa-zana-ya-mcp).
+Miito ya zana za MCP hizi nyuso za maeneo kutoka kwa mtumiaji. Ukaguzi huo ni mojawapo ya namespaces tatu zilizo huria. Kupita kwa ukaguzi mmoja si kupita kwa wengine.
+Sheria zake ziko [Namespaces tatu za maeneo](#three-scope-namespaces).
+Katalogi ya zana ni [Maeneo ya zana za MCP](#mcp-tool-scopes).
 
-### Nafasi tatu za wigo
+### Namespaces tatu za maeneo
 
-`manage` kwenye kitufe cha API, `read:compression` kwenye zana ya MCP, na `read`
-kwenye tokeni ya ufikiaji ya `oma_live_…` ni ruzuku tatu tofauti. Wapigaji
-wanaotuma tokeni ya ufikiaji ya `read` kwenye njia ya usimamizi inayobadilisha
-wanapata HTTP 403
+`manage` kwenye ufunuo wa API, `read:compression` kwenye zana ya MCP, na `read` kwenye tokeni ya ufikiaji ya `oma_live_…` ni mamlaka matatu tofauti. Watazaji wanaotuma tokeni ya ufikiaji ya `read` kwenye njia ya usimamizi inayobadilisha data hupata HTTP 403
 `Access token scope 'read' is insufficient; 'write' required.`
-Cheo hicho ni `scopeSatisfies`. Haishauri jedwali la MCP, na kilinganishi cha
-MCP hakishauri.
+Nafasi hiyo ni `scopeSatisfies`. Haishuruti jedwali la MCP, na kioo cha MCP hakishuruti kile.
 
-| Nafasi               | Kitambulisho                                                         | Kikagua                        | Kupita huruhusu                                                  |
-| :------------------- | :------------------------------------------------------------------- | :----------------------------- | :--------------------------------------------------------------- |
-| Usimamizi wa API-key | `api_keys.scopes`                                                    | `hasManageScope`               | REST ya Usimamizi kwa kitufe hicho cha Bearer                    |
-| API-key nyongeza     | safu sawa, kamba moja kamili                                         | msaidizi aliyetajwa hapa chini | Uwezo huo mmoja tu                                               |
-| Wigo wa zana ya MCP  | safu sawa, vinginevyo MCP `_meta`, vinginevyo `OMNIROUTE_MCP_SCOPES` | `scopeMatches`                 | Zana hiyo, mara tu utekelezaji umewashwa                         |
-| Tokeni ya ufikiaji   | `oma_live_…`                                                         | `scopeSatisfies`               | Njia ya usimamizi ambayo njia na njia yake zinahitaji cheo hicho |
+| Namespace                  | Credential                                                                                     | Checker                      | A pass allows                                                      |
+| :------------------------- | :--------------------------------------------------------------------------------------------- | :--------------------------- | :----------------------------------------------------------------- |
+| Usimamizi wa ufunuo wa API | `api_keys.scopes`                                                                              | `hasManageScope`             | REST ya usimamizi kwa ufunuo wa Bearer huo                         |
+| Ubwanyi wa ufunuo wa API   | array hiyo hiyo, mfuatano mmoja unaolingana kabisa                                             | msaidia uliotajwa hapa chini | Uwezo huo mmoja tu                                                 |
+| Maeneo ya zana za MCP      | array hiyo hiyo, vinginevyo `_meta` ya MCP (HTTP/SSE pekee), vinginevyo `OMNIROUTE_MCP_SCOPES` | `scopeMatches`               | Zana hiyo, baada ya utekelezaji kuwashwa                           |
+| Tokeni ya ufikiaji         | `oma_live_…`                                                                                   | `scopeSatisfies`             | Njia ya usimamizi ambayo mbinu na njia zake zinahitaji nafasi hiyo |
 
-Kutengeneza kila kitambulisho kimefunikwa katika
+Kutengeneza kila kredensiali kunaelezwa katika
 [Uthibitishaji wa Usimamizi](../guides/MANAGEMENT-AUTH.md).
 
-#### Wigo wa API-key
+#### Maeneo ya ufunuo wa API
 
-Safu moja ya `api_keys.scopes` inalisha kazi mbili. Zinatumia kazi tofauti.
+Array moja ya `api_keys.scopes` husambaza kazi mbili. Hutumia vitendakazi tofauti.
 
-**REST ya Usimamizi.** `manage` na `admin` ni wanachama wa
+**REST ya usimamizi.** `manage` na `admin` ni wanachama wa
 `MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`).
-`hasManageScope` ndiyo inayoidhinisha njia za usimamizi kwa kitufe hicho.
-`admin` ina uwezo wa usimamizi kwenye njia hizo. Neno `admin` hapa si cheo cha
-tokeni ya ufikiaji na halipanuki kuwa wigo wa zana ya MCP.
+`hasManageScope` ndiyo inyoruhusu njia za usimamizi kwa ufunuo huo. `admin` inaweza usimamizi kwenye njia hizo. Neno `admin` hapa si nafasi ya tokeni ya ufikiaji wala haipanuzi kuwa maeneo ya zana za MCP.
 
-**Kamba za nyongeza.** Kila moja ni jaribio kamili la uanachama, na kila moja
-inakaa nje ya `MANAGEMENT_API_KEY_SCOPES`.
+**Mfuatano za ubwanyi.** Kila moja ni ukaguzi wa uwanja unaolingana kabisa, na kila moja hubaki nje ya `MANAGEMENT_API_KEY_SCOPES`.
 
-| Wigo                           | Kupita huruhusu                                                                                                                                                           |
-| :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mcp:connect`                  | `LOCAL_ONLY` ya `/api/mcp/` isiyo ya loopback pekee (`hasMcpConnectOrManageScope`). Kitufe chenye `manage` au `admin` bado kinapita `LOCAL_ONLY` hiyo.                    |
-| `self:usage`                   | `GET /api/v1/me/status` kwa kitufe hiki (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` huongeza wigo huu kwenye uundaji (`normalizeSelfServiceScopesForCreate`). |
-| `self:account-quota`           | Vigezo vya akaunti vya juu ndani ya malipo hayo ya hali (`src/lib/usage/apiKeySelfService.ts`). Njia ya hali bado inahitaji `self:usage`.                                 |
-| `policy:bypass-provider-quota` | Simu za utambuzi za kitufe hiki huruka sera ya vigezo vya mtoa huduma (`hasProviderQuotaBypassScope` katika `src/sse/handlers/chat.ts`).                                  |
+| Eneo                           | Kupita kunaruhusu                                                                                                                                                                |
+| :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp:connect`                  | Ukinyitia cha LOCAL_ONLY cha `/api/mcp/` nje ya loopback pekee (`hasMcpConnectOrManageScope`). Ufunuo wenye `manage` au `admin` bado inapita kinyuko hicho.                      |
+| `self:usage`                   | `GET /api/v1/me/status` kwa ufunuo huu (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` huongeza eneo hili wakati wa kutengeneza (`normalizeSelfServiceScopesForCreate`). |
+| `self:account-quota`           | Mikwazo ya akaunti za juu iliyo ndani ya payload ya hiyo hali (`src/lib/usage/apiKeySelfService.ts`). Njia ya hali bado inahitaji `self:usage`.                                  |
+| `policy:bypass-provider-quota` | Miito ya inference ya ufunuo huu hupita sera ya kiwango cha mtoa (`hasProviderQuotaBypassScope` katika `src/sse/handlers/chat.ts`).                                              |
 
-#### Kulinganisha
+#### Kuoanisha
 
-Katalogi ni jedwali chini ya [Wigo wa zana ya MCP](#wigo-wa-zana-ya-mcp). Usichukulie
+Katalogi ni jedwali lililo chini ya [Maeneo ya zana za MCP](#mcp-tool-scopes). Usiitende
 `MCP_SCOPE_LIST` katika `src/shared/constants/mcpScopes.ts` kama katalogi hiyo:
-ni subset ya asili iliyoandikwa. Zana za baadaye zinatangaza wigo zaidi kando
-yake (`read:notion`, `read:skills`, `read:local-corpus`, na jedwali lingine).
+ni sehemu ndogo ya awali iliyotambuliwa kwa aina. Zana zilizo baadaye zatangaza maeneo mengine zaidi pembe yake
+(`read:notion`, `read:skills`, `read:local-corpus`, na yingine yote ya jedwali).
 
-`evaluateToolScopes` katika `open-sse/mcp-server/scopeEnforcement.ts` huruhusu
-simu wakati kila wigo unaohitajika unalingana na wigo fulani uliotolewa:
+`evaluateToolScopes` katika `open-sse/mcp-server/scopeEnforcement.ts` huruhusu miito pale
+kila eneo linalohitajika linapofanana na baadhi ya maeneo yaliyotolewa:
 
-- `*` inalingana na kila wigo unaohitajika.
-- Wigo uliotolewa unaoishia na `*` unalingana na wigo unaohitajika unaoanza na
-  kiambishi kabla ya nyota. `read:*` inalingana na `read:compression`.
-- Kila wigo mwingine uliotolewa unalingana tu na kamba inayofanana inayohitajika.
+- `*` linafanana na kila eneo linalohitajika.
+- Eneo lililotolewa linaloishia kwa `*` linafanana na eneo linalohitajika linaloanika na kiambisho kilicho kabla ya nyota. `read:*` linafanana na `read:compression`.
+- Kila eneo lingine lililotolewa linafanana tu na mfuatano wa eneo linalohitajika ulio sawa kabisa.
 
-Kitufe ambacho wigo wake ni `["manage"]` kinashindwa `scopeMatches` kwa
-`read:compression`. Simu hiyo hiyo inashindwa kwa `admin`, `mcp:connect`,
-`read`, na `write` wakati hizo ndizo kamba pekee zilizotolewa. Hakuna
-hierarkia kati ya wigo wa zana ya MCP zaidi ya `*` inayofuata.
+Ufunuo ambao maeneo yake ni `["manage"]` unashindwa na `scopeMatches` kwa `read:compression`.
+Miito hiyo hiyo inashindwa pia kwa `admin`, `mcp:connect`, `read`, na `write` wakati hizo ndiyo
+mfuatano pekee uliotolewa. Hakuna uhierarhia kati ya maeneo ya zana za MCP zaidi ya `*` cha mwisho.
 
-Utekelezaji umezimwa isipokuwa `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (chaguo-msingi
-`false`). Wakati umezimwa, `evaluateToolScopes` huruhusu simu na kuruka
-katalogi. Wakati umewashwa, HTTP hutumia `api_keys.scopes` ya kitufe cha Bearer
-kama `authInfo` (tazama [Kufunga wigo wa HTTP kwa kila kitufe](#kufunga-wigo-wa-http-kwa-kila-kitufe-7895)).
-Wakati hakuna wigo wa kitufe unaotatuliwa, seti iliyotolewa huanguka kupitia
-MCP `_meta`, kisha `OMNIROUTE_MCP_SCOPES`.
+Utekelezaji wa mamlaka umefungwa isipokuwa `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (chaguo-msingi
+`false`). Wakati umefungwa, `evaluateToolScopes` huruhusu miito na kuruka katalogi. Wakati
+umefunguliwa, HTTP hutumia `api_keys.scopes` ya ufunuo wa Bearer kama
+`authInfo` (angalia [Uunganisho wa maeneo ya HTTP kwa kila key](#per-key-http-scope-binding-7895)).
+Pale hakuna maeneo ya key yanayotatua, seti iliyotolewa inashuka hadi `_meta` ya MCP (inazingatiwa
+tu kwa watazaji wa HTTP/SSE, ndani ya muktadha wa uthibitishaji wa HTTP; `_meta` ya mtumiaji wa
+stdio haizingatiwi kwa sababu mteja huidhibiti na hana kitambulisho cha kila mtumiaji), kisha
+`OMNIROUTE_MCP_SCOPES`.
 
-#### Wigo wa tokeni ya ufikiaji
+#### Maeneo ya tokeni ya ufikiaji
 
 Tokeni za `oma_live_…` (`src/lib/accessTokens/scopes.ts`) hubeba `read`, `write`,
-au `admin`. `scopeSatisfies` ni cheo: `admin` inafunika `write` na `read`, na
-`write` inafunika `read`. Wigo usiojulikana haufuniki chochote.
+au `admin`. `scopeSatisfies` ni nafasi: `admin` inafunika `write` na `read`, na `write`
+inafunika `read`. Maeneo yaliyojulikana hayafuniki chochote.
 
-`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) inalinganisha
-cheo hicho na `inferRequiredScope` (`src/server/authz/accessScopes.ts`):
+`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) inalinganisha nafasi hiyo
+na `inferRequiredScope` (`src/server/authz/accessScopes.ts`):
+"
 
 - `GET`, `HEAD`, na `OPTIONS` zinahitaji `read`.
 - Kila njia nyingine inahitaji `write`.
-- Njia katika `ADMIN_SCOPE_PREFIXES` zinahitaji `admin` kwa kila njia. `/api/mcp`
-  iko kwenye orodha hiyo, kwa hivyo tokeni ya ufikiaji ya `write` bado haiwezi
-  kuita uso wa HTTP wa MCP.
-- Njia katika `ADMIN_MUTATION_PREFIXES` zinahitaji `admin` tu kwa mabadiliko.
+- Njia zilizo kwenye `ADMIN_SCOPE_PREFIXES` zinahitaji `admin` kwa kila njia. `/api/mcp`
+  kipo kwenye orodha hiyo, hivyo tokeni ya ufikiaji ya `write` bado haiwezi kuita
+  sehemu ya HTTP ya MCP.
+- Njia zilizo kwenye `ADMIN_MUTATION_PREFIXES` zinahitaji `admin` tu kwa mutasi.
+- Njia zilizo kwenye `ADMIN_MUTATION_EXACT_PATHS` (`/api/settings`,
+  `/api/settings/require-login`) zinahitaji `admin` tu kwa mutasi, na tu kwenye njia hiyo
+  hasa — njia ndogo nyingine za `/api/settings/*` zinadumisha `write`.
 
-`PATCH /api/keys/{id}` ni mabadiliko na haipo kwenye orodha hizo za msimamizi, kwa hivyo tokeni ya `read` inapokea 403
+`PATCH /api/keys/{id}` ni mutasi na hapo kwenye orodha za admin, hivyo tokeni ya `read`
+hupokea 403
 `Access token scope 'read' is insufficient; 'write' required.`
-Tokeni ya ufikiaji ya `write` au `admin` inakidhi njia hiyo. JWT ya dashibodi, tokeni ya kitambulisho cha mashine ya loopback CLI, na kitufe cha API chenye `manage` au `admin` huchukua matawi mengine na hazipunguzwi na cheo hiki.
+Tokeni ya ufikiaji ya `write` au `admin` inatosha njia hiyo. JWT ya dashibodi,
+tokeni ya machine-id ya CLI ya loopback, na ufunguo wa API wenye `manage` au
+`admin` huchukua tanzi la mbranchi na hupunguzwi na ngazi hii.
 
-Tokeni ya ufikiaji inayopita `scopeSatisfies` kwa `/api/mcp` imefungua lango la usimamizi pekee. Simu za zana bado huendesha `scopeMatches` dhidi ya skopu za API-key. Cheo cha tokeni ya ufikiaji si ingizo kwa `scopeMatches`.
+Tokeni ya ufikiaji inayopita `scopeSatisfies` kwa `/api/mcp` imevuka lango la
+usimamizi pekee. Miito ya zana bado inaendesha `scopeMatches` dhidi ya
+ruhusa za ufunguo wa API. Ngazi ya tokeni ya ufikiaji si ingizo kwa
+`scopeMatches`.
 
-### Skopu za zana za MCP
+### Ruhusa za zana za MCP
 
-Utekelezaji wa skopu umewekwa kati katika `open-sse/mcp-server/scopeEnforcement.ts`.
-Kila zana inahitaji skopu maalum:
+Utekelezaji wa ruhusa umesambazwa katika `open-sse/mcp-server/scopeEnforcement.ts`.
+Kila zana inahitaji ruhusa maalum:
 
 | Wigo                  | Zana                                                                                                                                                                             |
 | :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -422,35 +434,37 @@ Kila zana inahitaji skopu maalum:
 | `write:gamification`  | `gamification_invite`, `gamification_transfer`                                                                                                                                   |
 | `read:plugins`        | `plugin_list`, `plugin_executions`                                                                                                                                               |
 | `write:plugins`       | `plugin_scan`, `plugin_install`, `plugin_uninstall`, `plugin_activate`, `plugin_deactivate`, `plugin_configure`                                                                  |
-| `read:obsidian`       | zana 13 za kusoma — `obsidian_list_vault`, `obsidian_read_note`, `obsidian_search_simple`, `obsidian_search_structured`, `obsidian_get_periodic_note`, `obsidian_sync_status`, … |
-| `write:obsidian`      | zana 9 za kuandika — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …              |
+| `read:obsidian`       | 13 zana za kusoma — `obsidian_list_vault`, `obsidian_read_note`, `obsidian_search_simple`, `obsidian_search_structured`, `obsidian_get_periodic_note`, `obsidian_sync_status`, … |
+| `write:obsidian`      | 9 zana za kuandika — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …              |
 | `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                                |
 
-Scopes za wildcard zinaungwa mkono: `read:*` inatoa scopes zote za kusoma, `*` inatoa ufikiaji kamili.
+Upeo wa wildcard unasaidiawa: `read:*` haki zote za kusoma, `*` haki kamili.
 
-### `mcp:connect` — uwezo wa njia finyu (#7895)
+### `mcp:connect` — uwezo wa njia ulio finu (#7895)
 
-Kufikia usafiri wa HTTP/SSE MCP (`/api/mcp/*`) kutoka nje ya loopback kunahitaji `/api/mcp/` LOCAL_ONLY carve-out (tazama `docs/security/ROUTE_GUARD_TIERS.md`). Kihistoria, carve-out hiyo ilikubali tu ufunguo kamili wa API wa `manage`/`admin`-scope — pana sana kwa mpigaji simu anayehitaji tu kuongea na MCP. `src/shared/constants/managementScopes.ts` sasa inasafirisha `MCP_CONNECT_SCOPE = "mcp:connect"`: scope ya nyongeza, finyu (mfano sawa na `SELF_USAGE_SCOPE`) ambayo inaidhinisha PEKEE bypass ya `/api/mcp/` katika `src/server/authz/policies/management.ts` — haitoi ufikiaji mwingine wowote wa njia ya usimamizi na imehifadhiwa kwa makusudi NJE ya `MANAGEMENT_API_KEY_SCOPES`. Ufunguo unaoshikilia `manage`/`admin` bado unapita carve-out bila kubadilika; `mcp:connect` ni mbadala wa upendeleo wa chini kwa wapigaji simu wa mbali wa MCP pekee, unaochunguzwa kupitia `hasMcpConnectOrManageScope()`.
+Kufikia usafirishaji wa MCP wa HTTP/SSE (`/api/mcp/*`) kutoka nje ya loopback hitaaji ukingo wa LOCAL_ONLY wa `/api/mcp/` (tazama `docs/security/ROUTE_GUARD_TIERS.md`). Kihistoria, ukingo huo ulikubali tu ufunguo wa API wenye wigo kamili wa `manage`/`admin` — upya sana kwa mtumizi anaye hitaji kuzungumza na MCP peke yake. `src/shared/constants/managementScopes.ts` sasa hutoa `MCP_CONNECT_SCOPE = "mcp:connect"`: wigo finu wa nyongeza (kwa ufano sawa na `SELF_USAGE_SCOPE`) ambao huidhinisha TU kutoroka kwa `/api/mcp/` katika `src/server/authz/policies/management.ts` — hauzii haki yoyote nyingine ya kufikia njia za usimamizi, na kwa makusudi hushikiliwa nje ya `MANAGEMENT_API_KEY_SCOPES`. Ufunguo unao `manage`/`admin` bado unapitisha ukingo huo bila mabadiliko; `mcp:connect` ni mbadala wa haki ndogo kwa witoaji wa mbali wa MCP peke yake, ambaye hukaguliwa kupitia `hasMcpConnectOrManageScope()`.
 
-### Ufungaji wa scope ya HTTP kwa kila ufunguo (#7895)
+### Ufungashaji wa wigo wa HTTP kwa kila ufunguo (#7895)
 
-Juu ya HTTP/SSE, `open-sse/mcp-server/httpTransport.ts` sasa inatatua `api_keys.scopes` halisi ya mpigaji simu kupitia `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) na kuipitisha kwa `transport.handleRequest(req, { authInfo })` ya MCP SDK, hivyo `extra.authInfo.scopes` inayofikia kila wito wa zana inaakisi scopes za ufunguo wa Bearer. `resolveCallerScopeContext()` ya `scopeEnforcement.ts` tayari ilipa kipaumbele `authInfo` kuliko fallback ya `_meta` na `OMNIROUTE_MCP_SCOPES` env — hii inajaza tu chanzo hicho cha kwanza, chenye kipaumbele cha juu zaidi, ambacho hapo awali hakikupewa data juu ya HTTP. Wakati hakuna ufunguo wa API unaotatuliwa (hakuna kichwa, ufunguo batili), `authInfo` inabaki `undefined` na utatuzi unaendelea hadi mlolongo uliopo wa `meta`/env bila kubadilika. Hii HAIBADILISHI default ya `OMNIROUTE_MCP_ENFORCE_SCOPES` — utekelezaji bado unapaswa kuwezeshwa waziwazi; mabadiliko haya yanafanya tu njia ya kila ufunguo kuchukua kipaumbele mara tu inapotokea. stdio haina utambulisho wa kila mpigaji simu (tazama `mcpCallerIdentity.ts`) na haiathiriwi — inabaki kwenye mlolongo wa fallback wa `_meta`/env.
+Kwa HTTP/SSE, `open-sse/mcp-server/httpTransport.ts` sasa hutataua `api_keys.scopes` halisi za mtumizi kupitia `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) na kupitisha kwenye `transport.handleRequest(req, { authInfo })` ya SDK ya MCP, hivyo `extra.authInfo.scopes` inayofika kwenye kila mwito wa zana inaakisi wigo za ufunguo wa Bearer. `resolveCallerScopeContext()` ya `scopeEnforcement.ts` tayari ilipangilia `authInfo` mbele ya mbadala wa `_meta` na wa mazingira ya `OMNIROUTE_MCP_SCOPES` — mabadiliko haya yanaongeza data kwenye chanzo kwanza cha kipaumbele pekee, ambacho awali hukuwa kinapata data kwa njia ya HTTP. Pale hakuna ufunguo wa API unaotatua (hakuna kichwa, ufunguo batili), `authInfo` hubaki `undefined` na utatuzi huendelea kwenye mnyororo uliopo wa `meta`/mazingira bila mabadiliko. stdio haina utambulisho kwa kila mtumizi (tazama `mcpCallerIdentity.ts`) na haathariwi na ufungashaji wa kila ufunguo — inaruka hatua ya `_meta` (`_meta` inaheshimiwa ndani ya muktadha wa uthibitisho wa HTTP pekee, #15159) na hutatua kutoka kwenye ufunguo wa mazingira `OMNIROUTE_MCP_SCOPES` pekee.
 
-## Vigezo vya Mazingira
+**Ushinikizaji hufunguliwa kwa lazima kwa witoaji wa HTTP/SSE wenye wigo finu, bila kujali `OMNIROUTE_MCP_ENFORCE_SCOPES`.** `OMNIROUTE_MCP_ENFORCE_SCOPES` chenye kiaso cha `false` ni salama tu kwa mtiririko wa ndani/stdio wa mwendeshaji mmoja, ambapo hakuna utambulisho kwa kila mtumizi cha kulinganishwa. `open-sse/mcp-server/server.ts::withScopeEnforcement()` hufungua ushinikizaji wa wigo kwa kila zana bila mashartani (`shouldForceScopeEnforcement()` katika `scopeEnforcement.ts`) mara tu `resolveCallerScopeContext()` ilipotatua `source === "authInfo"` (yaani kichwa halisi cha Uthibitisho wa HTTP cha kila ufunguo, HTTP/SSE pekee) NA ufunguo huo hausikiwi wigo kamili wa `manage`/`admin`. Hii hufunga mapengo ambapo ufunguo unaosikiwa TU wigo finu wa kutoroka `mcp:connect` — iliyoandikwa hapa juu kama ikiruhusu chochote zaidi ya ukingo wa LOCAL_ONLY wa `/api/mcp/` — ungeweza kuitisha kila zana ya MCP mara tu mwendeshaji akiruhusu ufikiaji wa MCP wa mbali/wa nje ya loopback, kwa sababu rahisi tu kwamba `OMNIROUTE_MCP_ENFORCE_SCOPES` hupeleka `false` kwa kiaso. Ufunguo kamili wa `manage`/`admin` juu ya HTTP, na kila mtumizi wa stdio/ndani, huzidisha tabia iliyopo inayotegemea `OMNIROUTE_MCP_ENFORCE_SCOPES` bila mabadiliko.
 
-| Kigezo                                  | Chaguomsingi                        | Madhumuni                                                                                                                                                                    |
-| :-------------------------------------- | :---------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`            | URL ya msingi ambayo seva ya MCP hutumia inapopiga simu API za ndani za OmniRoute                                                                                            |
-| `OMNIROUTE_API_KEY`                     | (tupu)                              | Ufunguo wa API unaotumwa kama `Authorization: Bearer` kwenye simu za API za ndani                                                                                            |
-| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (`"true"` pekee huiwezesha) | Inapowezeshwa, scopes zinazokosekana hukataa miito ya zana na kurekodi `scope_denied:<reason>` kwenye kumbukumbu ya ukaguzi                                                  |
-| `OMNIROUTE_MCP_SCOPES`                  | (tupu)                              | Orodha ya scopes inayotenganishwa kwa koma na kuruhusiwa, ambayo huchukuliwa kuwa "inapatikana" kwa chaguomsingi (hutumika wakati mpigaji simu hajatoa scopes zake mwenyewe) |
-| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (haijawekwa = imewashwa)            | Ikiwekwa kuwa `0/false/off/no`, huzima ubanaji wa maelezo ya MCP wakati wa usajili                                                                                           |
-| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (haijawekwa = imewashwa)            | Jina mbadala la swichi ileile iliyo hapo juu                                                                                                                                 |
-| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                             | Muda wa kusitisha usomaji wa ndani wa usimamizi (afya, ustahimilivu, michanganyiko, kiwango kinachoruhusiwa, matumizi)                                                       |
-| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                             | Muda wa kusitisha hatua zinazosubiri mtoa huduma (`route_request`, `web_search`, `web_fetch`)                                                                                |
-| `MCP_TOOL_DENY`                         | (haijawekwa = hakuna kichujio)      | Majina ya zana yaliyotenganishwa kwa koma ya kuondolewa kwenye `tools/list` (kupunguza idadi ya zana — tazama hapa chini)                                                    |
-| `MCP_TOOL_ALLOW`                        | (haijawekwa = hakuna kichujio)      | Majina ya zana yaliyotenganishwa kwa koma ya kuhifadhiwa pekee (hali ya orodha ya ruhusa — tazama hapa chini)                                                                |
-| `DATA_DIR`                              | `~/.omniroute`                      | Faili ya ishara ya uhai huandikwa kwenye `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                                            |
+## Vigeu vya Mazingira
+
+| Kigeu                                   | Chaguomsingi                        | Madhumuni                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| :-------------------------------------- | :---------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`            | URL ya msingi inayotumiwa na seva ya MCP inapopiga simu API za ndani za OmniRoute                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `OMNIROUTE_API_KEY`                     | (tupu)                              | Ufunguo wa API unaotumwa kama `Authorization: Bearer` kwenye miito ya API za ndani                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (`"true"` pekee huiwezesha) | Inapowezeshwa, ukosefu wa mawanda hukataa miito ya zana na kurekodi `scope_denied:<reason>` katika kumbukumbu ya ukaguzi. Utekelezaji PIA hulazimishwa bila kujali alama hii kwa mpigaji yeyote wa HTTP/SSE anayetambuliwa kupitia kichwa cha Authorization cha kila ufunguo (`source === "authInfo"`) ambaye hana wigo kamili wa `manage`/`admin` — kwa mfano, ufunguo wenye wigo finyu wa `mcp:connect` pekee wa kupita ukaguzi — kwa hivyo chaguomsingi hili ni salama kwa mtiririko wa ndani/stdio wa mwendeshaji mmoja pekee, na si kamwe kwa ufikiaji wa mbali usio wa loopback |
+| `OMNIROUTE_MCP_SCOPES`                  | (tupu)                              | Orodha ya mawanda yanayoruhusiwa, yaliyotenganishwa kwa koma, yanayochukuliwa kuwa "yanapatikana" kwa chaguomsingi (hutumiwa wakati mpigaji hajatoa mawanda yake mwenyewe)                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (haijawekwa = imewashwa)            | Ikiwekwa kuwa `0/false/off/no`, huzima ubanaji wa maelezo ya MCP wakati wa usajili                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (haijawekwa = imewashwa)            | Lakabu mbadala ya kigeuzi kilekile kilicho hapo juu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                             | Muda wa kusitisha usomaji wa usimamizi wa ndani (afya, ustahimilivu, michanganyiko, mgao, matumizi)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                             | Muda wa kusitisha hatua zinazosubiri mtoa huduma (`route_request`, `web_search`, `web_fetch`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `MCP_TOOL_DENY`                         | (haijawekwa = hakuna kichujio)      | Majina ya zana yaliyotenganishwa kwa koma ya kuondolewa kutoka `tools/list` (upunguzaji wa idadi ya zana — tazama hapa chini)                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `MCP_TOOL_ALLOW`                        | (haijawekwa = hakuna kichujio)      | Majina ya zana yaliyotenganishwa kwa koma ya kuhifadhi pekee (hali ya orodha ya kuruhusu — tazama hapa chini)                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `DATA_DIR`                              | `~/.omniroute`                      | Faili ya mapigo ya moyo huandikwa kwenye `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ---
 

@@ -72,6 +72,16 @@ curl -i \
 
 Une clé sans portée `manage` (ou l’absence de jeton Bearer) renvoie `403 LOCAL_ONLY`. Le préfixe voisin `/api/cli-tools/runtime/*` ne peut intentionnellement PAS bénéficier de ce contournement — consultez [Niveaux de protection des routes — exception pour la portée manage](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
 
+### Validation de l'Origin
+
+Après l'authentification, chaque requête vers `/api/mcp/*` — les transports et les routes de gestion comme `status`, `tools`, `audit`, `restart` — voit son en-tête `Origin` validé, quel que soit l'appelant (clé API, jeton CLI, session du dashboard ou loopback anonyme avec la connexion désactivée). C'est la protection contre le DNS rebinding qu'exige la spécification MCP Streamable HTTP.
+
+- **Pas d'en-tête `Origin`** → autorisé. La CLI OmniRoute, le SDK et les clients IDE n'en envoient pas.
+- **`Origin` autorisé** → `localhost` / `127.0.0.1` / `[::1]` sur n'importe quel port, ou l'origine publique d'OmniRoute : `OMNIROUTE_PUBLIC_BASE_URL` / `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_APP_URL`, l'origine transmise par un proxy inverse de confiance (`OMNIROUTE_TRUST_PROXY`, uniquement si aucune base URL n'est définie) ou un hôte IP loopback/LAN en accès direct. L'en-tête `Host` seul ne rend jamais une origine fiable.
+- **Tout autre `Origin`, y compris `null`** → `403` avec un corps d'erreur JSON-RPC : `id: null`, `error.code: -32000`, `error.data.code: "INVALID_ORIGIN"`. Une session du dashboard qui présente un jeton CSRF valide reste acceptée, comme pour les autres écritures du dashboard.
+
+Un client MCP navigateur servi derrière un proxy inverse doit définir `OMNIROUTE_PUBLIC_BASE_URL` ; il n'existe pas de liste d'autorisation pour d'autres origines. La requête préliminaire CORS (`OPTIONS`) n'est pas contrôlée ; la requête qui suit l'est.
+
 ## Configuration de l’IDE
 
 Consultez [Configuration du client MCP](../guides/SETUP_GUIDE.md#mcp-client-configuration) pour configurer Claude Desktop,
@@ -289,75 +299,117 @@ Les transports SSE et HTTP diffusable sont tous deux bloqués jusqu’à ce que 
 
 ---
 
-## Authentification et Portées
+## Authentification et scopes
 
-L'outil MCP lit les chaînes de portée de l'appelant. Cette vérification est l'un des trois espaces de noms indépendants. Un succès d'un vérificateur n'est pas un succès des autres. Les règles sont [Trois espaces de noms de portée](#trois-espaces-de-noms-de-portee). Le catalogue d'outils est [Portées de l'outil MCP](#portees-de-loutil-mcp).
+Les appels d'outils MCP lisent des chaînes de portée auprès de l'appelant. Cette vérification est l'une des trois
+espaces de noms indépendants. Un succès de l'un des vérificateurs n'est pas un succès des autres.
+Les règles sont [Trois espaces de noms de portée](#three-scope-namespaces).
+Le catalogue des outils est dans [Portées des outils MCP](#mcp-tool-scopes).
 
 ### Trois espaces de noms de portée
 
-`manage` sur une clé API, `read:compression` sur un outil MCP, et `read` sur un jeton d'accès `oma_live_…` sont trois autorisations différentes. Les appelants qui envoient un jeton d'accès `read` à une route de gestion mutante reçoivent HTTP 403 `Access token scope 'read' is insufficient; 'write' required.` Ce rang est `scopeSatisfies`. Il ne consulte pas la table MCP, et le comparateur MCP ne le consulte pas.
+`manage` sur une clé d'API, `read:compression` sur un outil MCP et `read` sur un
+jeton d'accès `oma_live_…` sont trois permissions distinctes. Les appelants qui envoient un jeton d'accès `read`
+vers une route de gestion qui modifie l'état obtiennent HTTP 403
+`Access token scope 'read' is insufficient; 'write' required.`
+Ce rang est `scopeSatisfies`. Il ne consulte pas la table MCP, et le
+correspondant MCP ne la consulte pas non plus.
 
-| Espace de noms         | Identifiant                                                   | Vérificateur      | Une autorisation permet                                             |
-| :--------------------- | :------------------------------------------------------------ | :---------------- | :------------------------------------------------------------------ |
-| Gestion des clés API   | `api_keys.scopes`                                             | `hasManageScope`  | REST de gestion pour cette clé Bearer                               |
-| Clé API additive       | même tableau, une chaîne exacte                               | l'aide ci-dessous | Seulement cette capacité                                            |
-| Portées de l'outil MCP | même tableau, sinon MCP `_meta`, sinon `OMNIROUTE_MCP_SCOPES` | `scopeMatches`    | Cet outil, une fois que l'application est activée                   |
-| Jeton d'accès          | `oma_live_…`                                                  | `scopeSatisfies`  | La route de gestion dont la méthode et le chemin requièrent ce rang |
+| Espace de noms         | Identifiant                                                                               | Vérificateur                  | Une validation autorise                                          |
+| :--------------------- | :---------------------------------------------------------------------------------------- | :---------------------------- | :--------------------------------------------------------------- |
+| Gestion par clé d'API  | `api_keys.scopes`                                                                         | `hasManageScope`              | Les routes REST de gestion pour cette clé Bearer                 |
+| Portée additive        | le même tableau, une chaîne exacte                                                        | l'utilitaire nommé ci-dessous | Uniquement cette capacité unique                                 |
+| Portées des outils MCP | le même tableau, sinon le `_meta` MCP (HTTP/SSE uniquement), sinon `OMNIROUTE_MCP_SCOPES` | `scopeMatches`                | Cet outil, une fois l'application activée                        |
+| Jeton d'accès          | `oma_live_…`                                                                              | `scopeSatisfies`              | La route de gestion dont la méthode et le chemin exigent ce rang |
 
-La création de chaque identifiant est couverte dans [Authentification de la gestion](../guides/MANAGEMENT-AUTH.md).
+L'émission de chaque identifiant est couverte dans
+[Authentification de gestion](../guides/MANAGEMENT-AUTH.md).
 
-#### Portées des clés API
+#### Portées des clés d'API
 
-Un tableau `api_keys.scopes` alimente deux tâches. Elles utilisent des fonctions différentes.
+Un tableau `api_keys.scopes` alimente deux rôles. Ils utilisent des fonctions différentes.
 
-**REST de gestion.** `manage` et `admin` sont les membres de `MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`). `hasManageScope` est ce qui autorise les routes de gestion pour cette clé. `admin` est capable de gestion sur ces routes. Le mot `admin` ici n'est pas le rang du jeton d'accès et il ne s'étend pas aux portées de l'outil MCP.
+**REST de gestion.** `manage` et `admin` sont les membres de
+`MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`).
+`hasManageScope` est ce qui autorise les routes de gestion pour cette clé. `admin` est
+capable de gestion sur ces routes. Le mot `admin` ici n'est pas le
+rang du jeton d'accès et il ne s'étend pas aux portées des outils MCP.
 
-**Chaînes additives.** Chacune est un test d'appartenance exact, et chacune reste en dehors de `MANAGEMENT_API_KEY_SCOPES`.
+**Chaînes additives.** Chacune est un test d'appartenance exact, et chacune reste
+en dehors de `MANAGEMENT_API_KEY_SCOPES`.
 
-| Portée                         | Une autorisation permet                                                                                                                                                         |
+| Portée                         | Une validation autorise                                                                                                                                                         |
 | :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mcp:connect`                  | La découpe `/api/mcp/` LOCAL_ONLY non-loopback uniquement (`hasMcpConnectOrManageScope`). Une clé avec `manage` ou `admin` passe toujours cette découpe.                        |
+| `mcp:connect`                  | L'exception LOCAL_ONLY non-loopback `/api/mcp/` uniquement (`hasMcpConnectOrManageScope`). Une clé avec `manage` ou `admin` passe toujours cette exception.                     |
 | `self:usage`                   | `GET /api/v1/me/status` pour cette clé (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` ajoute cette portée lors de la création (`normalizeSelfServiceScopesForCreate`). |
-| `self:account-quota`           | Les quotas de compte en amont dans cette charge utile de statut (`src/lib/usage/apiKeySelfService.ts`). La route de statut requiert toujours `self:usage`.                      |
-| `policy:bypass-provider-quota` | Les appels d'inférence de cette clé ignorent la politique de quota du fournisseur (`hasProviderQuotaBypassScope` dans `src/sse/handlers/chat.ts`).                              |
+| `self:account-quota`           | Les quotas de compte amont dans cette charge utile de statut (`src/lib/usage/apiKeySelfService.ts`). La route de statut exige toujours `self:usage`.                            |
+| `policy:bypass-provider-quota` | Les appels d'inférence de cette clé ignorent la politique de quota fournisseur (`hasProviderQuotaBypassScope` dans `src/sse/handlers/chat.ts`).                                 |
 
 #### Correspondance
 
-Le catalogue est la table sous [Portées de l'outil MCP](#portees-de-loutil-mcp). Ne traitez pas `MCP_SCOPE_LIST` dans `src/shared/constants/mcpScopes.ts` comme ce catalogue : c'est le sous-ensemble typé original. Les outils ultérieurs déclarent d'autres portées à côté (`read:notion`, `read:skills`, `read:local-corpus`, et le reste de la table).
+Le catalogue est le tableau sous [Portées des outils MCP](#mcp-tool-scopes). Ne
+traitez pas `MCP_SCOPE_LIST` dans `src/shared/constants/mcpScopes.ts` comme ce catalogue :
+c'est le sous-ensemble typé d'origine. Des outils ultérieurs déclarent des portées supplémentaires à côté de celui-ci
+(`read:notion`, `read:skills`, `read:local-corpus`, et le reste du tableau).
 
-`evaluateToolScopes` dans `open-sse/mcp-server/scopeEnforcement.ts` autorise un appel lorsque chaque portée requise correspond à une portée accordée :
+`evaluateToolScopes` dans `open-sse/mcp-server/scopeEnforcement.ts` autorise un appel
+lorsque chaque portée requise correspond à une portée accordée :
 
-- `*` correspond à chaque portée requise.
-- Une portée accordée qui se termine par `*` correspond à une portée requise qui commence par le préfixe avant l'étoile. `read:*` correspond à `read:compression`.
+- `*` correspond à toute portée requise.
+- Une portée accordée qui se termine par `*` correspond à une portée requise qui commence par
+  le préfixe précédant l'étoile. `read:*` correspond à `read:compression`.
 - Toute autre portée accordée ne correspond qu'à la chaîne requise identique.
 
-Une clé dont les portées sont `["manage"]` échoue à `scopeMatches` pour `read:compression`. Le même appel échoue pour `admin`, `mcp:connect`, `read` et `write` lorsque ce sont les seules chaînes accordées. Il n'y a pas de hiérarchie entre les portées de l'outil MCP au-delà de l'étoile finale `*`.
+Une clé dont les portées sont `["manage"]` échoue à `scopeMatches` pour `read:compression`.
+Le même appel échoue pour `admin`, `mcp:connect`, `read` et `write` lorsque celles-ci
+sont les seules chaînes accordées. Il n'existe aucune hiérarchie entre les portées
+des outils MCP au-delà du `*` final.
 
-L'application est désactivée sauf si `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (par défaut `false`). Tant qu'elle est désactivée, `evaluateToolScopes` autorise l'appel et ignore le catalogue. Tant qu'elle est activée, HTTP utilise les `api_keys.scopes` de la clé Bearer comme `authInfo` (voir [Liaison de portée HTTP par clé](#per-key-http-scope-binding-7895)). Lorsque aucune portée de clé n'est résolue, l'ensemble accordé passe à MCP `_meta`, puis à `OMNIROUTE_MCP_SCOPES`.
+L'application est désactivée sauf si `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (par défaut
+`false`). Tant qu'elle est désactivée, `evaluateToolScopes` autorise l'appel et ignore
+le catalogue. Lorsqu'elle est activée, HTTP utilise le `api_keys.scopes` de la clé Bearer comme
+`authInfo` (voir [Liaison de portée HTTP par clé](#per-key-http-scope-binding-7895)).
+Lorsque aucune portée de clé n'est résolue, l'ensemble accordé passe à `_meta` MCP (honoré uniquement
+pour les appelants HTTP/SSE, dans un contexte d'authentification HTTP ; le `_meta` d'un appelant stdio est ignoré
+car le client le contrôle et qu'il ne porte aucune identité par appelant), puis
+`OMNIROUTE_MCP_SCOPES`.
 
 #### Portées des jetons d'accès
 
-Les jetons `oma_live_…` (`src/lib/accessTokens/scopes.ts`) portent `read`, `write` ou `admin`. `scopeSatisfies` est un rang : `admin` couvre `write` et `read`, et `write` couvre `read`. Les portées inconnues ne couvrent rien.
+Les jetons `oma_live_…` (`src/lib/accessTokens/scopes.ts`) portent `read`, `write`
+ou `admin`. `scopeSatisfies` est un rang : `admin` couvre `write` et `read`, et
+`write` couvre `read`. Les portées inconnues ne couvrent rien.
 
-`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) compare ce rang avec `inferRequiredScope` (`src/server/authz/accessScopes.ts`) :
+`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) compare ce
+rang avec `inferRequiredScope` (`src/server/authz/accessScopes.ts`) :
 
 - `GET`, `HEAD` et `OPTIONS` requièrent `read`.
-- Toute autre méthode requiert `write`.
-- Les chemins dans `ADMIN_SCOPE_PREFIXES` requièrent `admin` pour chaque méthode. `/api/mcp` est sur cette liste, donc un jeton d'accès `write` ne peut toujours pas appeler la surface HTTP du MCP.
-- Les chemins dans `ADMIN_MUTATION_PREFIXES` requièrent `admin` uniquement pour les mutations.
+- Toutes les autres méthodes requièrent `write`.
+- Les chemins listés dans `ADMIN_SCOPE_PREFIXES` requièrent `admin` pour toutes les méthodes. `/api/mcp`
+  figure sur cette liste, donc un jeton d'accès `write` ne peut toujours pas appeler la surface HTTP
+  MCP.
+- Les chemins listés dans `ADMIN_MUTATION_PREFIXES` requièrent `admin` uniquement pour les mutations.
+- Les chemins listés dans `ADMIN_MUTATION_EXACT_PATHS` (`/api/settings`,
+  `/api/settings/require-login`) requièrent `admin` uniquement pour les mutations, et uniquement sur
+  ce chemin exact — les autres sous-routes `/api/settings/*` conservent `write`.
 
-`PATCH /api/keys/{id}` est une mutation et ne figure pas dans ces listes d'administration, donc un jeton `read` reçoit un 403
+`PATCH /api/keys/{id}` est une mutation et ne figure pas sur ces listes d'administration, donc un
+jeton `read` reçoit 403
 `Access token scope 'read' is insufficient; 'write' required.`
-Un jeton d'accès `write` ou `admin` satisfait cette route. Un JWT de tableau de bord, le jeton machine-id de la CLI loopback, et une clé API avec `manage` ou `admin` prennent d'autres chemins et ne sont pas restreints par ce rang.
+Un jeton d'accès `write` ou `admin` satisfait cette route. Un JWT de tableau de bord, le jeton
+machine-id du CLI en loopback et une clé API disposant de `manage` ou `admin` suivent d'autres
+branches et ne sont pas restreints par ce rang.
 
-Un jeton d'accès qui passe `scopeSatisfies` pour `/api/mcp` a franchi la porte de gestion uniquement. Les appels d'outils exécutent toujours `scopeMatches` par rapport aux portées des clés API. Le rang du jeton d'accès n'est pas une entrée pour `scopeMatches`.
+Un jeton d'accès qui passe `scopeSatisfies` pour `/api/mcp` a franchi uniquement la barrière de
+gestion. Les appels d'outils exécutent toujours `scopeMatches` sur les portées des clés API. Le
+rang du jeton d'accès n'est pas une entrée de `scopeMatches`.
 
 ### Portées des outils MCP
 
 L'application des portées est centralisée dans `open-sse/mcp-server/scopeEnforcement.ts`.
-Chaque outil nécessite des portées spécifiques :
+Chaque outil requiert des portées spécifiques :
 
-| Portée                | Outils                                                                                                                                                                              |
+| Périmètre             | Outils                                                                                                                                                                              |
 | :-------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `read:health`         | `get_health`, `get_provider_metrics`, `simulate_route`, `explain_route`, `best_combo_for_task`, `db_health_check`                                                                   |
 | `read:combos`         | `list_combos`, `get_combo_metrics`, `simulate_route`, `best_combo_for_task`, `test_combo`                                                                                           |
@@ -393,33 +445,65 @@ Chaque outil nécessite des portées spécifiques :
 | `write:obsidian`      | 9 outils d'écriture — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …                |
 | `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                                   |
 
-Les portées génériques sont prises en charge : `read:*` accorde toutes les portées de lecture, `*` accorde un accès complet.
+Les scopes joker sont pris en charge : `read:*` accorde tous les scopes de lecture, `*` accorde un accès complet.
 
-### `mcp:connect` — capacité de routage restreinte (#7895)
+### `mcp:connect` — capacité de route restreinte (#7895)
 
-L'accès au transport HTTP/SSE MCP (`/api/mcp/*`) depuis un hôte non-loopback nécessite l'exception `LOCAL_ONLY` pour `/api/mcp/` (voir `docs/security/ROUTE_GUARD_TIERS.md`). Historiquement, cette exception n'acceptait qu'une clé API avec une portée `manage`/`admin` complète — trop large pour un appelant qui n'a besoin que de communiquer avec le MCP. `src/shared/constants/managementScopes.ts` exporte désormais `MCP_CONNECT_SCOPE = "mcp:connect"` : une portée additive et restreinte (même précédent que `SELF_USAGE_SCOPE`) qui autorise UNIQUEMENT le contournement de `/api/mcp/` dans `src/server/authz/policies/management.ts` — elle n'accorde aucun autre accès aux routes de gestion et est délibérément maintenue HORS de `MANAGEMENT_API_KEY_SCOPES`. Une clé détenant `manage`/`admin` passe toujours l'exception sans changement ; `mcp:connect` est une alternative à privilège inférieur pour les appelants distants uniquement MCP, vérifiée via `hasMcpConnectOrManageScope()`.
+Atteindre le transport MCP HTTP/SSE (`/api/mcp/*`) depuis une adresse non loopback nécessite la
+dérogation `/api/mcp/` LOCAL_ONLY (voir `docs/security/ROUTE_GUARD_TIERS.md`). Historiquement,
+cette dérogation n'acceptait qu'une clé d'API de scope `manage`/`admin` complet — trop large pour un
+appelant qui n'a besoin que de parler MCP. `src/shared/constants/managementScopes.ts` exporte désormais
+`MCP_CONNECT_SCOPE = "mcp:connect"` : un scope additif et étroit (même précédent que
+`SELF_USAGE_SCOPE`) qui n'autorise QUE le contournement `/api/mcp/` dans
+`src/server/authz/policies/management.ts` — il n'accorde aucun autre accès aux routes de gestionet est délibérément maintenance HORS de `MANAGEMENT_API_KEY_SCOPES`. Une clé détenant `manage`/`admin`
+franchit toujours la dérogation sans changement ; `mcp:connect` est une alternative à moindre privilège
+pour les appelants MCP uniquement distants, vérifiée via `hasMcpConnectOrManageScope()`.
 
-### Liaison de portée HTTP par clé (#7895)
+### Liaison des scopes HTTP par clé (#7895)
 
-Via HTTP/SSE, `open-sse/mcp-server/httpTransport.ts` résout désormais les `api_keys.scopes` réelles de l'appelant via `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) et les transmet à `transport.handleRequest(req, { authInfo })` du SDK MCP, de sorte que `extra.authInfo.scopes` atteignant chaque appel d'outil reflète les propres portées de la clé Bearer. La fonction `resolveCallerScopeContext()` de `scopeEnforcement.ts` priorisait déjà `authInfo` par rapport aux options de repli `_meta` et `OMNIROUTE_MCP_SCOPES` de l'environnement — ceci ne fait que peupler cette première source, la plus prioritaire, qui n'était auparavant pas alimentée via HTTP. Lorsqu'aucune clé API n'est résolue (pas d'en-tête, clé invalide), `authInfo` reste `undefined` et la résolution se poursuit sur la chaîne `meta`/env existante sans changement. Cela NE modifie PAS la valeur par défaut de `OMNIROUTE_MCP_ENFORCE_SCOPES` — l'application doit toujours être explicitement activée ; ce changement ne fait que donner la priorité au chemin par clé une fois qu'elle l'est. stdio n'a pas d'identité par appelant (voir `mcpCallerIdentity.ts`) et n'est pas affecté — il reste sur la chaîne de repli `_meta`/env.
+En HTTP/SSE, `open-sse/mcp-server/httpTransport.ts` résout désormais les `api_keys.scopes` réels de
+l'appelant via `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) et les transmet au
+SDK MCP via `transport.handleRequest(req, { authInfo })`, de sorte que `extra.authInfo.scopes` atteignant
+chaque appel d'outil reflète les scopes propres de la clé Bearer. Le `resolveCallerScopeContext()` de
+`scopeEnforcement.ts` privilégiait déjà `authInfo` par rapport au repli sur `_meta` et la variable
+d'environnement `OMNIROUTE_MCP_SCOPES` — ceci ne fait que alimenter cette première source, prioritaire au
+plus haut, qui n'était Previously alimentée en HTTP. Lorsqu'aucune clé d'API n'est résolue
+(aucun en-tête, clé invalide), `authInfo` reste `undefined` et la résolution se rabat sur la chaîne
+`meta`/environnement existante, sans changement. stdio n'a pas d'identité par appelant (voir
+`mcpCallerIdentity.ts`) et n'est pas affecté par la liaison par clé — il ignore l'étape `_meta`
+(`_meta` n'est honoré qu'au sein d'un contexte d'authentification HTTP, #15159) et se résout à partir de
+la seule variable d'environnement `OMNIROUTE_MCP_SCOPES`.
+
+**L'application des scopes est forcée pour les appelants HTTP/SSE à scope étroit, indépendamment de
+`OMNIROUTE_MCP_ENFORCE_SCOPES`.** La valeur par défaut `false` de `OMNIROUTE_MCP_ENFORCE_SCOPES` n'est
+sûre que pour le flux local/stdio mono-opérateur, où il n'existe aucune identité par appelant à
+limiter par scope. `open-sse/mcp-server/server.ts::withScopeEnforcement()` active inconditionnellementl'application des scopes par outil (`shouldForceScopeEnforcement()` dans `scopeEnforcement.ts`)
+dès que `resolveCallerScopeContext()` a résolu `source === "authInfo"` (c'est-à-dire un véritable
+en-tête HTTP Authorization par clé, HTTP/SSE uniquement) ET que cette clé ne détient pas le scope
+`manage`/`admin` complet. Cela comble la faille où une clé ne détenant QUE le scope étroit de
+dérogation `mcp:connect` — documenté ci-dessus comme n'autorisant rien d'autre que la dérogation
+`/api/mcp/` LOCAL_ONLY — pouvait sinon invoquer tous les outils MCP dès qu'un opérateur activait
+l'accès MCP distant/non loopback, simplement parce que `OMNIROUTE_MCP_ENFORCE_SCOPES` est livré avec
+`false` par défaut. Une clé `manage`/`admin` complète en HTTP, ainsi que chaque appelant
+stdio/local, conservent le comportement existant conditionné par `OMNIROUTE_MCP_ENFORCE_SCOPES`.
 
 ---
 
 ## Variables d’environnement
 
-| Variable                                | Valeur par défaut                | Objectif                                                                                                                                                                  |
-| :-------------------------------------- | :------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`         | URL de base utilisée par le serveur MCP pour appeler les API internes d’OmniRoute                                                                                         |
-| `OMNIROUTE_API_KEY`                     | (vide)                           | Clé d’API transmise sous la forme `Authorization: Bearer` aux appels d’API internes                                                                                       |
-| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (seul `"true"` l’active) | Lorsque cette option est activée, l’absence des portées requises refuse les appels d’outils et consigne `scope_denied:<reason>` dans le journal d’audit                   |
-| `OMNIROUTE_MCP_SCOPES`                  | (vide)                           | Liste d’autorisation, séparée par des virgules, des portées considérées comme « disponibles » par défaut (utilisée lorsque l’appelant ne fournit pas ses propres portées) |
-| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (non définie = activée)          | Lorsqu’elle est définie sur `0/false/off/no`, désactive la compression des descriptions MCP au moment de l’enregistrement                                                 |
-| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (non définie = activée)          | Autre alias du même paramètre que ci-dessus                                                                                                                               |
-| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                          | Délai maximal avant annulation des lectures de gestion internes (état de santé, résilience, combinaisons, quota, utilisation)                                             |
-| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                          | Délai maximal avant annulation des étapes qui attendent un fournisseur (`route_request`, `web_search`, `web_fetch`)                                                       |
-| `MCP_TOOL_DENY`                         | (non définie = aucun filtre)     | Noms d’outils séparés par des virgules à retirer de `tools/list` (réduction de la cardinalité des outils — voir ci-dessous)                                               |
-| `MCP_TOOL_ALLOW`                        | (non définie = aucun filtre)     | Noms d’outils séparés par des virgules à conserver exclusivement (mode liste d’autorisation — voir ci-dessous)                                                            |
-| `DATA_DIR`                              | `~/.omniroute`                   | Le fichier de pulsation est écrit dans `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                                           |
+| Variable                                | Valeur par défaut                | Objectif                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| :-------------------------------------- | :------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`         | URL de base utilisée par le serveur MCP lors des appels aux API internes d’OmniRoute                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `OMNIROUTE_API_KEY`                     | (vide)                           | Clé d’API transmise sous la forme `Authorization: Bearer` aux appels d’API internes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (seul `"true"` l’active) | Lorsque cette option est activée, les portées manquantes entraînent le refus des appels d’outils et l’ajout de `scope_denied:<reason>` au journal d’audit. L’application est ÉGALEMENT forcée, indépendamment de cet indicateur, pour tout appelant HTTP/SSE identifié à partir d’un en-tête Authorization propre à une clé (`source === "authInfo"`) et ne disposant pas de la portée complète `manage`/`admin` — par exemple, une clé ne détenant que la portée de contournement restreinte `mcp:connect` — cette valeur par défaut n’est donc sûre que pour un flux local/stdio à opérateur unique, jamais pour un accès distant hors boucle locale |
+| `OMNIROUTE_MCP_SCOPES`                  | (vide)                           | Liste d’autorisation, séparée par des virgules, des portées considérées comme « disponibles » par défaut (utilisée lorsque l’appelant ne fournit pas ses propres portées)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (non défini = activé)            | Lorsque cette variable est définie sur `0/false/off/no`, désactive la compression des descriptions MCP au moment de l’enregistrement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (non défini = activé)            | Autre alias pour le même paramètre que ci-dessus                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                          | Délai avant abandon pour les lectures de gestion internes (état de santé, résilience, combinaisons, quota, utilisation)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                          | Délai avant abandon pour les étapes qui attendent un fournisseur (`route_request`, `web_search`, `web_fetch`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `MCP_TOOL_DENY`                         | (non défini = aucun filtre)      | Noms d’outils séparés par des virgules à retirer de `tools/list` (réduction de la cardinalité des outils — voir ci-dessous)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `MCP_TOOL_ALLOW`                        | (non défini = aucun filtre)      | Noms d’outils séparés par des virgules à conserver exclusivement (mode liste d’autorisation — voir ci-dessous)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `DATA_DIR`                              | `~/.omniroute`                   | Le fichier de pulsation est écrit dans `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ---
 

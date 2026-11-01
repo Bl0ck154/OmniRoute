@@ -13,6 +13,7 @@ export const OMNIROUTE_RESPONSE_HEADERS = {
   sameAccountRetries: "X-OmniRoute-Same-Account-Retries",
   routingWaitMs: "X-OmniRoute-Routing-Wait-Ms",
   fallbackAttempts: "X-OmniRoute-Fallback-Attempts",
+  emergencyFallback: "X-OmniRoute-Emergency-Fallback",
   latencyMs: "X-OmniRoute-Latency-Ms",
   model: "X-OmniRoute-Model",
   progress: "X-OmniRoute-Progress",

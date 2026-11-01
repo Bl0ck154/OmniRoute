@@ -8,6 +8,16 @@ on:
         required: false
         default: "1"
         type: string
+      source_ref:
+        description: Source branch to package (use production for official releases)
+        required: false
+        default: production
+        type: string
+      publish_release:
+        description: Publish a GitHub release (only allowed for production source)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -36,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: production
+          ref: ${{ inputs.source_ref }}
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -45,10 +55,17 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Verify production source
+      - name: Verify selected source and release publication policy
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
         run: |
-          test "$(git branch --show-current)" = "production"
+          test "$(git branch --show-current)" = "$SOURCE_REF"
           test -z "$(git status --porcelain)"
+          if [[ "$PUBLISH_RELEASE" == "true" && "$SOURCE_REF" != "production" ]]; then
+            echo "::error::Only production-sourced builds can publish official releases."
+            exit 1
+          fi
           echo "SOURCE_COMMIT=$(git rev-parse HEAD)"
           echo "VERSION=$(node -p "require('./package.json').version")"
 
@@ -159,6 +176,7 @@ jobs:
           retention-days: 3
 
       - name: Publish verified release
+        if: ${{ inputs.publish_release && inputs.source_ref == 'production' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

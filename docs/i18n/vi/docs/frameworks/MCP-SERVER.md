@@ -66,6 +66,16 @@ curl -i \
 
 Khóa không có phạm vi `manage` (hoặc không có Bearer) sẽ trả về `403 LOCAL_ONLY`. Tiền tố liên quan `/api/cli-tools/runtime/*` được chủ ý thiết kế để KHÔNG thể bỏ qua — xem [Các tầng Route Guard — ngoại lệ cho phạm vi quản lý](../security/ROUTE_GUARD_TIERS.md#manage-scope-carve-out).
 
+### Kiểm tra Origin
+
+Sau khi xác thực, mọi yêu cầu tới `/api/mcp/*` — các transport và các route quản trị như `status`, `tools`, `audit`, `restart` — đều được kiểm tra header `Origin`, bất kể bên gọi là ai (API key, token CLI, phiên dashboard hay loopback ẩn danh khi tắt đăng nhập). Đây là cơ chế chống DNS rebinding mà đặc tả MCP Streamable HTTP yêu cầu.
+
+- **Không có header `Origin`** → cho phép. OmniRoute CLI, SDK và các client IDE không gửi header này.
+- **`Origin` được chấp nhận** → `localhost` / `127.0.0.1` / `[::1]` trên bất kỳ cổng nào, hoặc origin công khai của chính OmniRoute: `OMNIROUTE_PUBLIC_BASE_URL` / `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_APP_URL`, origin do reverse proxy tin cậy chuyển tiếp (`OMNIROUTE_TRUST_PROXY`, chỉ khi chưa đặt base URL), hoặc host IP loopback/LAN truy cập trực tiếp. Chỉ riêng header `Host` không bao giờ khiến một origin được tin cậy.
+- **Mọi `Origin` khác, kể cả `null`** → `403` kèm body lỗi JSON-RPC: `id: null`, `error.code: -32000`, `error.data.code: "INVALID_ORIGIN"`. Phiên dashboard xuất trình token CSRF hợp lệ vẫn được chấp nhận, như với các thao tác ghi khác của dashboard.
+
+Client MCP chạy trên trình duyệt đặt sau reverse proxy cần `OMNIROUTE_PUBLIC_BASE_URL`; không có danh sách cho phép cho các origin khác. Yêu cầu preflight CORS (`OPTIONS`) không bị kiểm tra Origin; yêu cầu theo sau thì có.
+
 ## Cấu hình IDE
 
 Xem [Cấu hình máy khách MCP](../guides/SETUP_GUIDE.md#mcp-client-configuration) để thiết lập Claude Desktop,
@@ -285,73 +295,116 @@ Cả giao vận SSE và HTTP có thể phát luồng đều bị chặn cho đ�
 
 ## Xác thực & Phạm vi
 
-Công cụ MCP đọc các chuỗi phạm vi từ người gọi. Kiểm tra đó là một trong ba không gian tên độc lập. Một lần vượt qua từ một trình kiểm tra không phải là một lần vượt qua từ những trình kiểm tra khác. Các quy tắc là [Ba không gian tên phạm vi](#three-scope-namespaces). Danh mục công cụ là [Phạm vi công cụ MCP](#mcp-tool-scopes).
+Các lệnh gọi công cụ MCP đọc chuỗi phạm vi từ phía bên gọi. Kiểm tra đó là một trong ba
+không gian tên độc lập. Một lần chấp nhận từ bộ kiểm tra này không phải là lần chấp nhận
+từ các bộ kiểm tra khác.
+Các quy tắc nằm ở [Three scope namespaces](#three-scope-namespaces).
+Danh mục công cụ nằm ở [MCP tool scopes](#mcp-tool-scopes).
 
-### Ba không gian tên phạm vi
+### Three scope namespaces
 
-`manage` trên khóa API, `read:compression` trên công cụ MCP và `read` trên mã thông báo truy cập `oma_live_…` là ba quyền khác nhau. Người gọi gửi mã thông báo truy cập `read` đến một tuyến quản lý thay đổi sẽ nhận được HTTP 403 `Access token scope 'read' is insufficient; 'write' required.` Xếp hạng đó là `scopeSatisfies`. Nó không tham khảo bảng MCP và trình khớp MCP không tham khảo nó.
+`manage` trên một khóa API, `read:compression` trên một công cụ MCP và `read` trên một
+access token `oma_live_…` là ba cấp quyền khác nhau. Bên gọi gửi một access token `read`
+đến một route quản lý có thay đổi dữ liệu sẽ nhận HTTP 403
+`Access token scope 'read' is insufficient; 'write' required.`
+Thứ bậc đó là `scopeSatisfies`. Nó không tra cứu bảng MCP, và bộ khớp của MCP cũng không
+tra cứu nó.
 
-| Không gian tên        | Thông tin xác thực                                                             | Trình kiểm tra                       | Một lần vượt qua cho phép                                     |
-| :-------------------- | :----------------------------------------------------------------------------- | :----------------------------------- | :------------------------------------------------------------ |
-| Quản lý khóa API      | `api_keys.scopes`                                                              | `hasManageScope`                     | REST quản lý cho khóa Bearer đó                               |
-| Khóa API bổ sung      | cùng một mảng, một chuỗi chính xác                                             | trình trợ giúp được đặt tên bên dưới | Chỉ khả năng đó                                               |
-| Phạm vi công cụ MCP   | cùng một mảng, nếu không thì MCP `_meta`, nếu không thì `OMNIROUTE_MCP_SCOPES` | `scopeMatches`                       | Công cụ đó, một khi thực thi được bật                         |
-| Mã thông báo truy cập | `oma_live_…`                                                                   | `scopeSatisfies`                     | Tuyến quản lý có phương thức và đường dẫn yêu cầu xếp hạng đó |
+| Không gian tên       | Thông tin xác thực                                                                        | Bộ kiểm tra              | Một lần chấp nhận cho phép                                          |
+| :------------------- | :---------------------------------------------------------------------------------------- | :----------------------- | :------------------------------------------------------------------ |
+| Quản lý khóa API     | `api_keys.scopes`                                                                         | `hasManageScope`         | REST quản lý cho khóa Bearer đó                                     |
+| Bổ sung cho khóa API | cùng mảng, đúng một chuỗi                                                                 | helper được nêu dưới đây | Chỉ năng lực đó                                                     |
+| Phạm vi công cụ MCP  | cùng mảng, nếu không thì MCP `_meta` (chỉ HTTP/SSE), nếu không thì `OMNIROUTE_MCP_SCOPES` | `scopeMatches`           | Công cụ đó, khi đã bật thực thi                                     |
+| Access token         | `oma_live_…`                                                                              | `scopeSatisfies`         | Route quản lý mà phương thức và đường dẫn của nó yêu cầu thứ bậc đó |
 
-Việc tạo mỗi thông tin xác thực được đề cập trong [Xác thực quản lý](../guides/MANAGEMENT-AUTH.md).
+Việc cấp từng loại thông tin xác thực được đề cập trong
+[Management Authentication](../guides/MANAGEMENT-AUTH.md).
 
-#### Phạm vi khóa API
+#### API-key scopes
 
-Một mảng `api_keys.scopes` phục vụ hai công việc. Chúng sử dụng các hàm khác nhau.
+Một mảng `api_keys.scopes` phục vụ hai mục đích. Chúng dùng các hàm khác nhau.
 
-**REST quản lý.** `manage` và `admin` là các thành viên của `MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`). `hasManageScope` là thứ ủy quyền các tuyến quản lý cho khóa đó. `admin` có khả năng quản lý trên các tuyến đó. Từ `admin` ở đây không phải là xếp hạng mã thông báo truy cập và nó không mở rộng thành các phạm vi công cụ MCP.
+**REST quản lý.** `manage` và `admin` là các thành viên của
+`MANAGEMENT_API_KEY_SCOPES` (`src/shared/constants/managementScopes.ts`).
+`hasManageScope` chính là thứ cấp quyền cho các route quản lý đối với khóa đó. `admin` có
+năng lực quản lý trên những route đó. Từ `admin` ở đây không phải là
+bậc của access token và nó không mở rộng thành phạm vi công cụ MCP.
 
-**Các chuỗi bổ sung.** Mỗi chuỗi là một kiểm tra thành viên chính xác và mỗi chuỗi nằm ngoài `MANAGEMENT_API_KEY_SCOPES`.
+**Chuỗi bổ sung.** Mỗi chuỗi là một phép kiểm tra thành viên chính xác, và mỗi chuỗi nằm
+ngoài `MANAGEMENT_API_KEY_SCOPES`.
 
-| Phạm vi                        | Một lần vượt qua cho phép                                                                                                                                      |
+| Phạm vi                        | Một lần chấp nhận cho phép                                                                                                                                     |
 | :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mcp:connect`                  | Chỉ carve-out `/api/mcp/` LOCAL_ONLY không phải loopback (`hasMcpConnectOrManageScope`). Một khóa có `manage` hoặc `admin` vẫn vượt qua carve-out đó.          |
+| `mcp:connect`                  | Chỉ phần ngoại lệ LOCAL_ONLY `/api/mcp/` không loopback (`hasMcpConnectOrManageScope`). Một khóa có `manage` hoặc `admin` vẫn vượt qua phần ngoại lệ đó.       |
 | `self:usage`                   | `GET /api/v1/me/status` cho khóa này (`src/app/api/v1/me/status/route.ts`). `POST /api/keys` thêm phạm vi này khi tạo (`normalizeSelfServiceScopesForCreate`). |
-| `self:account-quota`           | Hạn ngạch tài khoản upstream bên trong tải trọng trạng thái đó (`src/lib/usage/apiKeySelfService.ts`). Tuyến trạng thái vẫn yêu cầu `self:usage`.              |
-| `policy:bypass-provider-quota` | Các lệnh gọi suy luận của khóa này bỏ qua chính sách hạn ngạch nhà cung cấp (`hasProviderQuotaBypassScope` trong `src/sse/handlers/chat.ts`).                  |
+| `self:account-quota`           | Hạn mức tài khoản upstream bên trong payload trạng thái đó (`src/lib/usage/apiKeySelfService.ts`). Route trạng thái vẫn yêu cầu `self:usage`.                  |
+| `policy:bypass-provider-quota` | Các lệnh gọi suy luận của khóa này bỏ qua chính sách hạn mức nhà cung cấp (`hasProviderQuotaBypassScope` trong `src/sse/handlers/chat.ts`).                    |
 
-#### Khớp
+#### Matching
 
-Danh mục là bảng dưới [Phạm vi công cụ MCP](#mcp-tool-scopes). Đừng coi `MCP_SCOPE_LIST` trong `src/shared/constants/mcpScopes.ts` là danh mục đó: đó là tập hợp con được gõ ban đầu. Các công cụ sau này khai báo thêm các phạm vi bên cạnh nó (`read:notion`, `read:skills`, `read:local-corpus`, và phần còn lại của bảng).
+Danh mục là bảng nằm dưới mục [MCP tool scopes](#mcp-tool-scopes). Không hãy
+coi `MCP_SCOPE_LIST` trong `src/shared/constants/mcpScopes.ts` là danh mục đó:
+đó là tập con có kiểu ban đầu. Các công cụ về sau khai báo thêm các phạm vi bên cạnh nó
+(`read:notion`, `read:skills`, `read:local-corpus`, và phần còn lại của bảng).
 
-`evaluateToolScopes` trong `open-sse/mcp-server/scopeEnforcement.ts` cho phép một lệnh gọi khi mọi phạm vi bắt buộc khớp với một số phạm vi được cấp:
+`evaluateToolScopes` trong `open-sse/mcp-server/scopeEnforcement.ts` cho phép một lệnh gọi
+khi mọi phạm vi bắt buộc đều khớp với một phạm vi nào đó được cấp:
 
 - `*` khớp với mọi phạm vi bắt buộc.
-- Một phạm vi được cấp kết thúc bằng `*` khớp với một phạm vi bắt buộc bắt đầu bằng tiền tố trước dấu sao. `read:*` khớp với `read:compression`.
-- Mọi phạm vi được cấp khác chỉ khớp với chuỗi bắt buộc giống hệt.
+- Một phạm vi được cấp kết thúc bằng `*` khớp với phạm vi bắt buộc bắt đầu bằng
+  tiền tố trước dấu sao. `read:*` khớp với `read:compression`.
+- Mọi phạm vi được cấp khác chỉ khớp với đúng chuỗi bắt buộc giống hệt.
 
-Một khóa có phạm vi là `["manage"]` không vượt qua `scopeMatches` cho `read:compression`. Lệnh gọi tương tự không vượt qua cho `admin`, `mcp:connect`, `read` và `write` khi đó là các chuỗi được cấp duy nhất. Không có hệ thống phân cấp nào giữa các phạm vi công cụ MCP ngoài dấu `*` cuối cùng.
+Một khóa có phạm vi là `["manage"]` sẽ không đạt `scopeMatches` cho `read:compression`.
+Cùng lệnh gọi đó cũng không đạt cho `admin`, `mcp:connect`, `read` và `write` khi đó là
+những chuỗi được cấp duy nhất. Không có thứ bậc nào giữa các phạm vi công cụ MCP
+ngoài dấu `*` ở cuối.
 
-Việc thực thi bị tắt trừ khi `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (mặc định `false`). Khi nó bị tắt, `evaluateToolScopes` cho phép lệnh gọi và bỏ qua danh mục. Khi nó được bật, HTTP sử dụng `api_keys.scopes` của khóa Bearer làm `authInfo` (xem [Liên kết phạm vi HTTP trên mỗi khóa](#per-key-http-scope-binding-7895)). Khi không có phạm vi khóa nào được giải quyết, tập hợp được cấp sẽ rơi vào MCP `_meta`, sau đó là `OMNIROUTE_MCP_SCOPES`.
+Thực thi bị tắt trừ khi `OMNIROUTE_MCP_ENFORCE_SCOPES=true` (mặc định
+`false`). Khi đang tắt, `evaluateToolScopes` cho phép lệnh gọi và bỏ qua danh mục.
+Khi đang bật, HTTP dùng `api_keys.scopes` của khóa Bearer làm
+`authInfo` (xem [Per-key HTTP scope binding](#per-key-http-scope-binding-7895)).
+Khi không có phạm vi khóa nào được phân giải, tập phạm vi được cấp chuyển sang MCP `_meta` (chỉ được tính đến
+với bên gọi HTTP/SSE, bên trong ngữ cảnh xác thực HTTP; `_meta` của bên gọi stdio bị bỏ qua
+vì client kiểm soát nó và nó không mang danh tính riêng của bên gọi), rồi đến
+`OMNIROUTE_MCP_SCOPES`.
 
-#### Phạm vi mã thông báo truy cập
+#### Access-token scopes
 
-Các mã thông báo `oma_live_…` (`src/lib/accessTokens/scopes.ts`) mang `read`, `write` hoặc `admin`. `scopeSatisfies` là một xếp hạng: `admin` bao gồm `write` và `read`, và `write` bao gồm `read`. Các phạm vi không xác định không bao gồm gì.
+Các token `oma_live_…` (`src/lib/accessTokens/scopes.ts`) mang `read`, `write`
+hoặc `admin`. `scopeSatisfies` là một thứ bậc: `admin` bao hàm `write` và `read`, còn
+`write` bao hàm `read`. Các phạm vi không xác định không bao hàm gì cả.
 
-`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) so sánh xếp hạng đó với `inferRequiredScope` (`src/server/authz/accessScopes.ts`):
+`evaluateAccessTokenAuth` (`src/server/authz/accessTokenAuth.ts`) so sánh thứ bậc đó
+với `inferRequiredScope` (`src/server/authz/accessScopes.ts`):
 
 - `GET`, `HEAD` và `OPTIONS` yêu cầu `read`.
-- Mọi phương thức khác yêu cầu `write`.
-- Các đường dẫn trong `ADMIN_SCOPE_PREFIXES` yêu cầu `admin` cho mọi phương thức. `/api/mcp` nằm trong danh sách đó, vì vậy mã thông báo truy cập `write` vẫn không thể gọi bề mặt HTTP của MCP.
-- Các đường dẫn trong `ADMIN_MUTATION_PREFIXES` yêu cầu `admin` chỉ cho các thay đổi.
+- Mọi phương thức khác đều yêu cầu `write`.
+- Các đường dẫn trong `ADMIN_SCOPE_PREFIXES` yêu cầu `admin` cho mọi phương thức. `/api/mcp`
+  nằm trong danh sách đó, nên một access token `write` vẫn không thể gọi bề mặt HTTP
+  của MCP.
+- Các đường dẫn trong `ADMIN_MUTATION_PREFIXES` chỉ yêu cầu `admin` đối với thao tác mutation.
+- Các đường dẫn trong `ADMIN_MUTATION_EXACT_PATHS` (`/api/settings`,
+  `/api/settings/require-login`) chỉ yêu cầu `admin` đối với thao tác mutation, và chỉ trên
+  đúng đường dẫn đó — các sub-route `/api/settings/*` khác vẫn giữ `write`.
 
-`PATCH /api/keys/{id}` là một thao tác thay đổi (mutation) và không nằm trong các danh sách quản trị đó, vì vậy một token `read` sẽ nhận lỗi 403
+`PATCH /api/keys/{id}` là một mutation và không nằm trong các danh sách admin đó, nên một
+token `read` sẽ nhận được 403
 `Access token scope 'read' is insufficient; 'write' required.`
-Một access token `write` hoặc `admin` sẽ đáp ứng được tuyến đường đó. Một JWT của bảng điều khiển (dashboard), token `machine-id` của CLI loopback, và một khóa API (API key) với quyền `manage` hoặc `admin` sẽ đi theo các nhánh khác và không bị giới hạn bởi cấp bậc này.
+Một access token `write` hoặc `admin` thỏa mãn yêu cầu của route đó. Dashboard JWT,
+machine-id token của CLI loopback, và một API key có `manage` hoặc `admin` đi theo các
+nhánh khác nên không bị thu hẹp theo cấp bậc này.
 
-Một access token vượt qua `scopeSatisfies` cho `/api/mcp` chỉ mới vượt qua cổng quản lý. Các lệnh gọi công cụ vẫn chạy `scopeMatches` đối với các phạm vi (scope) của khóa API. Cấp bậc của access token không phải là một đầu vào cho `scopeMatches`.
+Một access token vượt qua `scopeSatisfies` cho `/api/mcp` mới chỉ vượt qua được cổng
+quản lý. Các lệnh gọi tool vẫn chạy `scopeMatches` với các scope của API key. Cấp bậc
+của access token không phải là đầu vào của `scopeMatches`.
 
-### Phạm vi công cụ MCP
+### Phạm vi tool MCP
 
-Việc thực thi phạm vi được tập trung hóa trong `open-sse/mcp-server/scopeEnforcement.ts`.
-Mỗi công cụ yêu cầu các phạm vi cụ thể:
+Việc thực thi phạm vi được tập trung tại `open-sse/mcp-server/scopeEnforcement.ts`.
+Mỗi tool yêu cầu các scope cụ thể:
 
-| Phạm vi               | Công cụ                                                                                                                                                                       |
+| Scope                 | Tools                                                                                                                                                                         |
 | :-------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `read:health`         | `get_health`, `get_provider_metrics`, `simulate_route`, `explain_route`, `best_combo_for_task`, `db_health_check`                                                             |
 | `read:combos`         | `list_combos`, `get_combo_metrics`, `simulate_route`, `best_combo_for_task`, `test_combo`                                                                                     |
@@ -387,33 +440,35 @@ Mỗi công cụ yêu cầu các phạm vi cụ thể:
 | `write:obsidian`      | 9 công cụ ghi — `obsidian_write_note`, `obsidian_append_note`, `obsidian_patch_note`, `obsidian_move_note`, `obsidian_delete_note`, `obsidian_sync_trigger`, …                |
 | `read:local-corpus`   | `local_corpus_search`, `local_corpus_read`, `local_corpus_status`                                                                                                             |
 
-Phạm vi ký tự đại diện được hỗ trợ: `read:*` cấp tất cả các phạm vi đọc, `*` cấp quyền truy cập đầy đủ.
+Có hỗ trợ scope ký tự đại diện: `read:*` cấp toàn bộ scope đọc, `*` cấp toàn quyền truy cập.
 
-### `mcp:connect` — khả năng định tuyến hẹp (#7895)
+### `mcp:connect` — năng lực route hẹp hẹp (#7895)
 
-Để truy cập giao thức HTTP/SSE MCP (`/api/mcp/*`) từ bên ngoài loopback, cần có ngoại lệ `/api/mcp/` LOCAL_ONLY (xem `docs/security/ROUTE_GUARD_TIERS.md`). Trước đây, ngoại lệ đó chỉ chấp nhận khóa API có phạm vi `manage`/`admin` đầy đủ — quá rộng đối với một người gọi chỉ cần giao tiếp với MCP. `src/shared/constants/managementScopes.ts` hiện xuất `MCP_CONNECT_SCOPE = "mcp:connect"`: một phạm vi hẹp, bổ sung (tiền lệ tương tự như `SELF_USAGE_SCOPE`) chỉ ủy quyền cho việc bỏ qua `/api/mcp/` trong `src/server/authz/policies/management.ts` — nó không cấp quyền truy cập tuyến quản lý nào khác và được cố ý giữ NGOÀI `MANAGEMENT_API_KEY_SCOPES`. Một khóa giữ `manage`/`admin` vẫn vượt qua ngoại lệ mà không thay đổi; `mcp:connect` là một lựa chọn thay thế có đặc quyền thấp hơn cho những người gọi MCP từ xa, được kiểm tra thông qua `hasMcpConnectOrManageScope()`.
+Để tiếp cận HTTP/SSE MCP transport (`/api/mcp/*`) từ ngoài loopback, cần đến carve-out LOCAL_ONLY `/api/mcp/` (xem `docs/security/ROUTE_GUARD_TIERS.md`). Trước đây carve-out đó chỉ chấp nhận API key có scope đầy đủ `manage`/`admin` — quá rộng cho một caller chỉ cần giao tiếp qua MCP. `src/shared/constants/managementScopes.ts` nay export `MCP_CONNECT_SCOPE = "mcp:connect"`: một scope bổ sung, hẹp hẹp (cùng tiền lệ với `SELF_USAGE_SCOPE`) chỉ uỷ quyền duy nhất cho bypass `/api/mcp/` trong `src/server/authz/policies/management.ts` — nó không cấp bất kỳ quyền truy cập management-route nào khác và cố ý được giữ NGOÀI khỏi `MANAGEMENT_API_KEY_SCOPES`. Một key mang scope `manage`/`admin` vẫn vượt qua carve-out không thay đổi; `mcp:connect` là một lựa chọn thay thế đặc quyền thấp hơn dành cho các caller chỉ dùng MCP từ xa, được kiểm tra qua `hasMcpConnectOrManageScope()`.
 
-### Liên kết phạm vi HTTP theo khóa (#7895)
+### Ràng buộc scope HTTP theo từng key (#7895)
 
-Qua HTTP/SSE, `open-sse/mcp-server/httpTransport.ts` hiện giải quyết `api_keys.scopes` thực của người gọi thông qua `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) và chuyển nó đến `transport.handleRequest(req, { authInfo })` của MCP SDK, do đó `extra.authInfo.scopes` đến mỗi lệnh gọi công cụ phản ánh các phạm vi của khóa Bearer. `scopeEnforcement.ts`'s `resolveCallerScopeContext()` đã ưu tiên `authInfo` hơn `_meta` và dự phòng môi trường `OMNIROUTE_MCP_SCOPES` — điều này chỉ điền vào nguồn ưu tiên cao nhất đó, vốn trước đây không được cung cấp qua HTTP. Khi không có khóa API nào được giải quyết (không có tiêu đề, khóa không hợp lệ), `authInfo` vẫn là `undefined` và việc giải quyết sẽ chuyển sang chuỗi `meta`/env hiện có mà không thay đổi. Điều này KHÔNG đảo ngược mặc định của `OMNIROUTE_MCP_ENFORCE_SCOPES` — việc thực thi vẫn phải được bật rõ ràng; thay đổi này chỉ làm cho đường dẫn theo khóa được ưu tiên khi nó được bật. stdio không có danh tính theo người gọi (xem `mcpCallerIdentity.ts`) và không bị ảnh hưởng — nó vẫn nằm trong chuỗi dự phòng `_meta`/env.
+Trên HTTP/SSE, `open-sse/mcp-server/httpTransport.ts` nay phân giải `api_keys.scopes` thực sự của caller qua `resolveMcpCallerAuthInfo()` (`open-sse/mcp-server/httpAuthContext.ts`) và truyền nó cho `transport.handleRequest(req, { authInfo })` của MCP SDK, nhờ đó `extra.authInfo.scopes` đi tới mỗi lệnh gọi tool phản ánh chính scope của Bearer key. `resolveCallerScopeContext()` trong `scopeEnforcement.ts` vốn đã ưu tiên `authInfo` hơn so với `_meta` và fallback env `OMNIROUTE_MCP_SCOPES` — thay đổi này chỉ điền vào nguồn ưu tiên cao nhất đó, vốn trước đây không được cấp dữ liệu qua HTTP. Khi không key nào phân giải được (không có header, key không hợp lệ), `authInfo` vẫn là `undefined` và việc phân giải rơi xuống chuỗi `meta`/env hiện hữu mà không thay đổi. stdio không có danh tính theo từng caller (xem `mcpCallerIdentity.ts`) và không bị ảnh hưởng bởi ràng buộc theo từng key — nó bỏ qua bước `_meta` (`_meta` chỉ được tôn trọng bên trong auth context HTTP, #15159) và phân giải chỉ từ env key `OMNIROUTE_MCP_SCOPES`.
+
+**Thực thi bắt buộc được bật cho các caller HTTP/SSE có scope hẹp bất kể `OMNIROUTE_MCP_ENFORCE_SCOPES`.** Việc `OMNIROUTE_MCP_ENFORCE_SCOPES` mặc định là `false` chỉ an toàn cho luồng local/stdio với một người vận hành duy nhất, nơi không có danh tính theo từng caller để áp scope. `open-sse/mcp-server/server.ts::withScopeEnforcement()` bật thực thi scope theo từng tool một cách vô điều kiện (`shouldForceScopeEnforcement()` trong `scopeEnforcement.ts`) khi và chỉ khi `resolveCallerScopeContext()` đã phân giải `source === "authInfo"` (tức là có header Authorization HTTP thực sự theo từng key, chỉ áp dụng cho HTTP/SSE) VÀ key đó không mang scope đầy đủ `manage`/`admin`. Điều này đóng khoảng trống khi một key chỉ mang scope bypass hẹp `mcp:connect` — được tài liệu hóa ở trên là chỉ uỷ quyền cho carve-out LOCAL_ONLY `/api/mcp/` — vẫn có thể gọi mọi tool MCP chỉ vì người vận hành đã bật truy cập MCP từ xa/ngoài loopback, đơn giản vì `OMNIROUTE_MCP_ENFORCE_SCOPES` mặc định ship `false`. Một key `manage`/`admin` đầy đủ qua HTTP, cùng mọi caller stdio/local, giữ nguyên hành vi có điều kiện theo `OMNIROUTE_MCP_ENFORCE_SCOPES` như trước.
 
 ---
 
 ## Biến môi trường
 
-| Biến                                    | Mặc định                       | Mục đích                                                                                                                                 |
-| :-------------------------------------- | :----------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------- |
-| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`       | URL cơ sở mà máy chủ MCP sử dụng khi gọi các API nội bộ của OmniRoute                                                                    |
-| `OMNIROUTE_API_KEY`                     | (trống)                        | Khóa API được chuyển tiếp dưới dạng `Authorization: Bearer` đến các lệnh gọi API nội bộ                                                  |
-| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (chỉ `"true"` mới bật) | Khi được bật, các scope bị thiếu sẽ khiến lệnh gọi công cụ bị từ chối và ghi `scope_denied:<reason>` vào nhật ký kiểm tra                |
-| `OMNIROUTE_MCP_SCOPES`                  | (trống)                        | Danh sách cho phép gồm các scope, phân tách bằng dấu phẩy, mặc định được coi là "khả dụng" (dùng khi bên gọi không cung cấp scope riêng) |
-| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (chưa đặt = bật)               | Khi được đặt thành `0/false/off/no`, vô hiệu hóa tính năng nén mô tả MCP tại thời điểm đăng ký                                           |
-| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (chưa đặt = bật)               | Bí danh thay thế cho cùng tùy chọn bật/tắt ở trên                                                                                        |
-| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                        | Khoảng thời gian chờ trước khi hủy các thao tác đọc quản lý nội bộ (tình trạng, khả năng phục hồi, tổ hợp, hạn ngạch, mức sử dụng)       |
-| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                        | Khoảng thời gian chờ trước khi hủy các chặng đang đợi nhà cung cấp (`route_request`, `web_search`, `web_fetch`)                          |
-| `MCP_TOOL_DENY`                         | (chưa đặt = không lọc)         | Tên các công cụ cần loại khỏi `tools/list`, phân tách bằng dấu phẩy (giảm số lượng công cụ — xem bên dưới)                               |
-| `MCP_TOOL_ALLOW`                        | (chưa đặt = không lọc)         | Tên các công cụ được giữ lại độc quyền, phân tách bằng dấu phẩy (chế độ danh sách cho phép — xem bên dưới)                               |
-| `DATA_DIR`                              | `~/.omniroute`                 | Tệp heartbeat được ghi vào `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                      |
+| Biến                                    | Mặc định                       | Mục đích                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| :-------------------------------------- | :----------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OMNIROUTE_BASE_URL`                    | `http://localhost:20128`       | URL cơ sở mà máy chủ MCP sử dụng khi gọi các API nội bộ của OmniRoute                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `OMNIROUTE_API_KEY`                     | (trống)                        | Khóa API được chuyển tiếp dưới dạng `Authorization: Bearer` tới các lệnh gọi API nội bộ                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `OMNIROUTE_MCP_ENFORCE_SCOPES`          | `false` (chỉ `"true"` mới bật) | Khi được bật, việc thiếu phạm vi sẽ khiến lệnh gọi công cụ bị từ chối và ghi `scope_denied:<reason>` vào nhật ký kiểm tra. Cơ chế thực thi CŨNG luôn được bắt buộc, bất kể cờ này, đối với mọi bên gọi HTTP/SSE được xác định từ tiêu đề Authorization theo từng khóa (`source === "authInfo"`) mà không có đầy đủ phạm vi `manage`/`admin` — ví dụ: một khóa chỉ có phạm vi bỏ qua hạn chế `mcp:connect` — vì vậy giá trị mặc định này chỉ an toàn cho luồng cục bộ/stdio do một người vận hành, tuyệt đối không dành cho truy cập từ xa không qua loopback |
+| `OMNIROUTE_MCP_SCOPES`                  | (trống)                        | Danh sách phạm vi cho phép, phân tách bằng dấu phẩy, được coi là "khả dụng" theo mặc định (được dùng khi bên gọi không cung cấp các phạm vi riêng)                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `OMNIROUTE_MCP_COMPRESS_DESCRIPTIONS`   | (không đặt = bật)              | Khi được đặt thành `0/false/off/no`, vô hiệu hóa tính năng nén mô tả MCP tại thời điểm đăng ký                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `OMNIROUTE_MCP_DESCRIPTION_COMPRESSION` | (không đặt = bật)              | Bí danh thay thế cho cùng tùy chọn bật/tắt ở trên                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS`        | `10000`                        | Khoảng thời gian chờ trước khi hủy đối với các thao tác đọc quản lý nội bộ (tình trạng, khả năng phục hồi, tổ hợp, hạn ngạch, mức sử dụng)                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS`     | `60000`                        | Khoảng thời gian chờ trước khi hủy đối với các chặng phải đợi nhà cung cấp (`route_request`, `web_search`, `web_fetch`)                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `MCP_TOOL_DENY`                         | (không đặt = không lọc)        | Tên các công cụ, phân tách bằng dấu phẩy, cần loại khỏi `tools/list` (giảm số lượng công cụ — xem bên dưới)                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `MCP_TOOL_ALLOW`                        | (không đặt = không lọc)        | Tên các công cụ được phân tách bằng dấu phẩy để giữ lại riêng (chế độ danh sách cho phép — xem bên dưới)                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `DATA_DIR`                              | `~/.omniroute`                 | Tệp heartbeat được ghi vào `${DATA_DIR}/runtime/mcp-heartbeat.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ---
 

@@ -8,7 +8,7 @@ const harness = await createChatPipelineHarness("antigravity-resilience-routing"
 const { buildRequest, handleChat, settingsDb, resetStorage } = harness;
 const providers = await import("../../src/lib/db/providers.ts");
 const auth = await import("../../src/sse/services/auth.ts");
-const { antigravityHealth } = await import("../../open-sse/services/antigravityHealth.ts");
+const { antigravityHealth, normalizeAntigravityHealthModel } = await import("../../open-sse/services/antigravityHealth.ts");
 const { seedAntigravityIdeVersionCache, clearAntigravityVersionCaches } = await import("../../open-sse/services/antigravityVersion.ts");
 const { GET: stateGET } = await import("../../src/app/api/resilience/connections/route.ts");
 const MODEL = "gemini-3.8-flash-tiered";
@@ -139,7 +139,7 @@ test("state API returns structured bounded model health without credentials or u
   assert.equal(response.status, 200);
   const body = await response.json();
   const state = body.connections.find((entry: { id: string }) => entry.id === connection.id).antigravityHealth[0];
-  assert.equal(state.model, MODEL);
+  assert.equal(state.model, normalizeAntigravityHealthModel(MODEL), "health state uses canonical upstream model IDs");
   assert.equal(state.state, "quarantined");
   assert.equal(state.reason, "pre_response_timeout_rate");
   assert.equal(state.samples, 8);
