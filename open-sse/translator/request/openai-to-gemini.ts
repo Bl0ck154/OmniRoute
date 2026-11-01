@@ -228,7 +228,7 @@ type GeminiToolNameOptions = {
 // Returns the trimmed non-empty level, or null when no level was supplied — an
 // empty/whitespace string is treated as "no level" so it can never disagree
 // with the extraction that later writes the field onto the request.
-function extractExplicitThinkingLevel(body: Record<string, unknown>): string | null {
+function extractExplicitThinkingLevel(body: Record<string, unknown>): GeminiThinkingLevel | null {
   const gc = body.generationConfig as Record<string, unknown> | undefined;
   const tc = gc?.thinkingConfig as Record<string, unknown> | undefined;
   const tcSnake = gc?.thinking_config as Record<string, unknown> | undefined;
@@ -239,7 +239,11 @@ function extractExplicitThinkingLevel(body: Record<string, unknown>): string | n
     body.thinking_level,
   ];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim() !== "") return candidate.trim();
+    if (typeof candidate !== "string") continue;
+    const level = candidate.trim().toLowerCase();
+    if (level === "minimal" || level === "low" || level === "medium" || level === "high") {
+      return level;
+    }
   }
   return null;
 }
@@ -315,13 +319,18 @@ function openaiToGeminiBase(
   // Mirrors the same guard in claude-to-gemini.ts. Port of the thinkingConfig
   // guard half of decolua/9router#2480 (the signature-replay half of that PR
   // is out of scope and not ported here).
-  const nativeThinkingLevel = resolveNativeGeminiThinkingLevel(model, body);
+  // Do not attach thinkingConfig to image, TTS or transcription models:
+  // they reject the entire field, including a native thinkingLevel.
+  const rejectsThinkingConfig = geminiModelRejectsThinkingConfig(model);
+  const nativeThinkingLevel = rejectsThinkingConfig
+    ? null
+    : resolveNativeGeminiThinkingLevel(model, body);
   if (nativeThinkingLevel !== null) {
     result.generationConfig.thinkingConfig = {
       thinkingLevel: nativeThinkingLevel,
       includeThoughts: true,
     };
-  } else if (model.startsWith("gemma-4")) {
+  } else if (model.startsWith("gemma-4") || rejectsThinkingConfig) {
     // gemma-4 models returns - 400: Thinking budget is not supported for this model
   } else {
     // 1. OpenAI format: reasoning_effort (none/low/medium/high/auto/max/xhigh)

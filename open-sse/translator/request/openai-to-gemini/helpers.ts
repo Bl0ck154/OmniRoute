@@ -13,7 +13,8 @@ export type GeminiGenerationConfig = {
   thinkingConfig?: {
     thinkingBudget?: number;
     thinkingLevel?: "minimal" | "low" | "medium" | "high";
-    includeThoughts: boolean;
+    // Gemini 3.8+ thinkingLevel requests omit this unless explicitly requested.
+    includeThoughts?: boolean;
   };
   responseMimeType?: string;
   responseSchema?: unknown;
