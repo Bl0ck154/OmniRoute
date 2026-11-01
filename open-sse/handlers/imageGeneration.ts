@@ -74,6 +74,16 @@ import {
 import { handleAlibabaImageGeneration } from "./imageGeneration/providers/alibabaImage.ts";
 import { handleAiHordeImageGeneration } from "./imageGeneration/providers/aihorde.ts";
 import * as codexImages from "./imageGeneration/providers/codexImages.ts";
+import { handleZenmuxImageGeneration } from "./imageGeneration/providers/zenmux.ts";
+import { handleMuseImageGeneration } from "./imageGeneration/providers/museImage.ts";
+import { handleGeminiAiImageGeneration } from "./imageGeneration/providers/geminiAiStudio.ts";
+import { handleBlackForestLabsImageGeneration } from "./imageGeneration/providers/blackForestLabs.ts";
+import {
+  fanOutSingleImageCalls,
+  IMAGE_FANOUT_MAX_N,
+  resolveRequestedImageCount,
+  SINGLE_IMAGE_FANOUT_FORMATS,
+} from "./imageGeneration/fanOut.ts";
 import {
   applyPollinationsAnonymousFallback,
   reportPollinationsAnonOutcome,
