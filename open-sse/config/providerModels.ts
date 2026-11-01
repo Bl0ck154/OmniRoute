@@ -407,11 +407,19 @@ export function getModelTimeoutMs(aliasOrId: string, modelId: string): number | 
 }
 
 const CLAUDE_MODEL_PATTERN = /(?:^|[\/._-])claude(?:[._-]|$)/;
-const CLAUDE_MAX_EFFORT_UNSUPPORTED_FAMILY_PATTERNS = [
-  /(?:^|[\/._-])haiku(?:[._-]|$)/,
-  // Sonnet 5.5 caps effort at xhigh; max returns a 400.
-  /(?:^|[\/._-])claude-sonnet-5-5(?:[._-]|$)/,
-] as const;
+// Claude max-effort support follows family and release versions rather than
+// a blanket Haiku ban; Sonnet 5.5 remains excluded until verified.
+const CLAUDE_MAX_EFFORT_MIN_VERSION: ReadonlyMap<string, number> = new Map([
+  ["fable", 0],
+  ["mythos", 0],
+  ["opus", 406],
+  ["sonnet", 406],
+  ["haiku", 505],
+]);
+const CLAUDE_MAX_EFFORT_EXCLUDED_VERSIONS: ReadonlySet<string> = new Set(["sonnet:505"]);
+const CLAUDE_FAMILY_VERSION_PATTERN =
+  /^claude[._-]([a-z]+)(?:[._-](\d{1,2})(?:[._-](\d{1,2}))?)?(?=[._-]|$)/;
+const CLAUDE_LEGACY_ID_PATTERN = /^claude[._-]\d/;
 const ANTHROPIC_COMPATIBLE_PREFIX = "anthropic-compatible-";
 
 export function supportsClaudeMaxEffort(modelId: string | null | undefined): boolean {

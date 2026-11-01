@@ -51,7 +51,7 @@ const {
 // PROXY_POOL_SHARED_EGRESS_ORDER (shared-egress pool ordering, default off)
 // takes it to 80.
 // COMBO_AUTO_PRUNE_STALE_STEPS (#15925, default off) raises the count to 81.
-const EXPECTED_FEATURE_FLAG_COUNT = 81;
+const EXPECTED_FEATURE_FLAG_COUNT = 105;
 
 // ──────────────────────────────────────────────────────
 // Test group 1 — Flag definitions registry
