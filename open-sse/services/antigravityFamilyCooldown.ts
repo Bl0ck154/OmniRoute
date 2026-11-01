@@ -22,8 +22,8 @@ function parseUntilMs(value: unknown): number {
   return NaN;
 }
 
-function dummyModelForFamily(family: "gemini" | "claude"): string {
-  return family === "gemini" ? "gemini-family-lock" : "claude-family-lock";
+function dummyModelForFamily(family: "gemini" | "claude" | "argon"): string {
+  return family === "gemini" ? "gemini-family-lock" : family === "argon" ? "argon-family-lock" : "claude-family-lock";
 }
 
 function lockAntigravityFamilyModel(
@@ -106,7 +106,7 @@ export async function persistAntigravityPreflightFamilyLock(params: {
 /** Read the saved deadline without installing any process-local model locks. */
 export function getAntigravityFamilyCooldownUntil(
   providerSpecificData: unknown,
-  family: "gemini" | "claude" | "other",
+  family: "gemini" | "claude" | "argon" | "other",
   now = Date.now()
 ): number | null {
   const untils = asRecord(asRecord(providerSpecificData)[FAMILY_PSD_KEY]);
@@ -121,7 +121,7 @@ export function rehydrateAntigravityFamilyLocks(
 ): void {
   if (!isAntigravityQuotaProvider(provider)) return;
   const now = Date.now();
-  for (const family of ["gemini", "claude"] as const) {
+  for (const family of ["gemini", "claude", "argon"] as const) {
     const untilMs = getAntigravityFamilyCooldownUntil(providerSpecificData, family, now);
     if (untilMs === null) continue;
     const model = dummyModelForFamily(family);
