@@ -194,39 +194,55 @@ function resolveTotalTokens(
 
 /** Extract usageMetadata into the OpenAI-shaped usage object, if present. */
 function applyUsageMetadata(parsed: Record<string, unknown>, acc: GeminiSSEAccumulator): void {
-  const response = parsed.response as Record<string, unknown> | undefined;
-  // Cloud Code normally nests usage under response; native Gemini can send it
-  // at the top level. A final metadata-only SSE event is still authoritative.
-  const um = (response?.usageMetadata ?? parsed.usageMetadata) as
-    | Record<string, unknown>
-    | undefined;
+  const response = (parsed.response ?? parsed) as Record<string, unknown>;
+  const um = response?.usageMetadata as Record<string, unknown> | undefined;
   if (!um || typeof um !== "object" || Array.isArray(um)) return;
 
-  const nonNegative = (value: unknown): number | undefined =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-  const previous = acc.usage;
-  const previousCache = previous?.prompt_tokens_details as Record<string, unknown> | undefined;
-  const previousReasoning = previous?.completion_tokens_details as Record<string, unknown> | undefined;
-  const cachedTokens = nonNegative(um.cachedContentTokenCount) ??
-    nonNegative(previousCache?.cached_tokens);
-  const reasoningTokens = nonNegative(um.thoughtsTokenCount) ??
-    nonNegative(previousReasoning?.reasoning_tokens);
-  const candidateTokens = nonNegative(um.candidatesTokenCount);
+  const previous = acc.usage ?? {};
+  const previousPrompt = nonNegativeOr(previous.prompt_tokens, undefined);
+  const previousCompletion = nonNegativeOr(previous.completion_tokens, undefined);
+  const previousTotal = nonNegativeOr(previous.total_tokens, undefined);
+  const promptTokens = nonNegativeOr(um.promptTokenCount, previousPrompt);
 
-  // SSE usage is cumulative, not additive. Missing fields in a trailing usage
-  // event must not erase fields already reported in an earlier chunk.
-  acc.usage = {
-    prompt_tokens: nonNegative(um.promptTokenCount) ?? previous?.prompt_tokens ?? 0,
-    completion_tokens: candidateTokens === undefined
-      ? (previous?.completion_tokens ?? 0)
-      : candidateTokens + (reasoningTokens ?? 0),
-    total_tokens: nonNegative(um.totalTokenCount) ?? previous?.total_tokens ?? 0,
-    // Preserve explicit zero: "reported zero" differs from "not reported".
-    ...(cachedTokens !== undefined
-      ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {}),
-    ...(reasoningTokens !== undefined
-      ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } } : {}),
+  // Gemini candidatesTokenCount excludes thoughts; only add reasoning when
+  // a new cumulative candidate count is available. Never double-count an
+  // earlier accumulated completion count in a metadata-only final frame.
+  const candidatesTokens = nonNegativeOr(um.candidatesTokenCount, undefined);
+  const previousReasoning = (
+    previous.completion_tokens_details as { reasoning_tokens?: number } | undefined
+  )?.reasoning_tokens;
+  const reasoningTokens = nonNegativeOr(um.thoughtsTokenCount, previousReasoning);
+  const completionTokens =
+    candidatesTokens === undefined
+      ? previousCompletion
+      : candidatesTokens + (reasoningTokens ?? 0);
+  const totalTokens = resolveTotalTokens(
+    nonNegativeOr(um.totalTokenCount, undefined),
+    previous,
+    previousTotal,
+    promptTokens,
+    completionTokens
+  );
+
+  const previousCached = (
+    previous.prompt_tokens_details as { cached_tokens?: number } | undefined
+  )?.cached_tokens;
+  const cachedTokens = resolveCachedTokens(
+    um,
+    typeof promptTokens === "number" ? promptTokens : undefined,
+    previousCached
+  );
+  const usage: Record<string, unknown> = {
+    ...previous,
+    ...(typeof promptTokens === "number" ? { prompt_tokens: promptTokens } : {}),
+    ...(typeof completionTokens === "number" ? { completion_tokens: completionTokens } : {}),
+    ...(typeof totalTokens === "number" ? { total_tokens: totalTokens } : {}),
+    ...(typeof reasoningTokens === "number"
+      ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } }
+      : {}),
   };
+  applyCacheEvidence(usage, um, cachedTokens);
+  acc.usage = usage;
 }
 
 /** Parse one `data:` line's JSON payload and fold it into the accumulator (best-effort). */

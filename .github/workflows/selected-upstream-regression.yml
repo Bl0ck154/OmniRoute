@@ -34,6 +34,9 @@ jobs:
             --test --test-force-exit --test-concurrency=2 \
             tests/unit/antigravity-claude-55-live-tier-ids.test.ts \
             tests/unit/gemini-38-thinking-level-output.test.ts \
+            tests/unit/gemini-sse-cached-tokens-prompt-narrowing.test.ts \
+            tests/unit/gemini-usage-total-fallback.test.ts \
+            tests/unit/sse-parser.test.ts \
             tests/unit/migration-223-proxy-logs-attempt-timing.test.ts \
             tests/unit/migration-194-213-223-fork-upgrade.test.ts \
             tests/unit/order-forge-image-artifact-sink.test.ts \
