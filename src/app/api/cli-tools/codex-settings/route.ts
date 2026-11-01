@@ -3,6 +3,8 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
+import fs from "fs/promises";
+import path from "path";
 import { parse as parseStrictToml } from "smol-toml";
 import { requireCliToolsAuth } from "@/lib/api/requireCliToolsAuth";
 import {
@@ -17,6 +19,13 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { resolveApiKey } from "@/shared/services/apiKeyResolver";
 import { normalizeCodexBaseUrl } from "@/shared/utils/codexBaseUrl";
 import { migrateCodexFeatureFlags } from "@/shared/utils/codexConfig";
+import {
+  getCodexCatalogPath,
+  listOmniRouteChatModels,
+  removeCodexModelCatalog,
+  writeCodexModelCatalog,
+  type CodexCatalogWriteResult,
+} from "@/lib/cliTools/codexModelCatalogWriter";
 import {
   configClobberRefusalResponse,
   parseJsonObject,

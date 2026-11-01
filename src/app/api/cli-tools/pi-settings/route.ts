@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 
+import path from "path";
 import { guardCliConfigWrite } from "@/lib/api/cliConfigWriteGuard";
 import { requireCliToolsAuth } from "@/lib/api/requireCliToolsAuth";
 import { saveCliToolLastConfigured, deleteCliToolLastConfigured } from "@/lib/db/cliToolState";
@@ -19,10 +20,11 @@ import {
   readPiModelsJson,
   removeOmniRoutePiProvider,
 } from "@/shared/services/piConfig";
-import { getCliRuntimeStatus } from "@/shared/services/cliRuntime";
+import { getCliRuntimeStatus, getCliPrimaryConfigPath } from "@/shared/services/cliRuntime";
 import { getRuntimePorts } from "@/lib/runtime/ports";
 import { resolveApiKey } from "@/shared/services/apiKeyResolver";
-import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
+import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
+import { cliModelConfigSchema } from "@/shared/validation/schemas";
 import {
   configClobberRefusalResponse,
   parseJsonObject,

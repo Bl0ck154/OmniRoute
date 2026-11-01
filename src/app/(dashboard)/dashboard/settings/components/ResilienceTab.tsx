@@ -9,6 +9,7 @@ import AutoDisableCard from "./AutoDisableCard";
 import ModelLockoutCard from "./ModelLockoutCard";
 import TokenRefreshBreakerCard, { type TokenRefreshBreakerValue } from "./TokenRefreshBreakerCard";
 import { NumberField, BooleanField } from "./ResilienceFields";
+import { throwIfResilienceSaveFailed } from "./resilienceSaveError";
 import AntigravityResilienceCard from "./AntigravityResilienceCard";
 import type { AntigravityResilienceSettings } from "@/lib/resilience/antigravitySettings";
 

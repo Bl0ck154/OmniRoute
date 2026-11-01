@@ -30,6 +30,9 @@ import { errorResponse } from "../utils/error.ts";
 import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
 import { isJsonObject } from "../utils/kieTask.ts";
 import { handleOpenRouterTranscription } from "./openrouterTranscription.ts";
+import { handleGrokTranscription } from "./grokMedia.ts";
+import { handleSyntxTranscription } from "./syntxAudio.ts";
+import type { RemoteMediaFetcher } from "../utils/transcriptionRemoteAudio.ts";
 import { resolveTranscriptionFile, TranscriptionAudioUrlError } from "../utils/transcriptionRemoteAudio.ts";
 
 type TranscriptionCredentials = {

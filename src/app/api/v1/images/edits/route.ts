@@ -53,6 +53,7 @@ import {
 import { isMicrosoftDesignerWebProviderRetiredError } from "@/shared/constants/designerWebRetirement";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
+import { isCodexFreePlan } from "@omniroute/open-sse/executors/codex/tools.ts";
 import {
   getBodySizeLimit,
   readRequestBodyWithLimit,

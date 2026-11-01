@@ -34,6 +34,7 @@
 import { recordEarlyKeepaliveBytes } from "./earlyKeepaliveByteBuffer.ts";
 import { SYNTHETIC_RESPONSES_SEQUENCE_NUMBER } from "./responsesSequence.ts";
 import { withUpstreamErrorDetail } from "./upstreamErrorDetail.ts";
+import { mergeAbortSignals } from "../executors/base/mergeAbortSignals.ts";
 
 const ENCODER = new TextEncoder();
 const KEEPALIVE_FRAME = ENCODER.encode(": keepalive\n\n");
