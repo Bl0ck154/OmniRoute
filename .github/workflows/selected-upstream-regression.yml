@@ -36,6 +36,10 @@ jobs:
             tests/unit/gemini-38-thinking-level-output.test.ts \
             tests/unit/gemini-sse-cached-tokens-prompt-narrowing.test.ts \
             tests/unit/gemini-usage-total-fallback.test.ts \
+            tests/unit/muse-session-ownership.test.ts \
+            tests/unit/muse-empty-response-retry.test.ts \
+            tests/unit/cursor-empty-turn-failover-v9.test.ts \
+            tests/unit/credential-scope-diagnostics-15889.test.ts \
             tests/unit/sse-parser.test.ts \
             tests/unit/migration-223-proxy-logs-attempt-timing.test.ts \
             tests/unit/migration-194-213-223-fork-upgrade.test.ts \

@@ -1814,52 +1814,76 @@ async function handleSingleModelChat(
     const emptyStreamSiblingRecovery = readEmptyStreamSiblingRecoveryFlag();
     while (true) {
       if (requestSignal?.aborted) return errorResponse(499, "Request aborted");
-      const credentials =
-        preselectedCredentials && excludedConnectionIds.size === 0 && !agy.on
+      const emptyTurnExcluded = new Set(excludedConnectionIds);
+      if (
+        emptyStreamSiblingRecovery &&
+        runtimeOptions.emptyTurnConnectionId &&
+        !hasForcedConnection &&
+        !museOwner &&
+        !runtimeOptions.managedLease
+      ) {
+        emptyTurnExcluded.add(runtimeOptions.emptyTurnConnectionId);
+      }
+      const selectCredentials = (excluded: Set<string>) =>
+        getProviderCredentialsWithQuotaPreflight(
+          provider,
+          null,
+          museOwner ? [museOwner.connectionId] : effectiveAllowedConnections,
+          model,
+          {
+            connectionRestrictionSources: restrictions.sources,
+            requireToolCalling: hasQoderCallerTools(body),
+            sessionKey: museOwner ? null : occupancySessionKey,
+            preferredConnectionIds: apiKeyInfo?.preferredConnections ?? null,
+            reserveOAuthSession: true,
+            excludeConnectionIds: Array.from(excluded),
+            ...(agy.on ? { reserveAntigravityLease: true, routingRequestId: agy.requestId } : {}),
+            ...(runtimeOptions.allowRateLimitedConnection
+              ? { allowRateLimitedConnections: true }
+              : {}),
+            ...(forceLiveComboTest
+              ? {
+                  allowSuppressedConnections: true,
+                  bypassQuotaPolicy: true,
+                }
+              : {}),
+            ...(!forceLiveComboTest && bypassProviderQuotaPolicy
+              ? { bypassQuotaPolicy: true }
+              : {}),
+            ...(runtimeOptions.managedLease
+              ? { lease: credentialLease(runtimeOptions.managedLease) }
+              : {}),
+            ...(() => {
+              const effectiveForcedId = resolveForcedConnectionForCredentialPool({
+                forcedConnectionId: forcedConnectionId || null,
+                excludedConnectionIds: excluded,
+                connections: [],
+                allowRateLimitedConnections:
+                  runtimeOptions.allowRateLimitedConnection === true || forceLiveComboTest,
+                bypassQuotaPolicy: forceLiveComboTest || bypassProviderQuotaPolicy,
+                isQuotaExhausted: () => false,
+                isQuotaPolicyBlocked: () => false,
+              });
+              return museOwner
+                ? { forcedConnectionId: museOwner.connectionId }
+                : effectiveForcedId
+                  ? { forcedConnectionId: effectiveForcedId }
+                  : {};
+            })(),
+          }
+        );
+      let credentials =
+        preselectedCredentials && emptyTurnExcluded.size === 0 && !agy.on && !museOwner
           ? preselectedCredentials
-          : await getProviderCredentialsWithQuotaPreflight(
-              provider,
-              null,
-              effectiveAllowedConnections,
-              model,
-              {
-                sessionKey: occupancySessionKey,
-                preferredConnectionIds: apiKeyInfo?.preferredConnections ?? null,
-                reserveOAuthSession: true,
-                excludeConnectionIds: Array.from(excludedConnectionIds),
-                ...(agy.on
-                  ? { reserveAntigravityLease: true, routingRequestId: agy.requestId }
-                  : {}),
-                ...(runtimeOptions.allowRateLimitedConnection
-                  ? { allowRateLimitedConnections: true }
-                  : {}),
-                ...(forceLiveComboTest
-                  ? {
-                      allowSuppressedConnections: true,
-                      bypassQuotaPolicy: true,
-                    }
-                  : {}),
-                ...(!forceLiveComboTest && bypassProviderQuotaPolicy
-                  ? { bypassQuotaPolicy: true }
-                  : {}),
-                ...(runtimeOptions.managedLease
-                  ? { lease: credentialLease(runtimeOptions.managedLease) }
-                  : {}),
-                ...(() => {
-                  const effectiveForcedId = resolveForcedConnectionForCredentialPool({
-                    forcedConnectionId: forcedConnectionId || null,
-                    excludedConnectionIds,
-                    connections: [],
-                    allowRateLimitedConnections:
-                      runtimeOptions.allowRateLimitedConnection === true || forceLiveComboTest,
-                    bypassQuotaPolicy: forceLiveComboTest || bypassProviderQuotaPolicy,
-                    isQuotaExhausted: () => false,
-                    isQuotaPolicyBlocked: () => false,
-                  });
-                  return effectiveForcedId ? { forcedConnectionId: effectiveForcedId } : {};
-                })(),
-              }
-            );
+          : await selectCredentials(emptyTurnExcluded);
+      if (
+        emptyTurnExcluded.size > excludedConnectionIds.size &&
+        (!credentials || "allRateLimited" in credentials || "allExpired" in credentials)
+      ) {
+        // Empty turns are stochastic, not account faults. Prefer an allowed sibling,
+        // but a singleton still spends its existing retry on its original account.
+        credentials = await selectCredentials(excludedConnectionIds);
+      }
       preselectedCredentials = null;
       const museUnavailable = museOwner && muse.museOwnerUnavailable(museOwner, credentials);
       if (museUnavailable) return museUnavailable;
@@ -2219,6 +2243,8 @@ async function handleSingleModelChat(
               effectiveModel,
               antigravitySettings
             ),
+            beforeUpstreamAttempt:
+              museOwner && muse.museBeforeUpstreamAttempt(museOwner, credentials),
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
             allowedConnections: effectiveAllowedConnections,
           },
@@ -2301,7 +2327,7 @@ async function handleSingleModelChat(
         if (telemetry) telemetry.startPhase("finalize");
         if (telemetry) telemetry.endPhase();
         const successResponse = withRoutingTelemetry(
-          result.response,
+          museOwner ? muse.museRecordOutput(museOwner, result.response) : result.response,
           credentials?.connectionId
         );
         if (requestBody.stream === true) {
@@ -2430,6 +2456,9 @@ async function handleSingleModelChat(
         ) {
           streamEarlyEofRetries += 1;
           sameAccountRetries += 1;
+          if (result.errorCode === "empty_content") {
+            runtimeOptions.emptyTurnConnectionId = credentials.connectionId;
+          }
           log.warn(
             "STREAM",
             `${provider}/${model} closed the stream early before useful content — retrying once (attempt ${streamEarlyEofRetries})`
