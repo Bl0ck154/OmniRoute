@@ -38,7 +38,7 @@ jobs:
         run: |
           set +e
           ./node_modules/.bin/tsc -p tsconfig.typecheck-api.json --noEmit --pretty false > /tmp/pr94-typescript-diagnostics.log 2>&1
-          sed -n '1,240p' /tmp/pr94-typescript-diagnostics.log
+          grep -E 'error TS[0-9]+:' /tmp/pr94-typescript-diagnostics.log || true
           exit 0
       - name: API typecheck gate unit tests
         run: node --import tsx/esm --test tests/unit/build/check-api-typecheck.test.ts
