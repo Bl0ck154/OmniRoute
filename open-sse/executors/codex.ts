@@ -50,9 +50,13 @@ import { CORS_HEADERS } from "../utils/cors.ts";
 import { projectCodexPublicError } from "../utils/codexPublicError.ts";
 import { classifyProviderSafetyError } from "../utils/providerSafety.ts";
 import { errorResponse } from "../utils/error.ts";
-import { buildSyntheticResponsesFailureId, buildSyntheticResponsesFailedEvent } from "../utils/responsesSequence.ts";
+import {
+  buildSyntheticResponsesFailureId,
+  buildSyntheticResponsesFailedEvent,
+} from "../utils/responsesSequence.ts";
 import { hasCodexSsePeekProgress } from "./codex/ssePeekProgress.ts";
 import * as overloadedOutput from "./codex/sseOverloadedOutput.ts";
+import * as modelUnavailable from "./codex/sseModelUnavailable.ts";
 import { normalizeCodexResponsesInput } from "../utils/responsesInputNormalization.ts";
 import * as prl from "../utils/providerRequestLogging.ts";
 import { createRequire } from "module";
@@ -700,10 +704,8 @@ export async function peekCodexSseTransientError(
       text += decoder.decode(value, { stream: true });
       const lower = text.toLowerCase();
       const hit = CODEX_SSE_TRANSIENT_ERROR_PATTERNS.find((pattern) => lower.includes(pattern));
-      if (hit) {
-        matched = hit;
-        break;
-      }
+      matched = hit ?? modelUnavailable.matchCodexSseModelUnavailable(text);
+      if (matched) break;
       // Fake-200 overload delivered as output text (decolua/9router#3232).
       const overloadStep = overloadedOutput.codexOverloadedOutputPeekStep(text);
       if (overloadStep === "settled") break;
@@ -722,7 +724,9 @@ export async function peekCodexSseTransientError(
     );
   }
 
-  matched ??= overloadedOutput.matchCodexOverloadedOutput(text);
+  matched ??=
+    modelUnavailable.matchCodexSseModelUnavailable(text, true) ??
+    overloadedOutput.matchCodexOverloadedOutput(text);
   if (matched) {
     try {
       await reader.cancel();
@@ -730,7 +734,8 @@ export async function peekCodexSseTransientError(
       // Upstream socket may already be closing; nothing to clean up.
     }
     const message = overloadedOutput.extractCodexSseErrorMessage(text, matched);
-    return { matched, message, replacementBody: null };
+    const isModelUnavailable = modelUnavailable.isCodexSseModelUnavailableMatch(matched);
+    return { matched, message, replacementBody: null, modelUnavailable: isModelUnavailable };
   }
 
   // Re-assemble the stream: peeked prefix chunks, then continue draining the

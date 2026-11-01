@@ -73,6 +73,8 @@ jobs:
             tests/unit/cli-tools-refuse-to-clobber.test.ts \
             tests/unit/codex-reasoning-replay-retry.test.ts \
             tests/unit/codex-sse-overloaded-output-3232.test.ts \
+            tests/unit/codex-sse-model-unavailable-4373.test.ts \
+            tests/unit/codex-sse-peek-body-double-read.test.ts \
             tests/unit/combo-model-lock-pre-dispatch-wait-16319.test.ts \
             tests/unit/combos-list-shared-context-resolution.test.ts \
             tests/unit/omp-settings-route.test.ts \
