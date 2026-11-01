@@ -3,8 +3,6 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
-import fs from "fs/promises";
-import path from "path";
 import { parse as parseStrictToml } from "smol-toml";
 import { requireCliToolsAuth } from "@/lib/api/requireCliToolsAuth";
 import {

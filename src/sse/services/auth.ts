@@ -230,8 +230,6 @@ import {
 
 import { pickPreferredConnection } from "./connectionPreference";
 
-import { pickPreferredConnection } from "./connectionPreference";
-
 type JsonRecord = Record<string, unknown>;
 interface RecoverableConnectionState {
   connectionId: string;
