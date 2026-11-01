@@ -102,3 +102,13 @@ jobs:
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core
         run: npm run typecheck:core
+
+      - name: Stage previous fork SQL migrations (schema only)
+        run: |
+          git fetch --no-tags --depth=1 origin d641017972ea23884ea1569bcbcb20affcd48158
+          mkdir -p "$RUNNER_TEMP/old-migrations"
+          git archive FETCH_HEAD:src/lib/db/migrations | tar -x -C "$RUNNER_TEMP/old-migrations"
+      - name: Run historical fork upgrade with synthetic SQLite data
+        run: |
+          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs seed "$RUNNER_TEMP/fork-upgrade.sqlite" "$RUNNER_TEMP/old-migrations"
+          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs upgrade "$RUNNER_TEMP/fork-upgrade.sqlite" src/lib/db/migrations
