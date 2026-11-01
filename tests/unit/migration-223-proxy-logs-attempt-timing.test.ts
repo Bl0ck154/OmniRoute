@@ -1,6 +1,6 @@
-// Migration 194 adds BOTH headers_ms and first_chunk_ms. The boot-time
+// Migration 223 adds BOTH headers_ms and first_chunk_ms. The boot-time
 // schema guard may independently add either column; a half-upgraded DB must
-// never record 194 as complete when only one physical column exists.
+// never record 223 as complete when only one physical column exists.
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -13,10 +13,10 @@ const repoMigrations = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../src/lib/db/migrations"
 );
-const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-migration-194-"));
+const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-migration-223-"));
 fs.copyFileSync(
-  path.join(repoMigrations, "194_proxy_logs_attempt_timing.sql"),
-  path.join(migrationsDir, "194_proxy_logs_attempt_timing.sql")
+  path.join(repoMigrations, "223_proxy_logs_attempt_timing.sql"),
+  path.join(migrationsDir, "223_proxy_logs_attempt_timing.sql")
 );
 const originalMigrationsDir = process.env.OMNIROUTE_MIGRATIONS_DIR;
 process.env.OMNIROUTE_MIGRATIONS_DIR = migrationsDir;
@@ -41,7 +41,7 @@ for (const preexistingColumns of [
   ["first_chunk_ms"],
   ["headers_ms", "first_chunk_ms"],
 ]) {
-  test(`194 repairs partially added timing columns: ${preexistingColumns.join(",") || "neither"}`, () => {
+  test(`223 repairs partially added timing columns: ${preexistingColumns.join(",") || "neither"}`, () => {
     const db = new Database(":memory:");
     try {
       db.exec("CREATE TABLE proxy_logs (id TEXT PRIMARY KEY)");
@@ -54,7 +54,7 @@ for (const preexistingColumns of [
       assert.ok(columns(db).includes("first_chunk_ms"), "first-chunk latency must exist");
       assert.deepEqual(
         db.prepare("SELECT version,name FROM _omniroute_migrations ORDER BY version").all(),
-        [{ version: "194", name: "proxy_logs_attempt_timing" }]
+        [{ version: "223", name: "proxy_logs_attempt_timing" }]
       );
       assert.equal(runMigrations(db, { isNewDb: true }), 0, "repeat startup is idempotent");
     } finally {

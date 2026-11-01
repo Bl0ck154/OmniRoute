@@ -169,6 +169,23 @@ export const CLAUDE_SONNET_5_PRICING = {
   cache_creation: 2.5,
 };
 
+// Claude Haiku 5: prompt >100k tokens is billed at the long-context tier.
+export const CLAUDE_HAIKU_5_PRICING = {
+  input: 0.1,
+  output: 0.5,
+  cached: 0.01,
+  reasoning: 0.5,
+  cache_creation: 0.125,
+  long_context: {
+    threshold: 100_000,
+    input: 0.5,
+    output: 2.5,
+    cached: 0.05,
+    reasoning: 2.5,
+    cache_creation: 0.625,
+  },
+};
+
 export const GLM_PRICING = {
   // GLM-5.3 Flash (2026-08-26, https://models.dev / Z.AI)
   "glm-5.3-flash": {

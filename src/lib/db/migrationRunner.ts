@@ -619,10 +619,19 @@ function isSchemaAlreadyApplied(
       // would answer for another migration's schema and skip it.
       return hasColumn(db, "proxy_logs", "attempt_number");
     case "194":
-      // Fork compatibility: api_key_preferred_connections originally shipped as
-      // migration 170 before upstream claimed that slot for log_export_destinations.
-      // Existing fork databases already have this column and must not re-run ALTER TABLE.
+    case "213":
+      // The fork first shipped preferred_connections at version 194;
+      // upstream also publishes its idempotent schema at 213. Existing DBs
+      // must not attempt the same ALTER TABLE twice.
       return hasColumn(db, "api_keys", "preferred_connections");
+    case "223":
+      // Upstream called this 194, which clashes with our already deployed
+      // preferred_connections migration. The timing migration owns slot 223
+      // and is complete only when BOTH proxy_log timing columns are present.
+      return (
+        hasColumn(db, "proxy_logs", "headers_ms") &&
+        hasColumn(db, "proxy_logs", "first_chunk_ms")
+      );
     default:
       return false;
   }
