@@ -231,16 +231,43 @@ function toFirstToken(entry: UsageEntry): number {
  * the retry attempts the write once and, on failure, writes the existing log
  * line and stops.
  */
-export function scheduleWriteRetry(entry: UsageEntry): void {
+export function scheduleWriteRetry(entry: UsageEntry): void;
+export function scheduleWriteRetry(
+  write: () => void | Promise<void>,
+  onFailure: (error: unknown) => void
+): Promise<void>;
+export function scheduleWriteRetry(
+  input: UsageEntry | (() => void | Promise<void>),
+  onFailure?: (error: unknown) => void
+): void | Promise<void> {
+  if (typeof input === "function") {
+    // Proxy and call-log writers retry their own prepared rows; usage_history
+    // retries carry a UsageEntry instead. Preserve both public call shapes.
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(async () => {
+        try {
+          await input();
+        } catch (retryError) {
+          try {
+            onFailure?.(retryError);
+          } catch {
+            // Best-effort logging cannot reject the pending retry promise.
+          }
+        } finally {
+          resolve();
+        }
+      }, RETRY_DELAY_MS);
+      detachTimer(timer);
+    });
+  }
+
   const timer = setTimeout(() => {
     try {
-      attemptWrite(entry);
+      attemptWrite(input);
     } catch (retryError) {
       console.error("Failed to save usage stats:", retryError);
     }
   }, RETRY_DELAY_MS);
-  // Allow Node.js to exit naturally even if the timer is still pending
-  // (avoids keeping the event loop alive for a stray retry).
   detachTimer(timer);
 }
 
