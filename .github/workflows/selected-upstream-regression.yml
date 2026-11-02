@@ -105,6 +105,8 @@ jobs:
             tests/unit/http-client-abort-guard-relay-timeout.test.ts \
             tests/unit/http-client-abort-guard-semaphore-timeout-17229.test.ts \
             tests/unit/http-client-abort-guard-direct-timeout-12861.test.ts \
+            tests/unit/proxyfetch-direct-response-start-timeout-10214.test.ts \
+            tests/unit/direct-response-start-timeout-reasoning-504.test.ts \
             tests/unit/release-version-workspace-consistency.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts \

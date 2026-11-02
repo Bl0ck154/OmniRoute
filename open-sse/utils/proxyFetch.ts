@@ -809,6 +809,9 @@ async function patchedFetchUnrecorded(
     // Direct undici path: bound response-start, fresh-socket retry, and body guard.
     const directOptions = { ...options, signal: getEffectiveSignal(input, options) };
     const hasNonReplayableBody = requestHasNonReplayableBody(input, options);
+    // Only replay ambiguous response-start timeouts for safe methods.
+    // For POST/stream requests, defer to the caller deadline instead.
+    const canReplayResponseStartTimeout = isAmbiguousFailureReplaySafe(input, options);
     // Never replay image generation: the first request may still complete upstream.
     const maxAttempts = hasNonReplayableBody || dedicatedCodexImageRequest ? 1 : 2;
     const _undiciDirect =
@@ -830,10 +833,13 @@ async function patchedFetchUnrecorded(
     }
 
     let lastDispatcherError: unknown = null;
-    const directBodyForTimeout = typeof options.body === "string" ? options.body : null;
+    // Bind body, caller deadline and target URL once. The previous fork merge
+    // called an unimported resolver here (and timeoutFor below), breaking every
+    // ordinary direct-provider request with ReferenceError in production.
+    const timeoutFor = directHeadersTimeoutResolver(directOptions, targetUrl);
     const directHeadersTimeoutMs = dedicatedCodexImageRequest
       ? codexImageResponseStartTimeoutMs()
-      : resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout);
+      : timeoutFor(0);
     let targetHostForLogs = "";
     try {
       targetHostForLogs = new URL(targetUrl).host;
@@ -849,18 +855,18 @@ async function patchedFetchUnrecorded(
         return await directFetchWithBoundedResponseStart(
           input,
           {
-            ...options,
+            ...directOptions,
             // Start paid image generation on a fresh socket rather than risking a stale pooled socket.
             dispatcher: dedicatedCodexImageRequest
               ? getDedicatedCodexImageDispatcher(directHeadersTimeoutMs)
               : attempt === 0
-                ? getDefaultDispatcher()
-                : getRetryDispatcher(),
+                ? getDefaultDispatcher(hostnameForDispatcher)
+                : getRetryDispatcher(hostnameForDispatcher),
           },
           _undiciDirect,
           dedicatedCodexImageRequest
             ? directHeadersTimeoutMs
-            : resolveDirectHeadersTimeoutMs(undefined, directBodyForTimeout, attempt, !!options.signal)
+            : timeoutFor(attempt === 0 && canReplayResponseStartTimeout ? 0 : 1)
         );
       } catch (dispatcherError) {
         if (isCallerAbort(dispatcherError, directOptions.signal)) throw dispatcherError;
