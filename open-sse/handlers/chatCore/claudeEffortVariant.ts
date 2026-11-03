@@ -48,11 +48,7 @@ export function applyClaudeEffortVariant(opts: {
     provider === "cursor" ||
     provider === "cu" ||
     provider === "cursor-api" ||
-    provider === "cua" ||
-    // Antigravity Cloud Code requires literal suffixed Claude 5.5 tier ids.
-    // Stripping -low/-medium/-high sends a nonexistent base model (#15691).
-    provider === "antigravity" ||
-    provider === "agy"
+    provider === "cua"
   ) {
     return { effectiveModel: opts.effectiveModel, log: null };
   }

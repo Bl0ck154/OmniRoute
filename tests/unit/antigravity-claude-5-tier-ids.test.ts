@@ -93,6 +93,22 @@ for (const provider of ["antigravity", "agy"]) {
   }
 }
 
+test("Antigravity preserves only literal 5.x tiers; normal effort variants still normalize", () => {
+  for (const provider of ["antigravity", "agy", "ag"]) {
+    const model = "claude-sonnet-4-6-high";
+    const body: Record<string, unknown> = { model, messages: [] };
+    const result = applyClaudeEffortVariant({
+      provider,
+      effectiveModel: model,
+      body,
+      sourceFormat: FORMATS.OPENAI,
+    });
+    assert.equal(result.effectiveModel, "claude-sonnet-4-6");
+    assert.equal(body.model, "claude-sonnet-4-6");
+    assert.equal(body.reasoning_effort, "high");
+  }
+});
+
 test("other providers still strip the Claude 5.5 effort suffix", () => {
   const body: Record<string, unknown> = { model: "claude-opus-5-5-high", messages: [] };
   const result = applyClaudeEffortVariant({
