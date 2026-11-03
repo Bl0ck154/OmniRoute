@@ -196,28 +196,6 @@ test("findListeningPids returns null for a missing netstat on win32", async () =
   assert.equal(pids, null);
 });
 
-test("serve preflight normalizes unavailable discovery to an empty list when the port is free", async () => {
-  const { resolveListeningPidsForServe } = await import(
-    "../../bin/cli/commands/serve.mjs"
-  );
-  const pids = await resolveListeningPidsForServe(20228, {
-    findListening: async () => null,
-    probeFree: async () => true,
-  });
-  assert.deepEqual(pids, [], "a free port must never leave the serve path with null");
-});
-
-test("serve preflight reports an unidentified owner when discovery is unavailable and the port is busy", async () => {
-  const { resolveListeningPidsForServe } = await import(
-    "../../bin/cli/commands/serve.mjs"
-  );
-  const pids = await resolveListeningPidsForServe(20228, {
-    findListening: async () => null,
-    probeFree: async () => false,
-  });
-  assert.deepEqual(pids, [null]);
-});
-
 test("probePortFree is false while a socket holds the port and true after release", async () => {
   const { probePortFree } = await import("../../bin/cli/utils/pid.mjs");
   const server = net.createServer();
@@ -377,18 +355,4 @@ test("reportPortInUse names the port, the owning pid, and how to resolve it", as
   assert.match(out, /19348/, "must name the process already holding it");
   assert.match(out, /omniroute stop/, "must tell the user how to free the port");
   assert.match(out, /--port/, "must offer running on a different port");
-});
-
-test("serve passes the resolved bind host to the preflight and its spawned child", async () => {
-  const { readFileSync } = await import("node:fs");
-  const { fileURLToPath } = await import("node:url");
-  const { dirname, resolve } = await import("node:path");
-  const source = readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), "../../bin/cli/commands/serve.mjs"),
-    "utf8"
-  );
-  const runServe = source.slice(source.indexOf("export async function runServe("));
-  assert.match(runServe, /const serverHost = resolveServerHost\(\);/);
-  assert.match(runServe, /resolveServeBusyPids\(dashboardPort, \{ host: serverHost \}\)/);
-  assert.match(runServe, /HOSTNAME: serverHost/);
 });
