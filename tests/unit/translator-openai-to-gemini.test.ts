@@ -1936,3 +1936,35 @@ test("OpenAI -> Gemini 3.5 Flash-Lite converts legacy numeric thinking budgets t
   assert.equal(result.generationConfig.thinkingConfig.thinkingLevel, "medium");
   assert.equal(result.generationConfig.thinkingConfig.thinkingBudget, undefined);
 });
+
+
+test("OpenAI -> Gemini 3.5 Flash-Lite explicit thinkingLevel overrides effort and default", () => {
+  for (const [levelField, value] of [
+    ["thinkingLevel", "LOW"],
+    ["thinking_level", "medium"],
+  ] as const) {
+    const result = openaiToGeminiRequest(
+      "gemini-3.5-flash-lite",
+      {
+        messages: [{ role: "user", content: "Reply exactly OK" }],
+        reasoning_effort: "high",
+        [levelField]: value,
+      },
+      false
+    ) as any;
+    assert.equal(result.generationConfig.thinkingConfig.thinkingLevel, value.toLowerCase());
+    assert.equal(result.generationConfig.thinkingConfig.thinkingBudget, undefined);
+  }
+
+  const nested = openaiToGeminiRequest(
+    "gemini-3.5-flash-lite",
+    {
+      messages: [{ role: "user", content: "Reply exactly OK" }],
+      reasoning_effort: "high",
+      generationConfig: { thinkingConfig: { thinkingLevel: "low" } },
+    },
+    false
+  ) as any;
+  assert.equal(nested.generationConfig.thinkingConfig.thinkingLevel, "low");
+  assert.equal(nested.generationConfig.thinkingConfig.thinkingBudget, undefined);
+});

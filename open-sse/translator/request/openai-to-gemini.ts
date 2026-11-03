@@ -111,11 +111,17 @@ type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
 
 function resolveNativeGeminiThinkingLevel(
   model: string,
-  body: Record<string, any>
+  body: Record<string, any>,
+  explicitThinkingLevel: GeminiThinkingLevel | null
 ): GeminiThinkingLevel | null {
   const spec = getModelSpec(model);
   const supported = spec?.geminiThinkingLevels;
   if (!supported?.length) return null;
+  // The operator's explicit Gemini 3 thinkingLevel takes precedence over
+  // a translated OpenAI effort or the model default.
+  if (explicitThinkingLevel && supported.includes(explicitThinkingLevel)) {
+    return explicitThinkingLevel;
+  }
 
   const reasoning = body.reasoning && typeof body.reasoning === "object" ? body.reasoning : {};
   const rawEffort = body.reasoning_effort ?? reasoning.effort;
@@ -324,7 +330,7 @@ function openaiToGeminiBase(
   const rejectsThinkingConfig = geminiModelRejectsThinkingConfig(model);
   const nativeThinkingLevel = rejectsThinkingConfig
     ? null
-    : resolveNativeGeminiThinkingLevel(model, body);
+    : resolveNativeGeminiThinkingLevel(model, body, explicitThinkingLevel);
   if (nativeThinkingLevel !== null) {
     result.generationConfig.thinkingConfig = {
       thinkingLevel: nativeThinkingLevel,
