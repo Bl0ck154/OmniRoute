@@ -47,6 +47,12 @@ Open: [#17961](https://github.com/cheaper-inference/OmniRoute/pull/17961) free-p
 
 No duplicate upstream PR was created from this audit. Future upstream patches should be small, independently tested, and avoid private operational behavior.
 
+## SQLite migration 223 collision discovered by candidate CI
+
+The first off-host regression run failed because upstream added 223_call_logs_queue_wait_ms.sql while an earlier fork release already used 223_proxy_logs_attempt_timing.sql. This makes the entire migration runner refuse to initialize, so ordinary unit failures cascade. Integration correction: retain the **official** queue migration at 223, move the **fork** timing file to 224, and add name-checked 223→224 ledger reconciliation for existing custom installs, as well as independent physical-schema guards for both versions. This is fork-specific migration history, not a change to upstream's official 223.
+
+The repair needs CI on the updated exact commit, a synthetic historical ledger test with an already-applied 223 timing entry, and package smoke before promotion. Future upstream releases may allocate 224; the next synchronization must detect and reconcile the fork-specific slot instead of silently skipping a migration. A namespaced fork-migration system remains preferable to further numeric slot churn.
+
 ## Promotion gates
 
 1. Run off-host CI on the exact integration SHA: selected upstream/fork regressions, TypeScript checks, and historical synthetic SQLite 194 to 213 to 223 upgrade.
