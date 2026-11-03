@@ -32,8 +32,11 @@ import { isJsonObject } from "../utils/kieTask.ts";
 import { handleOpenRouterTranscription } from "./openrouterTranscription.ts";
 import { handleGrokTranscription } from "./grokMedia.ts";
 import { handleSyntxTranscription } from "./syntxAudio.ts";
-import type { RemoteMediaFetcher } from "../utils/transcriptionRemoteAudio.ts";
-import { resolveTranscriptionFile, TranscriptionAudioUrlError } from "../utils/transcriptionRemoteAudio.ts";
+import {
+  hasTranscriptionInput,
+  resolveTranscriptionFileOrResponse,
+  type RemoteMediaFetcher,
+} from "../utils/transcriptionRemoteAudio.ts";
 
 type TranscriptionCredentials = {
   apiKey?: string;
@@ -925,7 +928,7 @@ export async function handleAudioTranscription({
   }
 
   // Preserve file-only behavior; URL-only audio is resolved after credentials.
-  if (!(formData.get("file") instanceof Blob) && typeof formData.get("url") !== "string") {
+  if (!hasTranscriptionInput(formData)) {
     return errorResponse(400, "file is required");
   }
 
@@ -951,17 +954,14 @@ export async function handleAudioTranscription({
     return errorResponse(401, `No credentials for transcription provider: ${providerConfig.id}`);
   }
 
-  // Fetch URL input into a local file. Never forward a Telegram URL/token
-  // or any other caller-controlled URL to the upstream STT provider.
-  let file: Blob & { name?: unknown };
-  try {
-    file = await resolveTranscriptionFile(formData);
-  } catch (error) {
-    if (error instanceof TranscriptionAudioUrlError) {
-      return errorResponse(error.status, error.message);
-    }
-    return errorResponse(502, "Audio URL could not be fetched");
-  }
+  // Fetch URL input into a local file. Never forward Telegram URLs/tokens
+  // or other caller-controlled URLs to the upstream STT provider.
+  const resolvedFile = await resolveTranscriptionFileOrResponse(
+    formData,
+    remoteMediaFetcher ?? undefined
+  );
+  if ("response" in resolvedFile) return resolvedFile.response;
+  const file = resolvedFile.file;
 
   // Route to provider-specific handler
   if (providerConfig.format === "grok-stt") {
