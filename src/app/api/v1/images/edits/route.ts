@@ -850,12 +850,19 @@ async function postHandler(request: Request, _context?: unknown) {
         `No credentials for provider: ${parsed.provider}`
       );
     }
-    if (credentials.allRateLimited) {
+    // The credential resolver returns a union of fifteen shapes; only the
+    // rate-limited one carries these fields. Same narrowing the call sites above use.
+    const rateLimitInfo = credentials as {
+      allRateLimited?: boolean;
+      retryAfter?: string | number | Date | null;
+      retryAfterHuman?: string;
+    };
+    if (rateLimitInfo.allRateLimited) {
       return unavailableResponse(
         HTTP_STATUS.RATE_LIMITED,
         `[${parsed.provider}] All accounts rate limited`,
-        credentials.retryAfter,
-        credentials.retryAfterHuman
+        rateLimitInfo.retryAfter,
+        rateLimitInfo.retryAfterHuman
       );
     }
 
@@ -900,22 +907,32 @@ async function postHandler(request: Request, _context?: unknown) {
         let providerAttemptStarted = false;
         const editImage = async () => {
           providerAttemptStarted = true;
-          const imageResult = await handleCodexImageEdit({
-            provider: parsed.provider,
-            model: parsed.model,
-            providerConfig,
-            body: {
-              prompt,
-              size: size ?? undefined,
-              response_format: responseFormat ?? undefined,
-            },
-            referenceImages: images,
-            credentials: attemptCredentials,
-            log,
-            // A tagged Order Forge request is paid work: let it finish and enter the
-            // private artifact sink even if the downstream HTTP client times out.
-            signal: orderForgeImageArtifactCapture ? null : request.signal,
-          });
+          // Account for each actual image attempt, including sibling failovers,
+          // under the credentials used for this specific provider call.
+          const imageResult = await runImageRequestWithAccounting(
+            editAccounting(
+              accounting,
+              parsed.provider,
+              parsed.model,
+              attemptCredentials as { apiKey?: string; accessToken?: string }
+            ),
+            () => handleCodexImageEdit({
+              provider: parsed.provider,
+              model: parsed.model,
+              providerConfig,
+              body: {
+                prompt,
+                size: size ?? undefined,
+                response_format: responseFormat ?? undefined,
+              },
+              referenceImages: images,
+              credentials: attemptCredentials,
+              log,
+              // A tagged Order Forge request is paid work: let it finish and enter the
+              // private artifact sink even if the downstream HTTP client times out.
+              signal: orderForgeImageArtifactCapture ? null : request.signal,
+            })
+          );
           if (imageResult.success && freshQuotaBefore) {
             imageResult.telemetry = {
               codexQuota: mergeFreshCodexImageQuotaBaseline(imageResult.telemetry?.codexQuota, {
@@ -986,12 +1003,19 @@ async function postHandler(request: Request, _context?: unknown) {
         `No credentials for provider: ${parsed.provider}`
       );
     }
-    if (credentials.allRateLimited) {
+    // The credential resolver returns a union of fifteen shapes; only the
+    // rate-limited one carries these fields. Same narrowing the call sites above use.
+    const rateLimitInfo = credentials as {
+      allRateLimited?: boolean;
+      retryAfter?: string | number | Date | null;
+      retryAfterHuman?: string;
+    };
+    if (rateLimitInfo.allRateLimited) {
       return unavailableResponse(
         HTTP_STATUS.RATE_LIMITED,
         `[${parsed.provider}] All accounts rate limited`,
-        credentials.retryAfter,
-        credentials.retryAfterHuman
+        rateLimitInfo.retryAfter,
+        rateLimitInfo.retryAfterHuman
       );
     }
 
@@ -1009,12 +1033,14 @@ async function postHandler(request: Request, _context?: unknown) {
             n: 1,
           },
           images,
-          credentials,
+          credentials: credentials as Record<string, unknown>,
           log,
         })
     );
 
-    if (result.success) {
+    // Both members expose a success flag; presence of data also narrows the
+    // result safely for TypeScript and keeps the private artifact capture.
+    if ("data" in result) {
       persistOrderForgeImageResponse(orderForgeImageArtifactCapture, result.data);
       await clearRecoveredProviderState(credentials);
       return jsonResponse(result.data);
@@ -1070,12 +1096,19 @@ async function postHandler(request: Request, _context?: unknown) {
         `No credentials for provider: ${parsed.provider}`
       );
     }
-    if (credentials.allRateLimited) {
+    // The credential resolver returns a union of fifteen shapes; only the
+    // rate-limited one carries these fields. Same narrowing the call sites above use.
+    const rateLimitInfo = credentials as {
+      allRateLimited?: boolean;
+      retryAfter?: string | number | Date | null;
+      retryAfterHuman?: string;
+    };
+    if (rateLimitInfo.allRateLimited) {
       return unavailableResponse(
         HTTP_STATUS.RATE_LIMITED,
         `[${parsed.provider}] All accounts rate limited`,
-        credentials.retryAfter,
-        credentials.retryAfterHuman
+        rateLimitInfo.retryAfter,
+        rateLimitInfo.retryAfterHuman
       );
     }
 
@@ -1086,7 +1119,7 @@ async function postHandler(request: Request, _context?: unknown) {
           provider: parsed.provider,
           model: parsed.model,
           baseUrl: providerConfig.baseUrl,
-          credentials,
+          credentials: credentials as { apiKey?: string; accessToken?: string },
           prompt,
           imageBytes,
           imageMime,
@@ -1209,22 +1242,44 @@ async function postHandler(request: Request, _context?: unknown) {
       `No credentials for custom image provider: ${customProviderId}`
     );
   }
-  if (credentials.allRateLimited) {
+  // The credential resolver returns a union of fifteen shapes; only the
+  // rate-limited one carries these fields. Same narrowing the call sites above use.
+  const rateLimitInfo = credentials as {
+    allRateLimited?: boolean;
+    retryAfter?: string | number | Date | null;
+    retryAfterHuman?: string;
+  };
+  if (rateLimitInfo.allRateLimited) {
     return unavailableResponse(
       HTTP_STATUS.RATE_LIMITED,
       `[${customProviderId}] All accounts rate limited`,
-      credentials.retryAfter,
-      credentials.retryAfterHuman
+      rateLimitInfo.retryAfter,
+      rateLimitInfo.retryAfterHuman
     );
   }
 
   const result = await runImageRequestWithAccounting(
-    editAccounting(accounting, customProviderId, customModel, credentials),
+    editAccounting(
+      accounting,
+      customProviderId,
+      customModel,
+      credentials as {
+        apiKey?: string;
+        accessToken?: string;
+        baseUrl?: unknown;
+        providerSpecificData?: { baseUrl?: unknown };
+      }
+    ),
     () =>
       handleOpenAIImageEdit({
         provider: customProviderId,
         model: customModel,
-        credentials,
+        credentials: credentials as {
+          apiKey?: string;
+          accessToken?: string;
+          baseUrl?: unknown;
+          providerSpecificData?: { baseUrl?: unknown };
+        },
         prompt,
         imageBytes,
         imageMime,
