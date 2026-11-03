@@ -80,25 +80,6 @@ function parsePort(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 && parsed <= 65535 ? parsed : fallback;
 }
 
-export async function resolveListeningPidsForServe(
-  port,
-  { findListening = findListeningPids, probeFree = probePortFree } = {}
-) {
-  const busyPids = await findListening(port);
-  if (busyPids === null) {
-    // Discovery tool missing/unusable (#14518): normalize the unknown result
-    // after the bind probe. Leaving it as null makes the later `.length` read
-    // crash on a perfectly free port in slim containers / packaged installs.
-    return (await probeFree(port)) ? [] : [null];
-  }
-  if (busyPids.length === 0 && !(await probeFree(port))) {
-    // Discovery ran and saw nothing, but that window can race a starting
-    // instance; a bind probe costs nothing and doubles as confirmation.
-    return [null];
-  }
-  return busyPids;
-}
-
 export function registerServe(program) {
   const command = program
     .command("serve", { isDefault: true })
@@ -312,9 +293,6 @@ export async function runServe(opts = {}) {
   // BEFORE any pid file is written or any child is spawned. Otherwise the
   // doomed child's EADDRINUSE arrives only after this process has rewritten
   // the pid files of the healthy instance that actually owns the port.
-  // findListeningPids() returning null means the discovery tool itself is
-  // missing or unusable (Termux, slim containers, #14518) — fall back to a
-  // bind probe so the guard still answers before spawning the doomed child.
   const serverHost = resolveServerHost();
   const busyPids = await resolveServeBusyPids(dashboardPort, { host: serverHost });
   if (busyPids.length > 0) {
