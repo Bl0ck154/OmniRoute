@@ -1,9 +1,13 @@
 /**
- * Persist Antigravity/agy quota cooldowns per model family (gemini vs claude)
+ * Persist Antigravity/agy quota cooldowns per model family (gemini, claude, argon)
  * on the connection row, without cooling the whole account.
  */
 import { lockModel } from "./accountFallback.ts";
-import { getAntigravityQuotaFamily, isAntigravityQuotaProvider } from "./antigravityQuotaFamily.ts";
+import {
+  type AntigravityQuotaFamily,
+  getAntigravityQuotaFamily,
+  isAntigravityQuotaProvider,
+} from "./antigravityQuotaFamily.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -22,8 +26,8 @@ function parseUntilMs(value: unknown): number {
   return NaN;
 }
 
-function dummyModelForFamily(family: "gemini" | "claude" | "argon"): string {
-  return family === "gemini" ? "gemini-family-lock" : family === "argon" ? "argon-family-lock" : "claude-family-lock";
+function dummyModelForFamily(family: Exclude<AntigravityQuotaFamily, "other">): string {
+  return `${family}-family-lock`;
 }
 
 function lockAntigravityFamilyModel(
@@ -106,7 +110,7 @@ export async function persistAntigravityPreflightFamilyLock(params: {
 /** Read the saved deadline without installing any process-local model locks. */
 export function getAntigravityFamilyCooldownUntil(
   providerSpecificData: unknown,
-  family: "gemini" | "claude" | "argon" | "other",
+  family: AntigravityQuotaFamily,
   now = Date.now()
 ): number | null {
   const untils = asRecord(asRecord(providerSpecificData)[FAMILY_PSD_KEY]);

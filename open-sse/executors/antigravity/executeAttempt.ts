@@ -31,9 +31,8 @@ import {
   bindAbortLifecycle,
   type SsePassthroughResult,
 } from "./streamingPassthrough.ts";
+import { ensureStreamReadiness } from "../../utils/streamReadiness.ts";
 import type { AntigravityCredentials } from "../antigravity.ts";
-import { isAntigravityPreResponseTimeout } from "../../services/antigravityTimeout.ts";
-import { timeAntigravityFetch } from "../../services/antigravityTiming.ts";
 
 const LONG_RETRY_THRESHOLD_MS = 60_000;
 const CREDITS_EXHAUSTED_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
@@ -93,14 +92,47 @@ export function markCreditsExhausted(accountId: string): void {
   creditsExhaustedUntil.set(accountId, Date.now() + CREDITS_EXHAUSTED_TTL_MS);
 }
 
-class AntigravityPreResponseTimeoutError extends Error {
+export class AntigravityPreResponseTimeoutError extends Error {
   code = ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE;
   status = HTTP_STATUS.GATEWAY_TIMEOUT;
 
-  constructor(timeoutMs: number) {
-    super(`Antigravity upstream did not return response headers within ${timeoutMs}ms`);
+  constructor(timeoutMs: number, url: string) {
+    super(`Antigravity upstream did not return response headers within ${timeoutMs}ms: ${url}`);
     this.name = "TimeoutError";
   }
+}
+
+/**
+ * Silent-body watchdog (#13125): the headers arrived but no first SSE event
+ * did within the readiness budget. It keeps the pre-response 504 code, so the
+ * account layer treats it like the header deadline, but that budget is spent
+ * per base URL: executeOnce may still fail over to the next host.
+ */
+export class AntigravityFirstEventTimeoutError extends AntigravityPreResponseTimeoutError {
+  constructor(timeoutMs: number, url: string) {
+    super(timeoutMs, url);
+    this.message = `Antigravity upstream sent no SSE event within ${timeoutMs}ms: ${url}`;
+  }
+}
+
+/**
+ * True only for the exhausted response-header deadline (#18052), which must
+ * not be spent again on another host; the silent-body watchdog is excluded.
+ */
+export function isAntigravityHeaderDeadlineTimeout(error: unknown): boolean {
+  return (
+    isAntigravityPreResponseTimeout(error) && !(error instanceof AntigravityFirstEventTimeoutError)
+  );
+}
+
+function getAbortErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const value = (error as { code?: unknown }).code;
+  return typeof value === "string" ? value : null;
+}
+
+function isAntigravityPreResponseTimeout(error: unknown): boolean {
+  return getAbortErrorCode(error) === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE;
 }
 
 export function isAbortError(error: unknown): boolean {
@@ -121,14 +153,6 @@ export async function fetchAntigravityWithReadinessTimeout(
   init: RequestInit,
   timeoutMs = STREAM_READINESS_TIMEOUT_MS
 ): Promise<Response> {
-  return timeAntigravityFetch(() => fetchWithReadinessTimeout(url, init, timeoutMs), init.signal);
-}
-
-async function fetchWithReadinessTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs = STREAM_READINESS_TIMEOUT_MS
-): Promise<Response> {
   const boundedTimeoutMs = Math.max(0, Math.floor(timeoutMs));
   if (boundedTimeoutMs <= 0) {
     return fetch(url, init);
@@ -136,7 +160,7 @@ async function fetchWithReadinessTimeout(
 
   const timeoutController = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-    timeoutController.abort(new AntigravityPreResponseTimeoutError(boundedTimeoutMs));
+    timeoutController.abort(new AntigravityPreResponseTimeoutError(boundedTimeoutMs, url));
   }, boundedTimeoutMs);
 
   const existingSignal = init.signal instanceof AbortSignal ? init.signal : null;
@@ -147,10 +171,6 @@ async function fetchWithReadinessTimeout(
   try {
     return await fetch(url, { ...init, signal: combinedSignal });
   } catch (error) {
-    // The caller's cancellation wins; never relabel it as an account timeout.
-    if (existingSignal?.aborted && combinedSignal.reason !== timeoutController.signal.reason) {
-      throw existingSignal.reason;
-    }
     if (
       timeoutController.signal.aborted &&
       isAntigravityPreResponseTimeout(timeoutController.signal.reason)
@@ -255,6 +275,11 @@ function serializeAntigravityRequest(
   return applyFingerprint(provider, { ...headers }, serializedBody);
 }
 
+function getRequestTargetModel(body: Record<string, unknown>): string {
+  const target = body.model;
+  return typeof target === "string" && target.length > 0 ? target : "unknown";
+}
+
 /** Sanitize unsupported schema metadata, then apply credits-first injection for one attempt. */
 export function finalizeAntigravityRequestBody(
   transformed: Record<string, unknown>,
@@ -336,7 +361,7 @@ export async function sendAntigravityRequest(
 
   log.debug(
     "TELEMETRY",
-    `[Antigravity] Execute attempt ${Math.min(100, retryAttempt)}`
+    `[Antigravity] Execute - URL: ${url}, Model: ${model}, Target: ${getRequestTargetModel(transformedBody)}, RetryAttempt: ${retryAttempt}`
   );
 
   // Dump outgoing headers (mask Authorization) and envelope shape for debugging.
@@ -350,7 +375,7 @@ export async function sendAntigravityRequest(
   const physicalSendOrdinal = ++physicalSendCounter.value;
   log.debug(
     "TELEMETRY",
-    `[Antigravity] PhysicalSend: ${physicalSendOrdinal}, RetryAttempt: ${retryAttempt}`
+    `[Antigravity] PhysicalSend - RequestId: ${correlationId ?? "none"}, URL: ${url}, Model: ${model}, PhysicalSend: ${physicalSendOrdinal}, RetryAttempt: ${retryAttempt}`
   );
   // The Antigravity request payload is finite JSON even when the response is streamed.
   // Keep the upload replayable instead of wrapping it in a one-shot ReadableStream; proxyFetch
@@ -370,7 +395,7 @@ export async function sendAntigravityRequest(
     const retryPhysicalSendOrdinal = ++physicalSendCounter.value;
     log.debug(
       "TELEMETRY",
-      `[Antigravity] PhysicalSend: ${retryPhysicalSendOrdinal}, Cause: x-goog-user-project-403`
+      `[Antigravity] PhysicalSend - RequestId: ${correlationId ?? "none"}, URL: ${url}, Model: ${model}, PhysicalSend: ${retryPhysicalSendOrdinal}, RetryAttempt: ${retryAttempt}, Cause: x-goog-user-project-403`
     );
     response = await fetchAntigravityWithReadinessTimeout(url, {
       method: "POST",
@@ -384,7 +409,7 @@ export async function sendAntigravityRequest(
   if (!response.ok) {
     log.warn(
       "TELEMETRY",
-      `[Antigravity] Error Response: ${response.status}`
+      `[Antigravity] Error Response - URL: ${url}, Status: ${response.status}, Model: ${model}`
     );
     if (response.status === HTTP_STATUS.NOT_FOUND) {
       // The backend may have shipped/renamed models the synced catalog does not
@@ -479,7 +504,7 @@ export async function tryCreditsRetry(
     const creditsPhysicalSendOrdinal = ++physicalSendCounter.value;
     log.debug(
       "TELEMETRY",
-      `[Antigravity] PhysicalSend: ${creditsPhysicalSendOrdinal}, Cause: google-one-ai-credits-retry`
+      `[Antigravity] PhysicalSend - RequestId: ${correlationId ?? "none"}, URL: ${url}, PhysicalSend: ${creditsPhysicalSendOrdinal}, Cause: google-one-ai-credits-retry`
     );
     const creditsResp = await fetchAntigravityWithReadinessTimeout(url, {
       method: "POST",
@@ -520,7 +545,6 @@ export async function tryCreditsRetry(
     markCreditsExhausted(accountId);
     return null;
   } catch (creditsErr) {
-    if (isAntigravityPreResponseTimeout(creditsErr)) throw creditsErr;
     if (signal?.aborted || isAbortError(creditsErr)) {
       throw signal?.reason ?? creditsErr;
     }
@@ -611,6 +635,32 @@ async function buildUpstreamErrorResult(
  * had an artificial timeout (now the standard FETCH_BODY_TIMEOUT_MS
  * of 10 min applies).
  */
+export async function peekFirstAntigravitySseEvent(
+  response: Response,
+  url: string,
+  timeoutMs: number = STREAM_READINESS_TIMEOUT_MS,
+  signal?: AbortSignal | null
+): Promise<Response> {
+  if (!response.body || !response.ok) {
+    return response;
+  }
+
+  if (signal?.aborted) {
+    response.body.cancel().catch(() => {});
+    throw signal.reason;
+  }
+
+  const readiness = await ensureStreamReadiness(response, {
+    timeoutMs,
+    provider: "antigravity",
+  });
+
+  if (!readiness.ok) {
+    throw new AntigravityFirstEventTimeoutError(timeoutMs, url);
+  }
+
+  return readiness.response;
+}
 async function buildNonStreamingExecuteOnceResult(
   response: Response,
   url: string,
@@ -715,11 +765,19 @@ export async function buildFinalAntigravityResult(
   transformedBody: Record<string, unknown>,
   accountId: string,
   signal: AbortSignal | null | undefined,
-  onCreditsUpdate: OnAntigravityCreditsUpdate
+  onCreditsUpdate: OnAntigravityCreditsUpdate,
+  readinessTimeoutMs: number = STREAM_READINESS_TIMEOUT_MS
 ): Promise<SsePassthroughResult> {
+  const peekedResponse = await peekFirstAntigravitySseEvent(
+    response,
+    url,
+    readinessTimeoutMs,
+    signal
+  );
+
   if (!stream) {
     return buildNonStreamingExecuteOnceResult(
-      response,
+      peekedResponse,
       url,
       finalHeaders,
       transformedBody,
@@ -729,7 +787,7 @@ export async function buildFinalAntigravityResult(
     );
   }
   return buildStreamingExecuteOnceResult(
-    response,
+    peekedResponse,
     url,
     finalHeaders,
     transformedBody,
