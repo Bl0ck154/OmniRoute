@@ -28,7 +28,7 @@ fs.chmodSync(path.join(TEST_DATA_DIR, "call_logs"), 0o755);
 fs.mkdirSync(path.join(TEST_DATA_DIR, "log_archives"), { recursive: true, mode: 0o755 });
 fs.chmodSync(path.join(TEST_DATA_DIR, "log_archives"), 0o755);
 
-const { CALL_LOGS_DIR, writeCallArtifact } =
+const { getCallLogsDir, writeCallArtifact } =
   await import("../../src/lib/usage/callLogArtifacts.ts");
 const migrations = await import("../../src/lib/usage/migrations.ts");
 const { getDbInstance, resetDbInstance } = await import("../../src/lib/db/core.ts");
@@ -81,12 +81,13 @@ test(
     } as never);
 
     assert.ok(result, "artifact should be written");
-    assert.ok(CALL_LOGS_DIR, "CALL_LOGS_DIR must be configured outside cloud mode");
-    const absPath = path.join(CALL_LOGS_DIR, result.relPath);
+    const logsDir = getCallLogsDir();
+    assert.ok(logsDir, "call logs must be configured outside cloud mode");
+    const absPath = path.join(logsDir, result.relPath);
 
     assert.equal(modeOf(absPath), 0o600, "artifact file must be owner read/write only");
     assert.equal(modeOf(path.dirname(absPath)), 0o700, "dated directory must be owner-only");
-    assert.equal(modeOf(CALL_LOGS_DIR), 0o700, "pre-existing call_logs root must be tightened");
+    assert.equal(modeOf(logsDir), 0o700, "pre-existing call_logs root must be tightened");
 
     const leftovers = fs
       .readdirSync(path.dirname(absPath))

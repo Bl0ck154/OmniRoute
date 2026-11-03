@@ -25,17 +25,19 @@ import { extractUsageFromResponse } from "../usageExtractor.ts";
 import { sanitizeUsagePayloadForRequest } from "../../utils/usageTracking.ts";
 import { createErrorResult, formatProviderError } from "../../utils/error.ts";
 import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
+import { isAntigravityPreResponseTimeout } from "../../services/antigravityTimeout.ts";
+import { ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE } from "../../config/constants.ts";
 import { unwrapClinepassEnvelope } from "../../utils/clinepassEnvelope.ts";
 import { unwrapClineNonStreamingEnvelope } from "./clineResponseEnvelope.ts";
 import {
   isModelUnavailableError,
-  getNextFamilyFallback,
   isContextOverflowError,
-  findLargerContextModel,
-  getModelFamily,
 } from "../../services/modelFamilyFallback.ts";
 import { isEmptyContentResponse } from "../../services/errorClassifier.ts";
+import { createRequestFamilyFallback } from "../../services/modelFamilyFallbackPolicy.ts";
+import { hasTrustedEmptyTurn } from "../../utils/emptyTurnPolicy.ts";
 import { FORMATS } from "../../translator/formats.ts";
+import { scopeGeminiThoughtSignatureNamespace } from "../../services/geminiThoughtSignatureStore.ts";
 import { hasActiveClaudeThinking } from "../../utils/thinkingBudget.ts";
 
 /* -- exported types -------------------------------------------------------- */
@@ -46,6 +48,7 @@ export interface ChatCoreExecutorResult {
   headers: Record<string, string>;
   transformedBody: unknown;
   transport?: string;
+  upstreamDiagnostic?: Record<string, unknown>;
   _executionCredentials?: Record<string, unknown>;
   _accountSemaphoreRelease?: () => void;
 }
@@ -60,6 +63,7 @@ export interface ProviderLegInput {
   expectedConnectionId?: string;
   allowAccountRotation: boolean;
   allowModelFallback: boolean;
+  hasApiKeyMetadata?: boolean;
   executeProviderRequest: (
     model: string,
     allowDedup: boolean,
@@ -290,6 +294,8 @@ function finishOk(
     provider: params.provider,
     model: params.model,
     requestBody: params.requestBody,
+    clientRequestBody: input.sourceBody ?? null,
+    signatureNamespace: scopeGeminiThoughtSignatureNamespace(params.connectionId, params.model),
     historyMessages:
       (input.translatedBody as { messages?: unknown[] } | null | undefined)?.messages ??
       input.reasoningReplayHistory ??
@@ -307,6 +313,7 @@ function finishOk(
     // thinking block; the non-streaming converter used to never receive it.
     requestedThinking: hasActiveClaudeThinking(input.sourceBody ?? {}),
     phase: input.phase === "initial" ? "final" : "intermediate",
+    connectionId: params.connectionId,
   });
   const receipt = buildReceipt(input, {
     httpStatus: 200,
@@ -354,6 +361,11 @@ export async function runNonStreamingProviderLeg(
   const targetFormat = input.targetFormat ?? "openai";
   const clientResponseFormat = input.clientResponseFormat ?? "openai";
   const connectionId = input.connectionId ?? "unknown";
+  const familyFallback = createRequestFamilyFallback(provider, {
+    headers: input.clientHeaders,
+    hasApiKeyMetadata: input.hasApiKeyMetadata,
+    connectionId: () => input.getCurrentConnectionId?.() ?? connectionId,
+  });
   const log = input.log;
 
   // -- Phase policy: follow-up blocks rotation and fallback -------------------
@@ -458,6 +470,7 @@ export async function runNonStreamingProviderLeg(
             upstreamErrorBody: outcome.result.upstreamErrorBody,
             upstreamHeaders: outcome.result.upstreamHeaders ?? outcome.result.response?.headers,
           },
+          upstreamDiagnostic: outcome.upstreamDiagnostic,
           receipt,
           usage: outcome.providerUsage,
         };
@@ -467,6 +480,7 @@ export async function runNonStreamingProviderLeg(
         url: outcome.url,
         headers: outcome.headers,
         transformedBody: outcome.transformedBody,
+        upstreamDiagnostic: outcome.upstreamDiagnostic,
       };
     } else {
       executorResult = await input.executeProviderRequest(
@@ -480,7 +494,8 @@ export async function runNonStreamingProviderLeg(
       !!error &&
       typeof error === "object" &&
       ((error as { code?: unknown }).code === "SEMAPHORE_TIMEOUT" ||
-        (error as { code?: unknown }).code === "SEMAPHORE_QUEUE_FULL")
+        (error as { code?: unknown }).code === "SEMAPHORE_QUEUE_FULL" ||
+        (error as { code?: unknown }).code === "MUSE_OWNERSHIP_REJECTED")
     ) {
       throw error;
     }
@@ -502,9 +517,18 @@ export async function runNonStreamingProviderLeg(
       : error instanceof Error
         ? formatProviderError(error, provider, currentModel, failureStatus)
         : "Provider request failed";
+    // The old non-streaming path reduced every TimeoutError to a bare 504.
+    // Preserve only the explicit Antigravity pre-response marker, not arbitrary
+    // upstream 504s: the outer account router needs the original failure type.
+    const preResponseTimeout =
+      provider === "antigravity" &&
+      failureStatus === 504 &&
+      !!error &&
+      typeof error === "object" &&
+      (error as { code?: unknown }).code === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE;
     const receipt = buildReceipt(input, {
       httpStatus: failureStatus,
-      errorType: null,
+      errorType: preResponseTimeout ? "upstream_timeout" : null,
       usage: null,
       termination: "provider_error",
       latencyMs: Date.now() - startMs,
@@ -513,7 +537,18 @@ export async function runNonStreamingProviderLeg(
       connectionId,
       model: currentModel,
     });
-    const errorResult = legError(failureStatus, failureMessage, error);
+    // Preserve the PRIVATE exact pre-response timeout marker across the
+    // non-streaming leg. The status-only legError used to discard it, so the
+    // outer router saw an indistinguishable generic 504 and could not score
+    // account+model health or attribute the account switch correctly.
+    const isHeaderTimeout =
+      (provider === "antigravity" || provider === "agy") &&
+      isAntigravityPreResponseTimeout(error);
+    const errorResult = legError(
+      failureStatus, failureMessage, error, null,
+      isHeaderTimeout ? ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE : undefined,
+      isHeaderTimeout ? "upstream_timeout" : undefined
+    );
     return {
       kind: "error",
       result: errorResult as ChatCoreErrorResult,
@@ -591,7 +626,7 @@ export async function runNonStreamingProviderLeg(
     // -- Model-unavailable -> family fallback (initial only) --------------------
     if (allowModelFallback && isModelUnavailableError(statusCode, message, provider)) {
       const triedModels = new Set<string>([currentModel]);
-      const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
+      const nextModel = await familyFallback.getNext(currentModel, triedModels);
       if (nextModel) {
         triedModels.add(nextModel);
         input.setRequestWireState({
@@ -665,12 +700,7 @@ export async function runNonStreamingProviderLeg(
     // -- Context overflow -> family fallback (initial only) ---------------------
     if (allowModelFallback && isContextOverflowError(statusCode, message)) {
       const triedModels = new Set<string>([currentModel]);
-      const familyCandidates = getModelFamily(currentModel, provider).filter(
-        (m) => m !== currentModel && !triedModels.has(m)
-      );
-      const nextModel =
-        findLargerContextModel(currentModel, familyCandidates, provider) ??
-        getNextFamilyFallback(currentModel, triedModels, provider);
+      const nextModel = await familyFallback.getForContextOverflow(currentModel, triedModels);
       if (nextModel) {
         triedModels.add(nextModel);
         input.setRequestWireState({
@@ -786,6 +816,7 @@ export async function runNonStreamingProviderLeg(
     return {
       kind: "error",
       result: errorResult as ChatCoreErrorResult,
+      upstreamDiagnostic: executorResult.upstreamDiagnostic,
       receipt,
       usage,
     };
@@ -977,11 +1008,16 @@ export async function runNonStreamingProviderLeg(
   // #14160: pass the provider so first-party APIs (antigravity) keep empty
   // completions with a normal stop reason as valid 200s instead of synthetic
   // 502s feeding model lockout.
-  if (isEmptyContentResponse(responseBody, { provider })) {
+  if (
+    isEmptyContentResponse(responseBody, {
+      provider,
+      trustedEmptyTurn: hasTrustedEmptyTurn(executorResult.response),
+    })
+  ) {
     const errMsg = "Provider returned empty content";
     if (allowModelFallback) {
       const triedModels = new Set<string>([currentModel]);
-      const nextModel = getNextFamilyFallback(currentModel, triedModels, provider);
+      const nextModel = await familyFallback.getNext(currentModel, triedModels);
       if (nextModel) {
         triedModels.add(nextModel);
         input.setRequestWireState({

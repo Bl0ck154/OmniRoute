@@ -12,6 +12,7 @@ import {
 } from "@/shared/constants/upstreamHeaders";
 import { MAX_TIMER_TIMEOUT_MS } from "@/shared/utils/runtimeTimeouts";
 import { AUTO_DISABLE_BANNED_SCOPES } from "@/shared/utils/autoDisableBanned";
+import { CLI_VERSION_KEYS, CLI_VERSION_PATTERN } from "@omniroute/open-sse/config/cliVersions.ts";
 
 // Single source of truth: ../settingsSchemas (the schema the runtime settings route validates
 // against). Re-exported here so this modular barrel stays in exact lockstep — a divergent local
@@ -113,6 +114,40 @@ export const quotaShareConcurrencyLimitSettingsSchema = z
   })
   .strict();
 
+// Whether a stream content stall cools down the account that served it (default off).
+export const streamStallCooldownSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+
+// Opt-in latency term for p2c account selection. Bounds mirror normalizeP2CLatencySettings.
+export const p2cLatencySettingsSchema = z
+  .object({
+    weight: z.number().int().min(0).max(20).optional(),
+  })
+  .strict();
+
+// Mid-stream recovery block. Bounds mirror normalizeStreamRecoverySettings in
+// src/lib/resilience/settings/normalize.ts.
+export const throughputWatchdogSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    warmupMs: z.number().int().min(0).max(600_000).optional(),
+    windowMs: z.number().int().min(1_000).max(600_000).optional(),
+    minUsefulBytesPerSecond: z.number().int().min(1).max(1_000_000).optional(),
+    minUsefulBytes: z.number().int().min(1).max(1_000_000).optional(),
+  })
+  .strict();
+
+export const streamRecoverySettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    continueMidStream: z.boolean().optional(),
+    throughputWatchdog: throughputWatchdogSettingsSchema.optional(),
+  })
+  .strict();
+
 // Quota preflight cutoff (auth-level account skipping). Thresholds use
 // "minimum remaining %" semantics to match the dashboard's quota bars, and the
 // per-(provider, window) defaults override the global default per window.
@@ -158,8 +193,25 @@ export const credentialHealthCheckSettingsSchema = z
   })
   .strict();
 
+// Token-refresh breaker scope + thresholds. Bounds mirror
+// normalizeTokenRefreshBreakerSettings: a refresh is a real upstream OAuth
+// call, so the cooldown floor stays at 60s (never hammer the provider).
+export const tokenRefreshBreakerSettingsSchema = z
+  .object({
+    scope: z.enum(["provider", "connection"]).optional(),
+    failureThreshold: z.number().int().min(1).max(100).optional(),
+    cooldownMs: z.number().int().min(60_000).max(86_400_000).optional(),
+  })
+  .strict();
+
 export const updateResilienceSchema = z
   .object({
+    antigravity: z.object({
+      preferredTimeoutMs: z.number().int().min(500).max(120000).optional(),
+      gemini38PreferredTimeoutMs: z.number().int().min(500).max(120000).optional(),
+      adaptiveHealthEnabled: z.boolean().optional(),
+      timingTelemetryEnabled: z.boolean().optional(),
+    }).strict().optional(),
     requestQueue: requestQueueSettingsSchema.optional(),
     connectionCooldown: z
       .object({
@@ -178,6 +230,9 @@ export const updateResilienceSchema = z
     waitForCooldown: waitForCooldownSettingsSchema.optional(),
     comboCooldownWait: comboCooldownWaitSettingsSchema.optional(),
     quotaShareConcurrencyLimit: quotaShareConcurrencyLimitSettingsSchema.optional(),
+    streamStallCooldown: streamStallCooldownSettingsSchema.optional(),
+    p2cLatency: p2cLatencySettingsSchema.optional(),
+    streamRecovery: streamRecoverySettingsSchema.optional(),
     providerCooldown: providerCooldownSettingsSchema.optional(),
     // Quota preflight cutoff (auth-level account skipping) — surfaced in the
     // Settings → Routing UI. Mirrors QuotaPreflightSettings in
@@ -203,11 +258,13 @@ export const updateResilienceSchema = z
             rpm: z.number().int().min(1).optional(),
             concurrency: z.number().int().min(1).optional(),
             providerConcurrency: z.number().int().min(0).max(100_000).optional(),
+            rateLimitCooldownSeconds: z.number().int().min(1).max(21_600).optional(),
           })
           .strict()
       )
       .optional(),
     credentialHealthCheck: credentialHealthCheckSettingsSchema.optional(),
+    tokenRefreshBreaker: tokenRefreshBreakerSettingsSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -223,7 +280,8 @@ export const updateResilienceSchema = z
       !value.profiles &&
       !value.defaults &&
       !value.providerQuotaOverrides &&
-      !value.credentialHealthCheck
+      !value.credentialHealthCheck &&
+      !value.antigravity
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -237,6 +295,10 @@ export const updateRequireLoginSchema = z
   .object({
     requireLogin: z.boolean().optional(),
     password: z.string().min(4, "Password must be at least 4 characters").optional(),
+    // Proof of the current password for a password change. Whether it is required depends on
+    // the caller's credential kind (a dashboard session must send it, the local CLI and the
+    // bootstrap window must not have to), so the route enforces it, not the schema.
+    currentPassword: z.string().optional(),
   })
   .superRefine((value, ctx) => {
     if (value.requireLogin === undefined && !value.password) {
@@ -296,6 +358,42 @@ export const updateThinkingBudgetSchema = z
     }
   });
 
+// Operator-set CLI client-version overrides for the Claude Code / Codex identity
+// presets (Dashboard -> Providers -> claude/codex card). `null` is an explicit
+// "clear this override" sentinel; omitting a key leaves its current value alone.
+// Values are validated HERE as well as in the store so the route can reject a bad
+// version loudly: the #12417 env vars fail silently and fall back to the captured
+// pin, which is the very footgun this control exists to remove.
+export const updateCliVersionSchema = z
+  .object({
+    claude: z.string().trim().nullable().optional(),
+    codex: z.string().trim().nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.claude === undefined && value.codex === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "No valid fields to update",
+        path: [],
+      });
+      return;
+    }
+    // Mirrors the store's drop-don't-coerce rule, but reported per field so the
+    // operator sees WHICH value the wire would otherwise have silently dropped.
+    for (const key of CLI_VERSION_KEYS) {
+      const raw = value[key];
+      if (raw === undefined || raw === null) continue;
+      if (!CLI_VERSION_PATTERN.test(raw)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Must be a version token like 2.1.259, or null to clear the override",
+          path: [key],
+        });
+      }
+    }
+  });
+
 export const guideSettingsSaveSchema = z
   .object({
     baseUrl: z.string().trim().min(1).optional(),
@@ -306,6 +404,10 @@ export const guideSettingsSaveSchema = z
     model: z.string().trim().min(1, "Model is required").optional(),
     models: z.array(z.string().trim().min(1, "Models must be non-empty")).min(1).optional(),
     modelLabels: z.record(z.string(), z.string().trim().min(1)).optional(),
+    // OpenCode dashboard save forwards the /v1/models catalog the page already
+    // loaded. Unknown keys stay so context_length / capabilities are not stripped.
+    // Absent catalog keeps the writer's 128K/8K fallback.
+    catalog: z.array(z.object({ id: z.string().trim().min(1) }).passthrough()).optional(),
   })
   .refine((data) => !!data.model || !!data.models?.length, {
     message: "Model is required",

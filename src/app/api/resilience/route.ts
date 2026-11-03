@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getCachedSettings } from "@/lib/db/readCache";
-import { getSettings, updateSettings } from "@/lib/db/settings";
+import { getSettings, getSettingsRevision, updateSettings, SettingsRevisionConflictError } from "@/lib/db/settings";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import {
   buildLegacyResilienceCompat,
   mergeResilienceSettings,
+  pruneResilienceSettingsToProvided,
   resolveResilienceSettings,
   type ResilienceSettings,
   type ResilienceSettingsPatch,
@@ -126,15 +128,19 @@ async function syncRuntimeSettings(resilienceSettings: ResilienceSettings) {
 /**
  * GET /api/resilience — Get current resilience configuration
  */
-export async function GET() {
+export async function GET(request?: Request) {
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
+  if (authError) return authError;
   try {
     const settings = await getCachedSettings();
     const resilience = resolveResilienceSettings(settings);
 
     return NextResponse.json({
+      antigravity: resilience.antigravity,
       requestQueue: resilience.requestQueue,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
+      tokenRefreshBreaker: resilience.tokenRefreshBreaker,
       waitForCooldown: {
         enabled: resilience.waitForCooldown.enabled,
         maxRetries: resilience.waitForCooldown.maxRetries,
@@ -142,6 +148,9 @@ export async function GET() {
       },
       comboCooldownWait: resilience.comboCooldownWait,
       quotaShareConcurrencyLimit: resilience.quotaShareConcurrencyLimit,
+      streamStallCooldown: resilience.streamStallCooldown,
+      p2cLatency: resilience.p2cLatency,
+      streamRecovery: resilience.streamRecovery,
       providerCooldown: resilience.providerCooldown,
       quotaPreflight: resilience.quotaPreflight,
       providerQuotaOverrides: resilience.providerQuotaOverrides,
@@ -161,6 +170,8 @@ export async function GET() {
  * PATCH /api/resilience — Update resilience configuration
  */
 export async function PATCH(request) {
+  const authError = await requireManagementAuth(request, { alwaysRequireAuth: true });
+  if (authError) return authError;
   let rawBody;
   try {
     rawBody = await request.json();
@@ -183,9 +194,13 @@ export async function PATCH(request) {
     }
 
     const body = validation.data as JsonRecord;
+    // Capture the revision BEFORE the read. A racing write rejects atomically;
+    // it cannot be lost when two admins change different sections concurrently.
+    const expectedRevision = await getSettingsRevision();
     const currentSettings = await getSettings();
-    const currentResilience = resolveResilienceSettings(currentSettings);
-    const nextResilience = mergeResilienceSettings(currentResilience, {
+    const sparseBase = resolveResilienceSettings(currentSettings);
+    const mergedFull = mergeResilienceSettings(sparseBase, {
+      ...(body.antigravity ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] } : {}),
       ...(body.requestQueue
         ? { requestQueue: body.requestQueue as ResilienceSettingsPatch["requestQueue"] }
         : {}),
@@ -197,6 +212,12 @@ export async function PATCH(request) {
         : {}),
       ...(body.providerBreaker
         ? { providerBreaker: body.providerBreaker as ResilienceSettingsPatch["providerBreaker"] }
+        : {}),
+      ...(body.tokenRefreshBreaker
+        ? {
+            tokenRefreshBreaker:
+              body.tokenRefreshBreaker as ResilienceSettingsPatch["tokenRefreshBreaker"],
+          }
         : {}),
       ...(body.waitForCooldown
         ? { waitForCooldown: body.waitForCooldown as ResilienceSettingsPatch["waitForCooldown"] }
@@ -211,6 +232,20 @@ export async function PATCH(request) {
         ? {
             quotaShareConcurrencyLimit:
               body.quotaShareConcurrencyLimit as ResilienceSettingsPatch["quotaShareConcurrencyLimit"],
+          }
+        : {}),
+      ...(body.streamStallCooldown
+        ? {
+            streamStallCooldown:
+              body.streamStallCooldown as ResilienceSettingsPatch["streamStallCooldown"],
+          }
+        : {}),
+      ...(body.p2cLatency
+        ? { p2cLatency: body.p2cLatency as ResilienceSettingsPatch["p2cLatency"] }
+        : {}),
+      ...(body.streamRecovery
+        ? {
+            streamRecovery: body.streamRecovery as ResilienceSettingsPatch["streamRecovery"],
           }
         : {}),
       ...(body.providerCooldown
@@ -235,12 +270,20 @@ export async function PATCH(request) {
         : {}),
       ...normalizeLegacyPatch(body),
     });
+    const nextSparse = pruneResilienceSettingsToProvided(
+      mergedFull,
+      resolveResilienceSettings(null)
+    );
+    const nextResilience = resolveResilienceSettings({
+      ...currentSettings,
+      resilienceSettings: nextSparse,
+    });
 
     await updateSettings({
-      resilienceSettings: nextResilience,
+      resilienceSettings: nextSparse,
       requestRetry: nextResilience.waitForCooldown.maxRetries,
       maxRetryIntervalSec: nextResilience.waitForCooldown.maxRetryWaitSec,
-    });
+    }, { expectedRevision });
     await syncRuntimeSettings(nextResilience);
 
     // Issue #2100 follow-up: detect transitions in useUpstream429BreakerHints
@@ -249,9 +292,9 @@ export async function PATCH(request) {
     // `null` (PATCH input) → undefined (stored) is correctly detected as
     // "unset request" when the previous stored value was a boolean.
     const breakerHintsChanged =
-      currentResilience.connectionCooldown.oauth.useUpstream429BreakerHints !==
+      sparseBase.connectionCooldown.oauth.useUpstream429BreakerHints !==
         nextResilience.connectionCooldown.oauth.useUpstream429BreakerHints ||
-      currentResilience.connectionCooldown.apikey.useUpstream429BreakerHints !==
+      sparseBase.connectionCooldown.apikey.useUpstream429BreakerHints !==
         nextResilience.connectionCooldown.apikey.useUpstream429BreakerHints;
     if (breakerHintsChanged) {
       resetAllCircuitBreakers();
@@ -259,9 +302,11 @@ export async function PATCH(request) {
 
     return NextResponse.json({
       ok: true,
+      antigravity: nextResilience.antigravity,
       requestQueue: nextResilience.requestQueue,
       connectionCooldown: nextResilience.connectionCooldown,
       providerBreaker: nextResilience.providerBreaker,
+      tokenRefreshBreaker: nextResilience.tokenRefreshBreaker,
       waitForCooldown: {
         enabled: nextResilience.waitForCooldown.enabled,
         maxRetries: nextResilience.waitForCooldown.maxRetries,
@@ -269,6 +314,9 @@ export async function PATCH(request) {
       },
       comboCooldownWait: nextResilience.comboCooldownWait,
       quotaShareConcurrencyLimit: nextResilience.quotaShareConcurrencyLimit,
+      streamStallCooldown: nextResilience.streamStallCooldown,
+      p2cLatency: nextResilience.p2cLatency,
+      streamRecovery: nextResilience.streamRecovery,
       providerCooldown: nextResilience.providerCooldown,
       quotaPreflight: nextResilience.quotaPreflight,
       providerQuotaOverrides: nextResilience.providerQuotaOverrides,
@@ -276,6 +324,9 @@ export async function PATCH(request) {
       legacy: buildLegacyResilienceCompat(nextResilience),
     });
   } catch (err: unknown) {
+    if (err instanceof SettingsRevisionConflictError) {
+      return NextResponse.json({ error: "Settings changed concurrently; reload and retry" }, { status: 409 });
+    }
     console.error("[API] PATCH /api/resilience error:", err);
     return NextResponse.json(
       { error: getErrorMessage(err, "Failed to save resilience settings") },

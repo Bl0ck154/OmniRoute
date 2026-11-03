@@ -1,0 +1,1 @@
+Restore the direct-fetch response-start timeout resolver after upstream integration. The undefined timeout helper prevented provider requests and credential health checks from reaching upstream; preserve the per-attempt budget and the Codex image no-replay path.

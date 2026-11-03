@@ -5,7 +5,16 @@
  * output) must not immediately cool the account and rotate. One jittered
  * same-account retry absorbs brief proxy blips and keeps Codex prompt-cache
  * affinity. A second failure then takes a short cooldown and may rotate.
+ *
+ * A 502 whose `error.type` is UPSTREAM_RESPONDED_ERROR_TYPE is NOT a transport
+ * failure: chatCore builds it after the upstream already answered HTTP 200 with
+ * a body that translated into no usable output (`upstream_empty_response`,
+ * `upstream_response_failed`, `upstream_fake_success`). The upstream call was
+ * already made (and most likely billed), so replaying it on the same account only
+ * pays twice for the same verdict.
  */
+
+import { UPSTREAM_RESPONDED_ERROR_TYPE } from "@omniroute/open-sse/utils/diagnostics.ts";
 
 export const SAME_ACCOUNT_TRANSPORT_RETRY_MAX = 1;
 export const SAME_ACCOUNT_TRANSPORT_RETRY_MIN_DELAY_MS = 2000;
@@ -25,7 +34,14 @@ const RETRYABLE_TRANSPORT_TEXT = [
   /und_err_socket/i,
 ];
 
-const NON_RETRYABLE_ERROR_TYPES = new Set(["lease_error", "account_semaphore_capacity"]);
+// 499 = client closed request; 4xx auth/quota/validation errors never succeed on a replay.
+const NON_RETRYABLE_TRANSPORT_STATUSES = new Set([499, 429, 401, 400]);
+
+const NON_RETRYABLE_ERROR_TYPES = new Set([
+  "lease_error",
+  "account_semaphore_capacity",
+  UPSTREAM_RESPONDED_ERROR_TYPE,
+]);
 
 export function isRetryableTransportStatus(status: unknown): boolean {
   const numeric = Number(status);
@@ -36,14 +52,23 @@ export function isRetryablePreOutputTransportError(
   status: unknown,
   errorText: string | null | undefined,
   errorCode?: string | null,
-  errorType?: string | null
+  errorType?: string | null,
+  provider?: string | null
 ): boolean {
+  // Timeouts already spent their waiting budget. They must reach account fallback,
+  // including callers outside chat.ts's specialized Antigravity branch.
+  if (errorCode === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" || errorType === "upstream_timeout") {
+    return false;
+  }
+  if ((provider === "antigravity" || provider === "agy") && Number(status) === 504) {
+    return false;
+  }
   if (errorType && NON_RETRYABLE_ERROR_TYPES.has(errorType)) return false;
   if (errorCode && String(errorCode).startsWith("LEASE_")) return false;
 
   const text = String(errorText || "");
   const numericStatus = Number(status);
-  if (numericStatus === 429 || numericStatus === 401 || numericStatus === 400) return false;
+  if (numericStatus === 499 || numericStatus === 429 || numericStatus === 401 || numericStatus === 400) return false;
   if (/quota (threshold|exhausted)|credits exhausted/i.test(text)) return false;
   if (/invalid_request|prompt is too long|context.?length|unsupported model/i.test(text)) {
     return false;
@@ -75,15 +100,27 @@ export function shouldRetrySameAccountTransport(options: {
   attempt: number;
   hasForcedConnection?: boolean;
   hasEmittedOutput?: boolean;
+  provider?: string | null;
 }): boolean {
   if (options.hasForcedConnection) return false;
   if (options.hasEmittedOutput) return false;
+  // Antigravity 504 commonly means the upstream produced NO response headers
+  // for the entire readiness budget. Retrying the same account doubles that
+  // wait; select a different eligible account instead. Keep Codex's #9708
+  // transient 504 retry behavior unchanged.
+  if (
+    options.errorCode === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" ||
+    ((options.provider === "antigravity" || options.provider === "agy") &&
+      (options.errorType === "upstream_timeout" || Number(options.status) === 504))
+  )
+    return false;
   if (options.attempt >= SAME_ACCOUNT_TRANSPORT_RETRY_MAX) return false;
   return isRetryablePreOutputTransportError(
     options.status,
     options.errorText,
     options.errorCode,
-    options.errorType
+    options.errorType,
+    options.provider
   );
 }
 
