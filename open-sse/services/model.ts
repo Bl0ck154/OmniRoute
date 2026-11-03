@@ -96,6 +96,13 @@ export function isKnownCatalogModelId(modelId: string | null | undefined): boole
 // `openai/gpt-5.6-sol`) — the prefix path always wins.
 export const CODEX_NATIVE_UNPREFIXED_MODELS = new Set([
   "codex-auto-review",
+  "gpt-6-astra",
+  "gpt-6-astra-ultra",
+  "gpt-6-astra-max",
+  "gpt-6-astra-xhigh",
+  "gpt-6-astra-high",
+  "gpt-6-astra-medium",
+  "gpt-6-astra-low",
   "gpt-6.1-sol",
   "gpt-6.1-sol-ultra",
   "gpt-6.1-sol-max",

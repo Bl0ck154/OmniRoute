@@ -625,13 +625,19 @@ function isSchemaAlreadyApplied(
       // must not attempt the same ALTER TABLE twice.
       return hasColumn(db, "api_keys", "preferred_connections");
     case "223":
-      // Official 223: total pre-dispatch wait on call_logs.
-      // A previous fork used 223 for proxy timing; its ledger is reconciled
-      // into 224 before this official migration is considered applied.
+      // Official 223: total pre-dispatch wait on call_logs. Legacy fork
+      // proxy timing rows at 223 are reconciled to 900 before this can run.
       return hasColumn(db, "call_logs", "queue_wait_ms");
     case "224":
-      // Fork-only proxy timing (formerly our slot 223, upstream's old 194).
-      // Both timing columns must exist before marking the migration complete.
+      // Official 224: per-family proxy egress addresses. An already-upgraded
+      // database may have either/both columns before the ledger catches up.
+      return (
+        hasColumn(db, "proxy_logs", "egress_ip_v4") &&
+        hasColumn(db, "proxy_logs", "egress_ip_v6")
+      );
+    case "900":
+      // Fork-only proxy timing formerly occupied slots 223 and 224.
+      // Guard both columns independently to support partially upgraded DBs.
       return (
         hasColumn(db, "proxy_logs", "headers_ms") &&
         hasColumn(db, "proxy_logs", "first_chunk_ms")

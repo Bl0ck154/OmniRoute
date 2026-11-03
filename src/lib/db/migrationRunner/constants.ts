@@ -10,12 +10,18 @@
 
 export const RENAMED_MIGRATION_COMPATIBILITY = [
   {
-    // Existing custom.43 installs may have recorded the fork's proxy timing
-    // migration as 223. Rehome it to 224 before applying upstream's new 223.
-    // The physical-schema guard then makes this safe for already-timed DBs.
+    // Fork custom.43 used 223 for proxy timing, and the first source-sync
+    // release moved it to 224. Upstream now owns BOTH canonical slots.
+    // Keep our schema in a distant fork-owned 900 slot to avoid repeated races.
     fromVersion: "223",
     fromName: "proxy_logs_attempt_timing",
-    toVersion: "224",
+    toVersion: "900",
+    toName: "proxy_logs_attempt_timing",
+  },
+  {
+    fromVersion: "224",
+    fromName: "proxy_logs_attempt_timing",
+    toVersion: "900",
     toName: "proxy_logs_attempt_timing",
   },
   {

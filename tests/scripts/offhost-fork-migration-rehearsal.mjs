@@ -48,7 +48,11 @@ try {
     }
     assert.equal(db.prepare("SELECT name FROM _omniroute_migrations WHERE version = '213'").get()?.name, "api_key_preferred_connections");
     assert.equal(db.prepare("SELECT name FROM _omniroute_migrations WHERE version = '223'").get()?.name, "call_logs_queue_wait_ms");
-    assert.equal(db.prepare("SELECT name FROM _omniroute_migrations WHERE version = '224'").get()?.name, "proxy_logs_attempt_timing");
+    assert.equal(db.prepare("SELECT name FROM _omniroute_migrations WHERE version = '224'").get()?.name, "proxy_logs_egress_ip_families");
+    assert.equal(db.prepare("SELECT name FROM _omniroute_migrations WHERE version = '900'").get()?.name, "proxy_logs_attempt_timing");
+    for (const column of ["egress_ip_v4", "egress_ip_v6"]) {
+      assert.ok(db.prepare("PRAGMA table_info(proxy_logs)").all().some((c) => c.name === column), "Missing " + column);
+    }
     assert.ok(db.prepare("PRAGMA table_info(call_logs)").all().some((c) => c.name === "queue_wait_ms"));
     console.log(`UPGRADE_PASSED migration_ledger_entries=${before}`);
   }
