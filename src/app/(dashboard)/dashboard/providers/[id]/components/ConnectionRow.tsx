@@ -328,7 +328,7 @@ export default function ConnectionRow({
     <div
       className={`group p-3 rounded-lg hover:bg-black/[0.02] dark:hover:bg-white/[0.02] transition-colors ${connection.isActive === false ? "opacity-60" : ""}`}
     >
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div className={`flex flex-col gap-3 ${isCodex ? "" : "xl:flex-row xl:items-center xl:justify-between"}`}>
         <div className="flex items-center gap-3 flex-1 min-w-0">
         {onToggleSelect && (
           <Checkbox checked={isSelected} onChange={onToggleSelect} className="shrink-0" />
