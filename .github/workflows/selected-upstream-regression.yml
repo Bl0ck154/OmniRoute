@@ -33,6 +33,17 @@ jobs:
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=2 \
             tests/unit/antigravity-claude-55-live-tier-ids.test.ts \
+            tests/unit/gemini-38-thinking-level-output.test.ts \
+            tests/unit/gemini-sse-cached-tokens-prompt-narrowing.test.ts \
+            tests/unit/gemini-usage-total-fallback.test.ts \
+            tests/unit/muse-session-ownership.test.ts \
+            tests/unit/muse-empty-response-retry.test.ts \
+            tests/unit/cursor-empty-turn-failover-v9.test.ts \
+            tests/unit/credential-scope-diagnostics-15889.test.ts \
+            tests/unit/sse-parser.test.ts \
+            tests/unit/migration-223-proxy-logs-attempt-timing.test.ts \
+            tests/unit/migration-194-213-223-fork-upgrade.test.ts \
+            tests/unit/order-forge-image-artifact-sink.test.ts \
             tests/unit/claude-sonnet-5-5.test.ts \
             tests/unit/claude-opus-5-5.test.ts \
             tests/unit/claude-haiku-no-adaptive-thinking.test.ts \
@@ -57,11 +68,15 @@ jobs:
             tests/unit/provider-availability.test.ts \
             tests/unit/providers-client-route-secrets-qxg2.test.ts \
             tests/unit/resilience-connections.test.ts \
+            tests/unit/resource-pressure-policy.test.ts \
             tests/unit/responses-keepalive-error-frame-nested.test.ts \
             tests/unit/responses-readable-compaction.test.ts \
             tests/unit/account-fallback-retry-after-json.test.ts \
             tests/unit/classify429.test.ts \
             tests/unit/responses-transformer-tail-drain.test.ts \
+            tests/unit/sse-truncated-stream-finish-reason.test.ts \
+            tests/unit/sse-cut-tool-call-arguments.test.ts \
+            tests/unit/combo-retry-cut-stream.test.ts \
             tests/unit/stream-readiness-replay-rejection-16364.test.ts \
             tests/unit/call-log-artifact-file-perms.test.ts \
             tests/unit/chat-helpers.test.ts \
@@ -69,6 +84,8 @@ jobs:
             tests/unit/cli-tools-refuse-to-clobber.test.ts \
             tests/unit/codex-reasoning-replay-retry.test.ts \
             tests/unit/codex-sse-overloaded-output-3232.test.ts \
+            tests/unit/codex-sse-model-unavailable-4373.test.ts \
+            tests/unit/codex-sse-peek-body-double-read.test.ts \
             tests/unit/combo-model-lock-pre-dispatch-wait-16319.test.ts \
             tests/unit/combos-list-shared-context-resolution.test.ts \
             tests/unit/omp-settings-route.test.ts \
@@ -84,6 +101,12 @@ jobs:
             tests/unit/param-support-claude-diagnostics.test.ts \
             tests/unit/stream-keeps-generated-images.test.ts \
             tests/unit/http-client-abort-guard-empty-response-16347.test.ts \
+            tests/unit/httpClientAbortGuard.test.mjs \
+            tests/unit/http-client-abort-guard-relay-timeout.test.ts \
+            tests/unit/http-client-abort-guard-semaphore-timeout-17229.test.ts \
+            tests/unit/http-client-abort-guard-direct-timeout-12861.test.ts \
+            tests/unit/proxyfetch-direct-response-start-timeout-10214.test.ts \
+            tests/unit/direct-response-start-timeout-reasoning-504.test.ts \
             tests/unit/release-version-workspace-consistency.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts \
@@ -98,3 +121,13 @@ jobs:
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core
         run: npm run typecheck:core
+
+      - name: Stage previous fork SQL migrations (schema only)
+        run: |
+          git fetch --no-tags --depth=1 origin d641017972ea23884ea1569bcbcb20affcd48158
+          mkdir -p "$RUNNER_TEMP/old-migrations"
+          git archive FETCH_HEAD:src/lib/db/migrations | tar -x -C "$RUNNER_TEMP/old-migrations"
+      - name: Run historical fork upgrade with synthetic SQLite data
+        run: |
+          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs seed "$RUNNER_TEMP/fork-upgrade/storage.sqlite" "$RUNNER_TEMP/old-migrations"
+          node --import tsx/esm tests/scripts/offhost-fork-migration-rehearsal.mjs upgrade "$RUNNER_TEMP/fork-upgrade/storage.sqlite" src/lib/db/migrations
