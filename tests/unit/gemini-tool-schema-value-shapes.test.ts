@@ -95,6 +95,28 @@ test("shorthand string items expand, including protobuf spellings", () => {
   assert.deepEqual(collectNonObjectSchemaPositions(cleaned), []);
 });
 
+test("Gemini protobuf aliases remain canonical after a single schema normalization pass", () => {
+  const cleaned = cleanJSONSchemaForAntigravity({
+    type: "object",
+    properties: {
+      mapping: "dict",
+      sequence: "list",
+      booleanFlag: "bool",
+      counter: "int64",
+      ratio: "double",
+      somethingUnknown: "unknown_type",
+    },
+  }) as Rec;
+
+  const properties = cleaned.properties as Rec;
+  assert.equal((properties.mapping as Rec).type, "object");
+  assert.equal((properties.sequence as Rec).type, "array");
+  assert.equal((properties.booleanFlag as Rec).type, "boolean");
+  assert.equal((properties.counter as Rec).type, "integer");
+  assert.equal((properties.ratio as Rec).type, "number");
+  assert.equal((properties.somethingUnknown as Rec).type, "string");
+});
+
 test("tuple items collapse to the most informative member", () => {
   const cleaned = cleanJSONSchemaForAntigravity({
     type: "object",
