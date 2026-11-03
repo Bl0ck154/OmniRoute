@@ -4,7 +4,7 @@
  */
 import {
   GPT_6_ASTRA_PRICING,
-  GPT_6_1_SOL_PRICING,
+  GPT_6_SOL_PRICING,
   GEMINI_3_7_FLASH_PROMO_PRICING,
   GEMINI_4_ARGON_PROMO_PRICING,
   GPT_5_5_PRICING,
@@ -26,13 +26,32 @@ import {
 
 export const DEFAULT_PRICING_FRONTIER = {
   openai: {
-    "gpt-6-astra": GPT_6_ASTRA_PRICING,
-    "gpt-6.1-sol": GPT_6_1_SOL_PRICING,
-    "gpt-5.6": GPT_5_6_SOL_PRICING,
-    "gpt-5.6-sol": GPT_5_6_SOL_PRICING,
-    "gpt-5.6-terra": GPT_5_6_TERRA_PRICING,
-    "gpt-5.6-luna": GPT_5_6_LUNA_PRICING,
-    "gpt-5.5": GPT_5_5_PRICING,
+    // Rows below that OpenAI prices with a >272K long-context tier carry it via
+    // withOpenAiLongContextTier (see shared-tiers.ts for the source).
+    "gpt-6-astra": withOpenAiLongContextTier(GPT_6_ASTRA_PRICING),
+    // Sol/Luna mirror the dollar-equivalent Codex Standard rates already used for the
+    // codex provider (oauth-subscriptions.ts) until OpenAI publishes distinct API rates;
+    // without these rows the openai registry entries resolved to $0 (catalog pricing gate).
+    "gpt-6-sol": withOpenAiLongContextTier({
+      input: 2.0,
+      output: 10.0,
+      cached: 0.2,
+      reasoning: 10.0,
+      cache_creation: 2.5,
+    }),
+    "gpt-6-luna": withOpenAiLongContextTier({
+      input: 0.1,
+      output: 0.5,
+      cached: 0.01,
+      reasoning: 0.5,
+      cache_creation: 0.125,
+    }),
+    "gpt-6.1-sol": withOpenAiLongContextTier(GPT_6_SOL_PRICING),
+    "gpt-5.6": withOpenAiLongContextTier(GPT_5_6_SOL_PRICING),
+    "gpt-5.6-sol": withOpenAiLongContextTier(GPT_5_6_SOL_PRICING),
+    "gpt-5.6-terra": withOpenAiLongContextTier(GPT_5_6_TERRA_PRICING),
+    "gpt-5.6-luna": withOpenAiLongContextTier(GPT_5_6_LUNA_PRICING),
+    "gpt-5.5": withOpenAiLongContextTier(GPT_5_5_PRICING),
     // The -pro tier mirrors its base family pricing until OpenAI publishes a
     // distinct pro rate; without these rows the openai provider's gpt-5.x-pro
     // models (in the registry) resolved to $0 and tripped the catalog pricing gate.
@@ -231,6 +250,8 @@ export const DEFAULT_PRICING_FRONTIER = {
     "claude-opus-5": CLAUDE_OPUS_5_PRICING,
     "claude-sonnet-5": CLAUDE_SONNET_5_PRICING,
     "claude-sonnet-5-5": CLAUDE_SONNET_5_PRICING,
+    "claude-haiku-5-5": CLAUDE_HAIKU_5_PRICING,
+    "claude-haiku-5.5": CLAUDE_HAIKU_5_PRICING,
     "claude-opus-4.8": CLAUDE_OPUS_4_PRICING,
     "claude-opus-4-8": CLAUDE_OPUS_4_PRICING,
     "claude-opus-4-7": CLAUDE_OPUS_4_PRICING,

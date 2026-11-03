@@ -11,7 +11,7 @@ export const GPT_6_ASTRA_PRICING = {
   cache_creation: 12.5,
 };
 
-export const GPT_6_1_SOL_PRICING = {
+export const GPT_6_SOL_PRICING = {
   input: 2.0,
   output: 10.0,
   cached: 0.1,
@@ -169,7 +169,11 @@ export const CLAUDE_SONNET_5_PRICING = {
   cache_creation: 2.5,
 };
 
-// Claude Haiku 5: prompt >100k tokens is billed at the long-context tier.
+// Claude Haiku 5 / 5.5 — length-tiered pricing, source:
+// https://platform.claude.com/docs/en/about-claude/pricing
+// Prompts up to 100k tokens: $0.10 in / $0.50 out / $0.01 cache hit / $0.125 5m cache write.
+// Prompts over 100k tokens (cache reads/writes count): $0.50 / $2.50 / $0.05 / $0.625,
+// applied to the whole request via the `long_context` tier.
 export const CLAUDE_HAIKU_5_PRICING = {
   input: 0.1,
   output: 0.5,
