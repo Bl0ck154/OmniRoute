@@ -534,18 +534,6 @@ export function openaiToClaudeRequest(
       }
     }
 
-    // OpenAI `allowed_tools` restricts the callable subset; Claude has no equivalent
-    // tool_choice, so narrow the declared tools instead (9router#4171).
-    if (allowedTools) {
-      const originalNameOf = (tool: ClaudeTool) =>
-        disableToolPrefix ? tool.name : (toolNameMap.get(tool.name) ?? tool.name);
-      const allowed = result.tools.filter((tool) => allowedTools.names.has(originalNameOf(tool)));
-      if (allowed.length > 0) {
-        result.tools = allowed;
-        allowedTools.kept = allowed.map(originalNameOf);
-      }
-    }
-
     // Cache breakpoint on the last non-defer-loading tool — Anthropic
     // rejects cache_control on defer_loading tools.
     for (let i = result.tools.length - 1; i >= 0; i--) {
