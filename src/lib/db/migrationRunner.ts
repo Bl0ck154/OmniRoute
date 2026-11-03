@@ -625,9 +625,13 @@ function isSchemaAlreadyApplied(
       // must not attempt the same ALTER TABLE twice.
       return hasColumn(db, "api_keys", "preferred_connections");
     case "223":
-      // Upstream called this 194, which clashes with our already deployed
-      // preferred_connections migration. The timing migration owns slot 223
-      // and is complete only when BOTH proxy_log timing columns are present.
+      // Official 223: total pre-dispatch wait on call_logs.
+      // A previous fork used 223 for proxy timing; its ledger is reconciled
+      // into 224 before this official migration is considered applied.
+      return hasColumn(db, "call_logs", "queue_wait_ms");
+    case "224":
+      // Fork-only proxy timing (formerly our slot 223, upstream's old 194).
+      // Both timing columns must exist before marking the migration complete.
       return (
         hasColumn(db, "proxy_logs", "headers_ms") &&
         hasColumn(db, "proxy_logs", "first_chunk_ms")

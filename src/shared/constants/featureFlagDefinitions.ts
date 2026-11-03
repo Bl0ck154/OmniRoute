@@ -995,6 +995,103 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     requiresRestart: false,
     warningLevel: "caution",
   },
+  {
+    key: "CLAUDE_OAUTH_SUMMARIZED_THINKING_UNREDACTED",
+    label: "Claude OAuth Summarized Thinking",
+    description:
+      'Let a Claude OAuth request that asks for readable thinking (thinking.display "summarized") drop the redact-thinking-2026-02-12 Anthropic beta, which otherwise makes Anthropic return empty, signature-only thinking blocks. Off by default: that beta is part of the Claude Code OAuth wire fingerprint, so OAuth requests keep it unchanged. API-key Claude requests already honor summarized thinking without this flag; OMNIROUTE_REDACT_THINKING=false also reaches OAuth only when this flag is on.',
+    descriptionI18nKey: "featureFlagClaudeOauthSummarizedThinkingUnredactedDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
+    key: "KIRO_TOOL_CALL_REPAIR_ENABLED",
+    label: "Kiro Tool Call Repair",
+    description:
+      "When a streaming Kiro response emits a malformed tool_call wrapper (missing input.name or input.arguments) before any visible output, suppress it and re-send the request once with a corrective instruction instead of ending the turn with invalid_kiro_tool_call. The retry costs one extra Kiro request; a second failure ends the turn with kiro_tool_call_repair_retry_failed. On by default. Set to false to fail the turn on the first malformed wrapper.",
+    descriptionI18nKey: "featureFlagKiroToolCallRepairEnabledDescription",
+    category: "runtime",
+    defaultValue: "true",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "MODELS_DEV_EFFORT_TIERS_ENABLED",
+    label: "models.dev Effort Tiers",
+    description:
+      'Use the reasoning effort tiers models.dev publishes (narrowed to the known effort vocabulary) when neither an operator override nor the provider registry declares any, and treat a declared empty tier list as "no tiers" in /v1/models effort_tiers and combo tier intersections. Off by default: effort_tiers and resolved supportedThinkingEfforts stay exactly as before.',
+    descriptionI18nKey: "featureFlagModelsDevEffortTiersEnabledDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
+  {
+    key: "LMARENA_SYNTHESIZED_CX_ENABLED",
+    label: "Arena Synthesized cx Telemetry",
+    description:
+      "Attach a synthesized programmatic cx client-interaction blob (the value arena.ai itself sends for a page with no recorded interaction) to every Arena (lmarena) create-evaluation request that has no operator-supplied providerSpecificData.cx. Off by default: the cx field is an Arena anti-automation signal, so OmniRoute only forwards a value the operator captured from a real browser session (providerSpecificData.cx) and otherwise sends no cx at all. Unproven upstream benefit; enable only if Arena starts rejecting requests without cx.",
+    descriptionI18nKey: "featureFlagLmarenaSynthesizedCxEnabledDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
+    key: "NATIVE_CODEX_REACTIVE_COMPACTION_ENABLED",
+    label: "Native Codex Reactive Compaction",
+    description:
+      "Let the reactive (threshold) and last-resort context compaction passes also rewrite native Codex passthrough histories (POST /v1/responses to the codex provider) when they exceed the context budget, using the Responses input[] adapter. Off by default: native Codex histories are owned by the Codex client and are never rewritten by compaction; oversized requests keep failing the context budget check exactly as before. Requires global compression to be on and the model not to be excluded.",
+    descriptionI18nKey: "featureFlagNativeCodexReactiveCompactionEnabledDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
+    key: "QUOTA_WINDOW_BOUNDED_PARK",
+    label: "Quota Window: Honour Bounded Park",
+    description:
+      "Let the per-window quota policy (session/weekly thresholds used by account selection) honour the bounded exhaustion park: once the capped park deadline has passed, or the cached quota observation is older than the park cap, the window stops excluding the account until a fresh quota fetch. Off by default: a cached window keeps blocking on its last reported percentage until its own reset time.",
+    descriptionI18nKey: "featureFlagQuotaWindowBoundedParkDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+  {
+    key: "IMAGE_GENERATION_LONG_JOBS",
+    label: "Image Generation: Long Jobs",
+    description:
+      "For OpenAI-compatible image generation: use the connection's timeout (providerSpecificData.timeoutMs), else the central upstream fetch timeout (FETCH_TIMEOUT_MS, then REQUEST_TIMEOUT_MS, default 600 s) instead of the fixed 120 s image budget; end a request the caller cancelled with 499; and let the Playground receive long image jobs as an SSE stream with keepalive heartbeats. Off by default: the fixed budget applies and caller cancellation is not propagated. The deadline covering the response body read is always on.",
+    descriptionI18nKey: "featureFlagImageGenerationLongJobsDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "caution",
+  },
+
+  {
+    key: "CATALOG_MIRROR_REFINEMENTS_ENABLED",
+    label: "Catalog Mirror Refinements",
+    description:
+      "Refine the claude/ discovery and functional-gateway mirrors on /v1/models. Off by default: both mirror passes behave exactly as before. On: claude/ discovery mirrors also cover listed reasoning-effort variants (-low/-medium/-high/-xhigh), skip built-in auto/* ids the request path cannot materialize and skip an alias already listed; functional-gateway mirrors skip combos and OmniRoute-synthesized ids (claude/, no-think/), take the owner from owned_by, never use the owner as its own gateway, skip gateways disabled in blockedProviders and models outside a gateway's authoritative live catalog.",
+    descriptionI18nKey: "featureFlagCatalogMirrorRefinementsEnabledDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
+  },
 
   // ──────────────── CLI (5) ────────────────
   {
@@ -1269,5 +1366,17 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     type: "boolean",
     requiresRestart: false,
     warningLevel: "caution",
+  },
+  {
+    key: "COMPRESSION_CACHE_AUTOMATIC_PREFIX_ESTIMATE",
+    label: "Compression Cache Stats: Automatic-Prefix Eligibility",
+    description:
+      "In the compression cache stats, count a compressed request to an automatic-prefix-caching provider (OpenAI, Codex, Azure, or a custom connection that declares prompt caching with marker stripping) as an estimated cache hit even without cache_control markers. The estimate is a cache-eligibility signal, not an observed hit, so the reported hit rate for those providers trends toward 100%. Off by default: only a request carrying cache_control markers to a caching provider counts as an estimated hit, so automatic-prefix providers keep reporting 0.",
+    descriptionI18nKey: "featureFlagCompressionCacheAutomaticPrefixEstimateDescription",
+    category: "runtime",
+    defaultValue: "false",
+    type: "boolean",
+    requiresRestart: false,
+    warningLevel: "info",
   },
 ];

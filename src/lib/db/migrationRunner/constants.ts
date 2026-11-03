@@ -10,6 +10,15 @@
 
 export const RENAMED_MIGRATION_COMPATIBILITY = [
   {
+    // Existing custom.43 installs may have recorded the fork's proxy timing
+    // migration as 223. Rehome it to 224 before applying upstream's new 223.
+    // The physical-schema guard then makes this safe for already-timed DBs.
+    fromVersion: "223",
+    fromName: "proxy_logs_attempt_timing",
+    toVersion: "224",
+    toName: "proxy_logs_attempt_timing",
+  },
+  {
     fromVersion: "022",
     fromName: "call_logs_summary_storage",
     toVersion: "025",
