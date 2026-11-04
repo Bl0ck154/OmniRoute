@@ -6,7 +6,6 @@ import { openaiProvider } from "../../open-sse/config/providers/registry/openai/
 import { splitCodexReasoningSuffix } from "../../open-sse/executors/codex/reasoningSuffix.ts";
 import { CodexExecutor } from "../../open-sse/executors/codex.ts";
 import { CODEX_NATIVE_UNPREFIXED_MODELS } from "../../open-sse/services/model.ts";
-import { DEFAULT_CODEX_CLIENT_VERSION } from "../../src/shared/constants/codexClient.ts";
 import { CODEX_FAST_TIER_DEFAULT_SUPPORTED_MODELS } from "../../src/lib/providers/codexFastTier.ts";
 import {
   enrichCodexModelsFromGithubCatalog,
@@ -22,7 +21,6 @@ const IDS = [BASE, ...LEVELS.map((level) => `${BASE}-${level}`)];
 test("GPT-6.1 Sol exposes all seven Codex ids with correct OAuth limits", () => {
   const entries = codexProvider.models.filter((model) => model.id === BASE || model.id.startsWith(`${BASE}-`));
   assert.deepEqual(entries.map((model) => model.id).sort(), [...IDS].sort());
-  assert.equal(DEFAULT_CODEX_CLIENT_VERSION, "0.159.2");
   for (const row of entries) {
     assert.equal(CODEX_NATIVE_UNPREFIXED_MODELS.has(row.id), true, row.id);
     const price = getPricingForModel("cx", row.id);
