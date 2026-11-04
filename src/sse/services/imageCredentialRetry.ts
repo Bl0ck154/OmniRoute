@@ -88,7 +88,7 @@ async function defaultSelectNextCredentials(
   excludedConnectionIds: Set<string>,
   allowedConnections: string[] | null
 ) {
-  return getProviderCredentialsWithQuotaPreflight(provider, null, null, requestedModel, {
+  return getProviderCredentialsWithQuotaPreflight(provider, null, allowedConnections, requestedModel, {
     excludeConnectionIds: Array.from(excludedConnectionIds),
     ...(provider === "codex" ? { bypassQuotaPolicy: true } : {}),
   });
@@ -123,6 +123,21 @@ export async function executeImageWithCredentialFallback({
 
   while (currentCredentials && !isCredentialSentinel(currentCredentials)) {
     const connectionId = connectionIdOf(currentCredentials);
+    // Defense in depth: never execute a credential outside the caller's API-key
+    // connection scope, even if a future selector or test override ignores it.
+    if (
+      Array.isArray(allowedConnections) &&
+      (!connectionId || !allowedConnections.includes(connectionId))
+    ) {
+      return {
+        credentials: currentCredentials,
+        result: {
+          success: false,
+          status: 403,
+          error: "Image credential is outside the API key's allowed connections",
+        },
+      };
+    }
     if (connectionId && excludedConnectionIds.has(connectionId)) break;
     if (connectionId) excludedConnectionIds.add(connectionId);
 
@@ -146,10 +161,13 @@ export async function executeImageWithCredentialFallback({
 
     lastCredentials = currentCredentials;
     lastResult = await execute(currentCredentials);
+    // A paid image POST may have reached upstream even if no response arrived.
+    // Never resubmit it on another credential after an ambiguous failure.
     const shouldTryAnotherAccount =
-      Number(lastResult.status) === 401 ||
-      lastResult.retryable === true ||
-      isAntigravityImageQuotaExhausted(provider, lastResult);
+      lastResult.submissionState !== "ambiguous" &&
+      (Number(lastResult.status) === 401 ||
+        lastResult.retryable === true ||
+        isAntigravityImageQuotaExhausted(provider, lastResult));
     if (lastResult.success || !shouldTryAnotherAccount || !connectionId) {
       return { credentials: lastCredentials, result: lastResult };
     }

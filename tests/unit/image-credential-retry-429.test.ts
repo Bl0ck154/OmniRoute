@@ -14,6 +14,7 @@ interface MockImageResult {
   error?: unknown;
   data?: unknown;
   retryable?: boolean;
+  submissionState?: "ambiguous" | "definitive-failure";
 }
 
 test("executeImageWithCredentialFallback rotates to sibling account on Antigravity's quota-exhausted 429 (#14112)", async () => {
@@ -244,4 +245,73 @@ test("executeImageWithCredentialFallback handles 401 and retryable flags correct
 
   assert.equal(result400Retryable.result.success, true);
   assert.deepEqual(executedAccounts, ["conn-1", "conn-2"]);
+});
+
+
+test("image fallback passes the allowed API-key connection scope and rejects an out-of-scope account", async () => {
+  const executed: string[] = [];
+  let nextSelectorScope: string[] | null = null;
+  const first: MockImageCredentials = { connectionId: "allowed-1", accessToken: "first" };
+  const outside: MockImageCredentials = { connectionId: "outside-2", accessToken: "outside" };
+  const result = await executeImageWithCredentialFallback({
+    provider: "codex",
+    requestedModel: "gpt-image-2",
+    credentials: first,
+    allowedConnections: ["allowed-1"],
+    execute: async (credentials: MockImageCredentials): Promise<MockImageResult> => {
+      executed.push(credentials.connectionId);
+      return { success: false, status: 401, error: "access denied" };
+    },
+    selectNextCredentials: async (_provider, _model, _excluded, allowed) => {
+      nextSelectorScope = allowed;
+      return outside;
+    },
+  });
+  assert.deepEqual(nextSelectorScope, ["allowed-1"]);
+  assert.deepEqual(executed, ["allowed-1"], "fallback must never execute a disallowed account");
+  assert.equal(result.result.status, 403);
+});
+
+test("image requests fail closed before a disallowed initial credential is executed", async () => {
+  let executed = false;
+  const result = await executeImageWithCredentialFallback({
+    provider: "codex",
+    requestedModel: "gpt-image-2",
+    credentials: { connectionId: "outside", accessToken: "outside" },
+    allowedConnections: ["allowed"],
+    execute: async (): Promise<MockImageResult> => {
+      executed = true;
+      return { success: true, status: 200 };
+    },
+  });
+  assert.equal(executed, false);
+  assert.equal(result.result.status, 403);
+});
+
+test("ambiguous paid image submission is never retried on another credential", async () => {
+  const executed: string[] = [];
+  let selectorCalls = 0;
+  const result = await executeImageWithCredentialFallback({
+    provider: "codex",
+    requestedModel: "gpt-image-2",
+    credentials: { connectionId: "allowed-1", accessToken: "first" },
+    allowedConnections: ["allowed-1", "allowed-2"],
+    execute: async (credentials: MockImageCredentials): Promise<MockImageResult> => {
+      executed.push(credentials.connectionId);
+      return {
+        success: false,
+        status: 502,
+        retryable: true,
+        submissionState: "ambiguous",
+        error: "upstream connection closed after POST",
+      };
+    },
+    selectNextCredentials: async () => {
+      selectorCalls++;
+      return { connectionId: "allowed-2", accessToken: "second" };
+    },
+  });
+  assert.deepEqual(executed, ["allowed-1"]);
+  assert.equal(selectorCalls, 0, "a second POST could result in double billing");
+  assert.equal(result.result.status, 502);
 });
