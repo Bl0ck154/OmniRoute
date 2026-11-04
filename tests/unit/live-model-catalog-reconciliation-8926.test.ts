@@ -102,6 +102,14 @@ test("#8926: explicit provider/model rejects a stale static model before upstrea
   );
 });
 
+test("explicit provider aliases reconcile against the live model id", async () => {
+  for (const requested of [`github/${LIVE_MODEL}`, `gh/${LIVE_MODEL}`]) {
+    const result = await reconcileProvidersWithActiveSyncedCatalog([PROVIDER], requested);
+    assert.deepEqual(result.providers, [PROVIDER], requested);
+    assert.deepEqual(result.excludedProviders, [], requested);
+  }
+});
+
 test("#8926: active alternative provider remains eligible", async () => {
   await seedProviderCatalog("ghe-copilot", "ghe-copilot-active-8926", []);
 
