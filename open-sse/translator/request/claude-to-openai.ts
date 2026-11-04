@@ -316,8 +316,9 @@ export function claudeToOpenAIRequest(model, body, stream, credentials: unknown 
             name,
             description: typeof record.description === "string" ? record.description : "", // fix: never null (#276)
             parameters: normalizeToolSchema(record.input_schema),
-            // Preserve tool-level strict schema enforcement (9router#4172).
-            ...(record.strict === true ? { strict: true } : {}),
+            // Preserve tool-level strict schema enforcement (9router#4172). Only booleans
+            // carry over; omitted stays omitted (non-strict on Chat).
+            ...chatStrictFrom(record),
           },
         };
       })
