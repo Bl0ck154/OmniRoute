@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import semver from "semver";
 
 import { codexProvider } from "../../open-sse/config/providers/registry/codex/index.ts";
 import { openaiProvider } from "../../open-sse/config/providers/registry/openai/index.ts";
@@ -22,7 +23,7 @@ const IDS = [BASE, ...LEVELS.map((level) => `${BASE}-${level}`)];
 test("GPT-6.1 Sol exposes all seven Codex ids with correct OAuth limits", () => {
   const entries = codexProvider.models.filter((model) => model.id === BASE || model.id.startsWith(`${BASE}-`));
   assert.deepEqual(entries.map((model) => model.id).sort(), [...IDS].sort());
-  assert.equal(DEFAULT_CODEX_CLIENT_VERSION, "0.159.2");
+  assert.ok(semver.gte(DEFAULT_CODEX_CLIENT_VERSION, "0.159.2"), "Codex client must meet the GPT-6.1 Sol minimum version");
   for (const row of entries) {
     assert.equal(CODEX_NATIVE_UNPREFIXED_MODELS.has(row.id), true, row.id);
     const price = getPricingForModel("cx", row.id);
