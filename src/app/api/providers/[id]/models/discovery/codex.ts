@@ -525,9 +525,11 @@ export function enrichCodexModelsFromGithubCatalog(
     const githubModel = byId.get(model.id);
     return githubModel ? { ...githubModel, ...model } : model;
   });
-  // Keep the live entitlement list authoritative when present. Only use the
-  // public GitHub catalog as fallback when the account returned no live rows.
-  return models.length > 0 ? enriched : [...githubCatalogModels];
+  // A non-empty live entitlement list is authoritative for membership and
+  // order. GitHub rows may only fill metadata on those ids. Catalog models
+  // the account did not return are used only when there is no live list.
+  if (models.length > 0) return enriched;
+  return [...githubCatalogModels];
 }
 
 /**
