@@ -407,8 +407,10 @@ export function getModelTimeoutMs(aliasOrId: string, modelId: string): number | 
 }
 
 const CLAUDE_MODEL_PATTERN = /(?:^|[\/._-])claude(?:[._-]|$)/;
-// Claude max-effort support follows family and release versions rather than
-// a blanket Haiku ban; Sonnet 5.5 remains excluded until verified.
+// Anthropic effort docs (platform.claude.com/docs/en/build-with-claude/effort), `max`
+// row: Fable and Mythos (every version, incl. Mythos Preview), Opus 4.6+, Sonnet 4.6+
+// and Haiku 5.5+. Versions are encoded as major * 100 + minor. Families not listed
+// here stay allowed so a new Claude family is not blocked before the docs list it.
 const CLAUDE_MAX_EFFORT_MIN_VERSION: ReadonlyMap<string, number> = new Map([
   ["fable", 0],
   ["mythos", 0],
@@ -416,9 +418,12 @@ const CLAUDE_MAX_EFFORT_MIN_VERSION: ReadonlyMap<string, number> = new Map([
   ["sonnet", 406],
   ["haiku", 505],
 ]);
+// The docs also list Sonnet 5.5, but it returned a 400 on `max` when it was added
+// (#15035), so it stays capped at xhigh until that is re-verified.
 const CLAUDE_MAX_EFFORT_EXCLUDED_VERSIONS: ReadonlySet<string> = new Set(["sonnet:505"]);
 const CLAUDE_FAMILY_VERSION_PATTERN =
   /^claude[._-]([a-z]+)(?:[._-](\d{1,2})(?:[._-](\d{1,2}))?)?(?=[._-]|$)/;
+// Pre-4 ids put the version first (claude-3-5-haiku, claude-2.1); none supports effort.
 const CLAUDE_LEGACY_ID_PATTERN = /^claude[._-]\d/;
 const ANTHROPIC_COMPATIBLE_PREFIX = "anthropic-compatible-";
 

@@ -30,7 +30,7 @@ function StatusWithAvailability({
   return (
     <div className="flex flex-col gap-1">
       {badge}
-      <span className="text-xs text-text-secondary">
+      <span className="text-xs text-text-muted">
         {describeProviderAvailability(connection.availability)}
       </span>
     </div>
