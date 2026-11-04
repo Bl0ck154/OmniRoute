@@ -242,7 +242,7 @@ function stripRegexPatternsWhere(schema: unknown, shouldStrip: RegexPatternPredi
 
   const result: JsonRecord = { ...schema };
 
-  if (hasUnsupportedRegexSyntax(result.pattern)) {
+  if (shouldStrip(result.pattern)) {
     delete result.pattern;
   }
 
