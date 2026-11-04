@@ -559,24 +559,33 @@ export async function reconcileProvidersWithActiveSyncedCatalog(
   const excludedProviders: string[] = [];
 
   for (const { provider, catalog } of states) {
-    const unprefixedModelId = modelId.includes("/") ? modelId.slice(modelId.indexOf("/") + 1) : modelId;
-    const registryModel = getProviderModels(provider).find((model) => model.id === unprefixedModelId);
+    // A slash inside a model id is not necessarily a provider prefix:
+    // operator-added routes such as nvidia/deepseek-ai/deepseek-r1 are literal.
+    // Only remove the first path component when it identifies this provider
+    // or one of its catalog siblings (e.g. agy -> antigravity).
+    const slash = modelId.indexOf("/");
+    const canonicalProvider = resolveStoredProviderId(provider);
+    const qualifiedProvider = slash > 0 ? resolveStoredProviderId(modelId.slice(0, slash)) : "";
+    const isMatchingProviderPrefix =
+      slash > 0 && catalogLookupIds(canonicalProvider).includes(qualifiedProvider);
+    const candidateIds = isMatchingProviderPrefix
+      ? [modelId.slice(slash + 1), modelId]
+      : [modelId];
+    const registryModel = getProviderModels(provider).find((model) => candidateIds.includes(model.id));
     const declaredLiveIds = Array.isArray(registryModel?.liveCatalogIds)
       ? registryModel.liveCatalogIds
       : [];
     const modelIsLive = catalog.models.some(
-      (model) => model.id === unprefixedModelId || declaredLiveIds.includes(model.id)
+      (model) => candidateIds.includes(model.id) || declaredLiveIds.includes(model.id)
     );
     // Cursor auto-router: always allow `auto` / router variants even if a stale live
     // catalog omitted them (AvailableModels / agent list often returns wire id
     // `default` only; listing injects `auto` + cost/balance/intelligence).
     const cursorAutoAllow =
-      provider === "cursor" &&
-      (modelId === "auto" ||
-        modelId === "default" ||
-        modelId === "auto-cost" ||
-        modelId === "auto-balance" ||
-        modelId === "auto-intelligence");
+      canonicalProvider === "cursor" &&
+      ["auto", "default", "auto-cost", "auto-balance", "auto-intelligence"].some(
+        (id) => candidateIds.includes(id)
+      );
 
     if (!catalog.authoritative || modelIsLive || cursorAutoAllow) {
       providers.push(provider);
