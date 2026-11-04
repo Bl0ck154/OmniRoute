@@ -737,11 +737,7 @@ export function geminiToOpenAIResponse(chunk, state) {
       // Gemini may omit totalTokenCount; derive it instead of reporting 0.
       total_tokens: totalTokens || promptTokens + completionTokens,
     };
-
-    // Preserve an explicitly reported zero separately from missing cache usage.
-    if (typeof usageMeta.cachedContentTokenCount === "number"
-      && Number.isFinite(usageMeta.cachedContentTokenCount)
-      && cachedTokens >= 0) {
+    if (typeof effectiveCachedTokens === "number") {
       state.usage.prompt_tokens_details = {
         cached_tokens: effectiveCachedTokens,
       };
