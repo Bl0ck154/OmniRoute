@@ -515,6 +515,66 @@
       "verifiedBy": "alirezariahi",
       "summary": "The model page advertises a free endpoint. NVIDIA NIM FAQ (https://docs.api.nvidia.com/nim/docs/product) grants Developer Program members free API access for prototyping. The catalog rate-limit notice (https://build.nvidia.com/search) publishes request limits rather than a numeric token allowance.",
       "limitations": "Requires a registered NVIDIA account and API key. Prototyping/trial use only; no production entitlement, permanent availability, token allowance, guaranteed throughput or billing hard stop is established. Limits vary by model and traffic; trial terms may permit credits. Paid dedicated deployments are separate."
+    },
+    {
+      "provider": "gemini",
+      "modelId": "gemini-3.5-flash",
+      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
+      "sourceType": "public-page",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "checkedAt": "2026-11-05",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
+      "summary": "The official Google Gemini Developer API Standard pricing table lists gemini-3.5-flash input and output tokens as free of charge under Free Tier; paid tier and optional tools have separate rates.",
+      "limitations": "A Google Gemini API project eligible for the free tier is required. Rate and project/model limits apply. Free input/output does not mean unlimited capacity, a monthly allowance guarantee, or cost protection when using a paid tier; paid cache storage and tools have separate rules."
+    },
+    {
+      "provider": "gemini",
+      "modelId": "gemini-3.5-flash-lite",
+      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
+      "sourceType": "public-page",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "checkedAt": "2026-11-05",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
+      "summary": "The official Google Gemini Developer API Standard pricing table lists gemini-3.5-flash-lite input and output tokens as free of charge under Free Tier.",
+      "limitations": "Requires an eligible Gemini API free-tier project. Rate limits apply and context caching is not available in the free tier; paid usage and tools differ. No monthly token allowance, unrestricted throughput or billing hard stop is established."
+    },
+    {
+      "provider": "gemini",
+      "modelId": "gemini-3.6-flash",
+      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
+      "sourceType": "public-page",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "checkedAt": "2026-11-05",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
+      "summary": "The official Google Gemini Developer API Standard pricing table identifies gemini-3.6-flash and lists Free Tier input/output as free of charge.",
+      "limitations": "Only the eligible Google Gemini API Standard free tier is covered. Project/model rate limits and availability apply; paid/flex/batch or optional tools may be billed separately. No guaranteed token allowance or unlimited request volume is established."
+    },
+    {
+      "provider": "gemini",
+      "modelId": "gemini-3.7-flash",
+      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
+      "sourceType": "public-page",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "checkedAt": "2026-11-05",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
+      "summary": "The official Google Gemini Developer API Standard pricing table identifies gemini-3.7-flash and lists Free Tier input/output as free of charge.",
+      "limitations": "Google Gemini API free-tier eligibility and project/model rate limits apply. Paid-tier token prices and separately billed tools differ. The listing does not promise guaranteed availability, unrestricted throughput or a monthly allowance."
+    },
+    {
+      "provider": "gemini",
+      "modelId": "gemini-3.8-flash",
+      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
+      "sourceType": "public-page",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "checkedAt": "2026-11-05",
+      "claim": "recurring-free-access",
+      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
+      "summary": "The official Google Gemini Developer API Standard pricing table identifies gemini-3.8-flash and lists Free Tier input/output as free of charge.",
+      "limitations": "Only the eligible Gemini API Free Tier is free; Google lists paid-tier, storage and tool costs separately, and availability/model rate limits remain. Not evidence of unlimited capacity, a monthly token budget, a permanent price guarantee, or protection on paid projects."
     }
   ]
 }
