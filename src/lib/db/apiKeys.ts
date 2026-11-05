@@ -992,7 +992,7 @@ export async function updateApiKeyPermissions(
   }
 
   if (normalized.preferredConnections !== undefined) {
-    // Ordered preference only; it never grants access and only ranks eligible connections.
+    // Ordered preference only; access/health/quota gates still define eligibility.
     updates.push("preferred_connections = @preferredConnections");
     params.preferredConnections = JSON.stringify(normalized.preferredConnections || []);
   }
@@ -1563,7 +1563,7 @@ export async function getApiKeyMetadata(
       record.allowed_connections ?? record.allowedConnections
     ),
     preferredConnections: parseAllowedConnections(
-      record.preferred_connections ?? record.preferredConnections,
+      record.preferred_connections ?? record.preferredConnections
     ),
     allowedQuotas: parseAllowedQuotas(
       (record as JsonRecord).allowed_quotas ?? (record as JsonRecord).allowedQuotas
