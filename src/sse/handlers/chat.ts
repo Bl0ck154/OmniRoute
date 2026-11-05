@@ -1850,6 +1850,7 @@ async function handleSingleModelChat(
             preferredConnectionIds: apiKeyInfo?.preferredConnections ?? null,
             reserveOAuthSession: true,
             excludeConnectionIds: Array.from(excluded),
+            ...(hasForcedConnection && !isCombo ? { explicitConnectionPin: true } : {}),
             ...(agy.on ? { reserveAntigravityLease: true, routingRequestId: agy.requestId } : {}),
             ...(runtimeOptions.allowRateLimitedConnection
               ? { allowRateLimitedConnections: true }
