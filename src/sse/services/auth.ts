@@ -2463,8 +2463,6 @@ async function applyEgressIpLockout(
   }
 }
 
-type ExhaustionOptions = NonNullable<Parameters<typeof markAccountUnavailable>[6]>;
-
 /** Build the options for markAccountUnavailable on the chat exhaustion path.
  * Single place that forwards the request id so no chat sender can forget it:
  * every chat caller passes its in-scope id through here. */

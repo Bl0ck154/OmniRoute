@@ -106,14 +106,14 @@ test("unread upstream errors close timing immediately and keep original bodies u
   let now = 100;
   const tracker = new AntigravityTimingTracker(() => now);
   const events: Record<string, unknown>[] = [];
-  const run = (status: number, body: Response) => withAntigravityTiming({
+  const run = (body: Response) => withAntigravityTiming({
     enabled: true, connectionId: "retry-account", model: "gemini-3.8-flash-tiered",
     emit: (event) => events.push(event),
   }, () => tracker.fetch(async () => { now += 10; return body; }));
 
   for (const status of [403, 429, 503]) {
     const original = new Response(new ReadableStream<Uint8Array>(), { status });
-    const returned = await run(status, original);
+    const returned = await run(original);
     assert.equal(returned, original, "error bodies must remain untouched for retries");
     assert.equal(returned.bodyUsed, false);
     assert.equal(events.findLast((event) => event.phase === "headers")!.concurrentInflight, 1);

@@ -36,8 +36,6 @@ const RETRYABLE_TRANSPORT_TEXT = [
 ];
 
 // 499 = client closed request; 4xx auth/quota/validation errors never succeed on a replay.
-const NON_RETRYABLE_TRANSPORT_STATUSES = new Set([499, 429, 401, 400]);
-
 const NON_RETRYABLE_ERROR_TYPES = new Set([
   "lease_error",
   "account_semaphore_capacity",
