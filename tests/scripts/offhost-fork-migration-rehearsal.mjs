@@ -7,7 +7,6 @@
  * customer rows or credentials are ever copied into the runner.
  */
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import path from "node:path";
 
 const [mode, sqliteFile, migrationDir] = process.argv.slice(2);

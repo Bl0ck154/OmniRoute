@@ -7,10 +7,13 @@ import { hydrateConnectionProviderSpecificData } from "./compatibleNodeBaseUrl.t
 import { extractGoogApiKeyHeader } from "./googApiKeyAuth.ts";
 import { classifyGeminiProjectBlock } from "./geminiProjectBlock.ts";
 import { isCooldownRetrySkipRefusalsEnabled } from "./cooldownAwareRetry.ts";
+import { isPerAccountCatalogProvider } from "./perAccountCatalogFilter.ts";
 import { describeUpstreamFailure } from "@/shared/utils/upstreamError";
+import { isRequestScopedMisalignmentRefusal } from "@omniroute/open-sse/utils/providerSafety.ts";
 import { buildAllExpiredCredentials } from "./authExpiredCredentials.ts";
 import { pickExpiryFirstConnection } from "./expiryFirstAccountSelection.ts";
 import { isModelScopedFailure, isQuotaExhaustedSignal } from "./modelScopedQuotaFailure.ts"; // #13548
+import { isCIPayloadQuotaFailure } from "./ciPayloadQuotaFailure.ts";
 import {
   getCachedRawProviderConnections,
   getCachedProviderNodes,
@@ -28,7 +31,7 @@ import {
 } from "@/lib/db/providers";
 import { getDbInstance } from "@/lib/db/core";
 import { getRecentEgressIpForConnection, EGRESS_IP_LOOKUP_WINDOW_MS } from "@/lib/db/proxyLogs";
-import { validateApiKey } from "@/lib/db/apiKeys";
+import { validateApiKey, type ApiKeyLookupOptions } from "@/lib/db/apiKeys";
 import {
   getActiveExclusiveConnectionLease,
   hashLeaseOwnerId,
@@ -59,6 +62,7 @@ import {
   getQuotaWindowStatus,
   hydrateCodexQuotaCacheForRequest,
   isQuotaExhaustedForRequest,
+  isCodexSubscriptionExhaustedForRequest,
   getClaudeQuotaPreflightResetAt,
   resolveClaudeQuotaCooldownMs as resolveClaudeCooldown,
 } from "@/domain/quotaCache";
@@ -74,6 +78,7 @@ import {
   isConfiguredCutoff,
 } from "./quotaPreflightPolicy";
 export { shouldApplyQuotaCutoff, resolveMinRemainingPercent } from "./quotaPreflightPolicy";
+import { isCodexPaidCreditsEnabled } from "@/lib/providers/codexPaidCredits";
 import {
   getQuotaScopeLabelForProvider,
   isAntigravityQuotaProvider,
@@ -302,6 +307,31 @@ function isTerminalConnectionStatusForModel(
 }
 
 export { resolveQuotaLimitPolicy, evaluateQuotaLimitPolicy } from "./quotaLimitPolicy";
+/**
+ * Paid credits are the last resort: an account whose Codex subscription windows are spent
+ * and that would be served only from paid credits waits while any candidate still has
+ * subscription quota for this request.
+ */
+function holdBackCodexCreditOnlyAccounts<T extends ProviderConnectionView>(
+  provider: string,
+  connections: T[],
+  requestedModel: string | null
+): T[] {
+  if (provider !== "codex") return connections;
+  const creditOnly = connections.filter(
+    (connection) =>
+      isCodexPaidCreditsEnabled(provider, connection.providerSpecificData, requestedModel) &&
+      isCodexSubscriptionExhaustedForRequest(connection.id, requestedModel)
+  );
+  if (creditOnly.length === 0 || creditOnly.length === connections.length) return connections;
+  log.info(
+    "AUTH",
+    `${provider} | paid credits held back while ${connections.length - creditOnly.length} account(s) have subscription quota: ${creditOnly
+      .map((connection) => connection.id.slice(0, 8))
+      .join(", ")}`
+  );
+  return connections.filter((connection) => !creditOnly.includes(connection));
+}
 function parseFutureDateMs(value: string | null): number | null {
   if (!value) return null;
   // Tolerate numeric-epoch strings (e.g. "1781696905131.0") as well as ISO
@@ -988,6 +1018,9 @@ export async function getProviderCredentials(
     if (allowedConnections && allowedConnections.length > 0) {
       connections = connections.filter((conn) => allowedConnections.includes(conn.id));
     }
+    // The active, key-scoped pool before any pin narrows it: per-account catalogs (antigravity/agy)
+    // judge "does some account list the model" over the whole pool, not just the pinned account.
+    const inventoryPoolConnections = connections;
     let explicitProbeKind: "probe" | "suppressed" | "skip" = "skip";
     if (forcedConnectionId && !connections.some((c) => c.id === forcedConnectionId)) {
       const pinnedRaw = await getCachedProviderConnectionById(forcedConnectionId);
@@ -1247,8 +1280,18 @@ export async function getProviderCredentials(
     // the host that does. Empty map = no inventory known = no filtering.
     const advertisedModelsByConnection = await loadAdvertisedModelsForConnections(
       connections,
-      requestedModel
+      requestedModel,
+      inventoryPoolConnections
     );
+    // An account the operator pinned for this request (dashboard test) is their call: the inferred
+    // per-account inventory must not veto it, or an entitlement Google under-reports is untestable.
+    if (
+      forcedConnectionId &&
+      options.explicitConnectionPin &&
+      isPerAccountCatalogProvider(provider)
+    ) {
+      advertisedModelsByConnection.delete(forcedConnectionId);
+    }
     // Filter out unavailable accounts and excluded connection
     let availableConnections = connections.filter((c) => {
       if (excludedConnectionIds.has(c.id)) {
@@ -1663,6 +1706,43 @@ export async function getProviderCredentials(
         ? new Date(earliestResetMs).toISOString()
         : new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
+      // #18664: an account filtered out only by a short retryable model lockout still
+      // has quota. When its lockout ends before the earliest quota reset, the request
+      // is blocked by that lockout, not by quota exhaustion: report it as a model
+      // cooldown with the lockout's retry time.
+      const earliestModelLockout = requestedModel
+        ? connections
+            .filter((connection) => connectionFilterStatus.get(connection.id) === "modelLocked")
+            .map((connection) => {
+              const lockout = getModelLockoutInfo(provider, connection.id, requestedModel);
+              return lockout &&
+                lockout.remainingMs > 0 &&
+                isRetryableModelLockoutReason(lockout.reason)
+                ? { connection, untilMs: Date.now() + lockout.remainingMs }
+                : null;
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+            .sort((a, b) => a.untilMs - b.untilMs)[0]
+        : undefined;
+      if (earliestModelLockout && earliestModelLockout.untilMs < new Date(retryAfter).getTime()) {
+        const lockoutRetryAfter = new Date(earliestModelLockout.untilMs).toISOString();
+        log.warn(
+          "AUTH",
+          `${provider} | remaining accounts quota-exhausted; account ${earliestModelLockout.connection.id?.slice(0, 8)} cooling down for model ${requestedModel} (${formatRetryAfter(lockoutRetryAfter)})`
+        );
+        invalidateManagedLease(options, "MODEL_INELIGIBLE");
+        return {
+          allRateLimited: true,
+          retryAfter: lockoutRetryAfter,
+          retryAfterHuman: formatRetryAfter(lockoutRetryAfter),
+          lastError: earliestModelLockout.connection.lastError || null,
+          lastErrorCode: 429,
+          cooldownScope: "model",
+          cooldownModel: requestedModel,
+          connectionsCount: connections.length,
+        };
+      }
+
       invalidateManagedLease(options, "QUOTA_UNAVAILABLE");
       return {
         allRateLimited: true,
@@ -1673,9 +1753,10 @@ export async function getProviderCredentials(
       };
     }
 
+    const subscriptionFirst = holdBackCodexCreditOnlyAccounts(provider, withQuota, requestedModel);
     const policyValidLeaseCandidates = options._leaseCandidateIds
-      ? withQuota.filter((candidate) => options._leaseCandidateIds!.includes(candidate.id))
-      : withQuota;
+      ? subscriptionFirst.filter((candidate) => options._leaseCandidateIds!.includes(candidate.id))
+      : subscriptionFirst;
     if (policyValidLeaseCandidates.length === 0) return null;
     const leasePolicy = await applyExclusiveConnectionLeasePolicy(
       policyValidLeaseCandidates,
@@ -2383,8 +2464,6 @@ async function applyEgressIpLockout(
   }
 }
 
-type ExhaustionOptions = NonNullable<Parameters<typeof markAccountUnavailable>[6]>;
-
 /** Build the options for markAccountUnavailable on the chat exhaustion path.
  * Single place that forwards the request id so no chat sender can forget it:
  * every chat caller passes its in-scope id through here. */
@@ -2427,6 +2506,7 @@ function resolveUpstreamResetMs(fallback: {
   return fallback.quotaResetHintMs ?? null;
 }
 
+/** Record provider/account health failures while keeping upload-admission errors request-scoped. */
 export async function markAccountUnavailable(
   connectionId: string,
   status: number,
@@ -2448,20 +2528,31 @@ export async function markAccountUnavailable(
     healthAttempt?: AntigravityHealthAttempt;
   } = {}
 ) {
-  // Cancellation never belongs to account health, quota or cooldown state.
+  // Cancellation cannot damage shared account, quota, or health state.
   if (status === 499) {
     options.healthAttempt?.finish("ignored");
     return { shouldFallback: false, cooldownMs: 0 };
   }
-  if (isAntigravityProvider(provider) && model && status === 504 &&
+  // A confirmed local response-start timeout can rotate the Antigravity
+  // attempt without marking a healthy account unavailable globally.
+  if (
+    isAntigravityProvider(provider) &&
+    model &&
+    status === 504 &&
     options.structuredError?.type === "upstream_timeout" &&
     options.structuredError?.code === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" &&
-    (options.healthAttempt || resolveAntigravitySettings(await getCachedSettings()).adaptiveHealthEnabled)) {
-    // The handler owns an exactly-once ticket. Other callers without a ticket
-    // still rotate, but cannot invent an unpaired health observation here.
+    (options.healthAttempt ||
+      resolveAntigravitySettings(await getCachedSettings()).adaptiveHealthEnabled)
+  ) {
     options.healthAttempt?.finish("timeout");
-    return { shouldFallback: true, cooldownMs: antigravityHealth.remainingCooldownMs(connectionId, model) };
+    return {
+      shouldFallback: true,
+      cooldownMs: antigravityHealth.remainingCooldownMs(connectionId, model),
+    };
   }
+  // Upstream CI payload-size rejection is request-scoped, not quota exhaustion.
+  if (isCIPayloadQuotaFailure(provider, status, options.structuredError?.code))
+    return { shouldFallback: false, cooldownMs: 0 };
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
   let resolveMutex: (() => void) | undefined;
   markMutexes.set(
@@ -2473,6 +2564,11 @@ export async function markAccountUnavailable(
 
   try {
     await currentMutex;
+
+    // A concurrent cooldown or terminal-state write must not turn this refusal into rotation.
+    if (isRequestScopedMisalignmentRefusal({ status, code: options.structuredError?.code })) {
+      return { shouldFallback: false, cooldownMs: 0 };
+    }
 
     // STRICT_ZERO_COST: this connection just failed (whatever the reason) —
     // drop any cached "SAFE" free-allowance reading for it immediately rather
@@ -2560,6 +2656,23 @@ export async function markAccountUnavailable(
         shouldFallback: true,
         cooldownMs: existingCooldownMs - Date.now(),
       };
+    }
+
+    // Per-request refusal (#12859/#18574): chatCore already excluded this exact model with a
+    // `request_rejected` lockout and recorded the refusal on the connection. Now that the
+    // exclusion is model-scoped the connection carries no cooldown, so the guard above no
+    // longer catches the duplicate — without this one the generic path below would overwrite
+    // `lastErrorType` with `server_error` and stack a second 5s lockout on the same model.
+    if (
+      provider &&
+      model &&
+      getModelLockoutInfo(provider, connectionId, model)?.reason === "request_rejected"
+    ) {
+      log.info(
+        "AUTH",
+        `${connectionId.slice(0, 8)} ${provider}:${model} already excluded by a request_rejected lockout, skipping duplicate mark`
+      );
+      return { shouldFallback: true, cooldownMs: 0 };
     }
 
     // T09: Codex scope-aware lockout guard (codex vs spark independent pools).
@@ -2671,6 +2784,9 @@ export async function markAccountUnavailable(
     const disableCooling = connProviderSpecificData.disableCooling === true;
     const claudeQuotaScope = readClaudeScope({ connectionId, provider, status, errorText, model });
     const isModelScopedClaudeQuota = claudeQuotaScope.scope === "model";
+    // #18296: headroom-scoped decisions carry no cached reset, so they use the 429's own hint
+    // under the operator's maxCooldownMs instead of an uncapped "upstream reset".
+    const hasClaudeScopedReset = isModelScopedClaudeQuota && claudeQuotaScope.cooldownMs !== null;
     const isPerModelQuotaProvider =
       hasPerModelQuota(provider, model, connectionPassthroughModels) || isModelScopedClaudeQuota;
 
@@ -2932,9 +3048,12 @@ export async function markAccountUnavailable(
         status === 429
           ? ANTIGRAVITY_FAMILY_INFERRED_BASE_COOLDOWN_MS
           : null;
-      const upstreamCooldownMs = isModelScopedClaudeQuota
+      // #18296: a headroom-scoped decision carries no cached reset, so it falls back to the
+      // 429's own hint (operator-capped) instead of an uncapped "upstream reset".
+      const upstreamCooldownMs = hasClaudeScopedReset
         ? claudeQuotaScope.cooldownMs
-        : resolveUpstreamResetMs(fallbackResult);
+        : (resolveUpstreamResetMs(fallbackResult) ??
+          (isModelScopedClaudeQuota ? (fallbackResult.cooldownMs ?? null) : null));
       const exactCooldownMs = options.isAvalancheRisk
         ? resolveAvalancheCooldownMs(options.avalancheCooldownMs, upstreamCooldownMs)
         : upstreamCooldownMs;
@@ -2963,7 +3082,7 @@ export async function markAccountUnavailable(
           exactCooldownIsUpstreamReset:
             exactCooldownMs === upstreamCooldownMs &&
             (retryHintBypassesMaxCooldownMs(fallbackResult.retryHintSource) ||
-              isModelScopedClaudeQuota),
+              hasClaudeScopedReset),
         }
       );
       // Update last error for observability (without changing terminal status)
@@ -3556,12 +3675,12 @@ export function extractApiKey(request: AuthRequestLike, opts?: { allowUrl?: bool
  * persistent passthrough keys that always validate, surviving Docker
  * restarts and backup restores without DB dependency.
  */
-export async function isValidApiKey(apiKey: string) {
+export async function isValidApiKey(apiKey: string, options?: ApiKeyLookupOptions) {
   if (!apiKey) return false;
 
   // Persistent env-var key — always valid regardless of DB state (#1350)
   const envKey = process.env.OMNIROUTE_API_KEY || process.env.ROUTER_API_KEY;
   if (envKey && timingSafeCompare(apiKey, envKey)) return true;
 
-  return await validateApiKey(apiKey);
+  return await validateApiKey(apiKey, options);
 }

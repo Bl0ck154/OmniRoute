@@ -989,6 +989,25 @@ async function postHandler(request: Request, _context?: unknown) {
     return response;
   }
 
+  // Keep the upstream Syntx edit path: without this branch the registered
+  // provider falls through to OpenAI-compatible /images/edits and fails.
+  if (providerConfig?.format === "syntx-image") {
+    return handleSyntxEditRequest({
+      parsed,
+      providerConfig,
+      allowedConnections,
+      resolvedModel,
+      prompt,
+      size,
+      responseFormat,
+      images,
+      imageBytes,
+      imageMime,
+      artifactCapture: orderForgeImageArtifactCapture,
+      signal: request.signal,
+    });
+  }
+
   // Built-in OpenRouter uses its unified Image API for reference-image
   // edits: POST /api/v1/images with input_references. Forward through the
   // provider-specific adapter (#10197), rather than the multipart

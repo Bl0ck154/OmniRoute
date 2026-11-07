@@ -3,8 +3,14 @@ import {
   getRegistryEntry,
 } from "@omniroute/open-sse/config/providerRegistry";
 import { getSearchProvider } from "@omniroute/open-sse/config/searchRegistry.ts";
-import { getProviderModels, PROVIDER_ID_TO_ALIAS } from "@omniroute/open-sse/config/providerModels.ts";
-import { ensureCursorAutoCatalogEntry, ensureCursorGrokEffortAliases } from "@/lib/providerModels/cursorAutoCatalog";
+import {
+  getProviderModels,
+  PROVIDER_ID_TO_ALIAS,
+} from "@omniroute/open-sse/config/providerModels.ts";
+import {
+  ensureCursorAutoCatalogEntry,
+  ensureCursorGrokEffortAliases,
+} from "@/lib/providerModels/cursorAutoCatalog";
 import {
   getCustomModels,
   getSyncedAvailableModels,
@@ -559,19 +565,18 @@ export async function reconcileProvidersWithActiveSyncedCatalog(
   const excludedProviders: string[] = [];
 
   for (const { provider, catalog } of states) {
-    // A slash inside a model id is not necessarily a provider prefix:
-    // operator-added routes such as nvidia/deepseek-ai/deepseek-r1 are literal.
-    // Only remove the first path component when it identifies this provider
-    // or one of its catalog siblings (e.g. agy -> antigravity).
+    // A slash may be part of a literal model ID (e.g. a custom marketplace
+    // route), not a provider qualifier. Strip it only when its first segment
+    // actually names this provider or a compatible catalog sibling.
     const slash = modelId.indexOf("/");
     const canonicalProvider = resolveStoredProviderId(provider);
     const qualifiedProvider = slash > 0 ? resolveStoredProviderId(modelId.slice(0, slash)) : "";
     const isMatchingProviderPrefix =
       slash > 0 && catalogLookupIds(canonicalProvider).includes(qualifiedProvider);
-    const candidateIds = isMatchingProviderPrefix
-      ? [modelId.slice(slash + 1), modelId]
-      : [modelId];
-    const registryModel = getProviderModels(provider).find((model) => candidateIds.includes(model.id));
+    const candidateIds = isMatchingProviderPrefix ? [modelId.slice(slash + 1), modelId] : [modelId];
+    const registryModel = getProviderModels(provider).find((model) =>
+      candidateIds.includes(model.id)
+    );
     const declaredLiveIds = Array.isArray(registryModel?.liveCatalogIds)
       ? registryModel.liveCatalogIds
       : [];
@@ -583,8 +588,8 @@ export async function reconcileProvidersWithActiveSyncedCatalog(
     // `default` only; listing injects `auto` + cost/balance/intelligence).
     const cursorAutoAllow =
       canonicalProvider === "cursor" &&
-      ["auto", "default", "auto-cost", "auto-balance", "auto-intelligence"].some(
-        (id) => candidateIds.includes(id)
+      ["auto", "default", "auto-cost", "auto-balance", "auto-intelligence"].some((id) =>
+        candidateIds.includes(id)
       );
 
     if (!catalog.authoritative || modelIsLive || cursorAutoAllow) {

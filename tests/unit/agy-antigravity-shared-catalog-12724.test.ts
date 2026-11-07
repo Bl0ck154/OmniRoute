@@ -22,7 +22,11 @@ const BASE_SIZE = ANTIGRAVITY_SHARED_MODELS.length;
 test("#12724 — shared base is non-empty with unique ids", serial, () => {
   assert.ok(BASE_SIZE >= 9);
   assert.equal(new Set(ANTIGRAVITY_SHARED_MODELS.map((m) => m.id)).size, BASE_SIZE);
-  for (const id of ["gemini-3.7-flash-high", "gemini-3.7-flash-medium"]) {
+  assert.ok(
+    ANTIGRAVITY_SHARED_MODELS.some((m) => m.id === "gemini-3.7-flash-tiered"),
+    "the live 3.7 tiered endpoint must remain usable"
+  );
+  for (const id of ["gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low"]) {
     assert.ok(
       !ANTIGRAVITY_SHARED_MODELS.some((m) => m.id === id),
       `${id} must stay retired`

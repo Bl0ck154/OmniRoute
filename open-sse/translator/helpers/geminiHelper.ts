@@ -1,6 +1,7 @@
 // Gemini helper functions for translator
 
 import { safeParseJSON } from "./jsonUtil.ts";
+import { videoPartToGemini } from "./mediaContentParts.ts";
 import { coerceSchemaValueShapes } from "./schemaValueShapes.ts";
 import { createSchemaBudget, createSchemaMeter, type SchemaBudget, type SchemaMeter } from "./schemaBudget.ts";
 import { mergeLiteralUnions } from "./schemaLiteralUnions.ts";
@@ -197,26 +198,31 @@ function normalizeAudioMimeType(format: unknown): string {
   return `audio/${normalized}`;
 }
 
-// Convert OpenAI content to Gemini parts
+const GEMINI_MEDIA_RESOLUTIONS = new Set([
+  "MEDIA_RESOLUTION_UNSPECIFIED",
+  "MEDIA_RESOLUTION_LOW",
+  "MEDIA_RESOLUTION_MEDIUM",
+  "MEDIA_RESOLUTION_HIGH",
+  "MEDIA_RESOLUTION_ULTRA_HIGH",
+]);
+
 function normalizeGeminiMediaResolution(...values: unknown[]): JsonRecord | undefined {
-  const allowed = new Set([
-    "MEDIA_RESOLUTION_UNSPECIFIED",
-    "MEDIA_RESOLUTION_LOW",
-    "MEDIA_RESOLUTION_MEDIUM",
-    "MEDIA_RESOLUTION_HIGH",
-    "MEDIA_RESOLUTION_ULTRA_HIGH",
-  ]);
   for (const value of values) {
     if (typeof value !== "string" || !value.trim()) continue;
-    let normalized = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+    let normalized = value
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, "_");
     if (!normalized.startsWith("MEDIA_RESOLUTION_")) {
       normalized = `MEDIA_RESOLUTION_${normalized}`;
     }
-    if (allowed.has(normalized)) return { level: normalized };
+    if (GEMINI_MEDIA_RESOLUTIONS.has(normalized)) return { level: normalized };
   }
   return undefined;
 }
 
+// Convert OpenAI content to Gemini parts
+/** Translate OpenAI content to Gemini parts while retaining typed media carriers. */
 export function convertOpenAIContentToParts(content: unknown): JsonRecord[] {
   const parts: JsonRecord[] = [];
 
@@ -227,6 +233,9 @@ export function convertOpenAIContentToParts(content: unknown): JsonRecord[] {
       const rec = toRecord(item);
       if (rec.type === "text") {
         parts.push({ text: rec.text });
+      } else if (rec.type === "video_url" || rec.type === "input_video") {
+        const video = videoPartToGemini(rec);
+        if (video) parts.push(video);
       } else if (rec.type === "input_audio" || rec.type === "audio") {
         const audio = toRecord(rec.input_audio || rec.audio);
         if (typeof audio.data === "string" && audio.data) {

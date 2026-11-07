@@ -281,12 +281,16 @@ export const updateResilienceSchema = z
       !value.waitForCooldown &&
       !value.comboCooldownWait &&
       !value.quotaShareConcurrencyLimit &&
+      !value.streamStallCooldown &&
+      !value.p2cLatency &&
+      !value.streamRecovery &&
       !value.providerCooldown &&
       !value.quotaPreflight &&
       !value.profiles &&
       !value.defaults &&
       !value.providerQuotaOverrides &&
       !value.credentialHealthCheck &&
+      !value.tokenRefreshBreaker &&
       !value.antigravity
     ) {
       ctx.addIssue({

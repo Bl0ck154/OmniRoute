@@ -26,7 +26,6 @@ import {
   isKeyScopeBlockedCredentials,
   keyScopeBlockedResponse,
   keylessProviderRejection,
-  narrowConnectionScope,
   resolveKeyConnectionScope,
   withoutKeyScopeBlocked,
 } from "@/sse/services/keyConnectionScope";
@@ -73,7 +72,6 @@ import {
 } from "@/shared/constants/chatgptWebRetirement";
 import { PLAYGROUND_IMAGE_STREAM_HEADER } from "@/shared/utils/playgroundImageStream";
 import { createPlaygroundImageStreamResponse } from "@/lib/playground/imageGenerationStream";
-import { getImageLongJobOptions } from "@/lib/images/imageGenerationLongJobs";
 import { isImageGenerationLongJobsEnabled } from "@/shared/utils/featureFlags";
 
 export const dynamic = "force-dynamic";
@@ -136,7 +134,7 @@ function publicBaseUrlHeaders(headers: Headers): Record<string, string> {
   return out;
 }
 
-async function postHandler(request, context) {
+async function postHandler(request, _context) {
   let rawBody;
   try {
     rawBody = await request.json();
