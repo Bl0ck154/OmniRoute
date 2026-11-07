@@ -13,6 +13,7 @@ import { isRequestScopedMisalignmentRefusal } from "@omniroute/open-sse/utils/pr
 import { buildAllExpiredCredentials } from "./authExpiredCredentials.ts";
 import { pickExpiryFirstConnection } from "./expiryFirstAccountSelection.ts";
 import { isModelScopedFailure, isQuotaExhaustedSignal } from "./modelScopedQuotaFailure.ts"; // #13548
+import { isCIPayloadQuotaFailure } from "./ciPayloadQuotaFailure.ts";
 import {
   getCachedRawProviderConnections,
   getCachedProviderNodes,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/db/providers";
 import { getDbInstance } from "@/lib/db/core";
 import { getRecentEgressIpForConnection, EGRESS_IP_LOOKUP_WINDOW_MS } from "@/lib/db/proxyLogs";
-import { validateApiKey } from "@/lib/db/apiKeys";
+import { validateApiKey, type ApiKeyLookupOptions } from "@/lib/db/apiKeys";
 import {
   getActiveExclusiveConnectionLease,
   hashLeaseOwnerId,
@@ -2505,6 +2506,7 @@ function resolveUpstreamResetMs(fallback: {
   return fallback.quotaResetHintMs ?? null;
 }
 
+/** Record provider/account health failures while keeping upload-admission errors request-scoped. */
 export async function markAccountUnavailable(
   connectionId: string,
   status: number,
@@ -2526,20 +2528,31 @@ export async function markAccountUnavailable(
     healthAttempt?: AntigravityHealthAttempt;
   } = {}
 ) {
-  // Cancellation never belongs to account health, quota or cooldown state.
+  // Cancellation cannot damage shared account, quota, or health state.
   if (status === 499) {
     options.healthAttempt?.finish("ignored");
     return { shouldFallback: false, cooldownMs: 0 };
   }
-  if (isAntigravityProvider(provider) && model && status === 504 &&
+  // A confirmed local response-start timeout can rotate the Antigravity
+  // attempt without marking a healthy account unavailable globally.
+  if (
+    isAntigravityProvider(provider) &&
+    model &&
+    status === 504 &&
     options.structuredError?.type === "upstream_timeout" &&
     options.structuredError?.code === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" &&
-    (options.healthAttempt || resolveAntigravitySettings(await getCachedSettings()).adaptiveHealthEnabled)) {
-    // The handler owns an exactly-once ticket. Other callers without a ticket
-    // still rotate, but cannot invent an unpaired health observation here.
+    (options.healthAttempt ||
+      resolveAntigravitySettings(await getCachedSettings()).adaptiveHealthEnabled)
+  ) {
     options.healthAttempt?.finish("timeout");
-    return { shouldFallback: true, cooldownMs: antigravityHealth.remainingCooldownMs(connectionId, model) };
+    return {
+      shouldFallback: true,
+      cooldownMs: antigravityHealth.remainingCooldownMs(connectionId, model),
+    };
   }
+  // Upstream CI payload-size rejection is request-scoped, not quota exhaustion.
+  if (isCIPayloadQuotaFailure(provider, status, options.structuredError?.code))
+    return { shouldFallback: false, cooldownMs: 0 };
   const currentMutex = markMutexes.get(connectionId) || Promise.resolve();
   let resolveMutex: (() => void) | undefined;
   markMutexes.set(
@@ -3662,12 +3675,12 @@ export function extractApiKey(request: AuthRequestLike, opts?: { allowUrl?: bool
  * persistent passthrough keys that always validate, surviving Docker
  * restarts and backup restores without DB dependency.
  */
-export async function isValidApiKey(apiKey: string) {
+export async function isValidApiKey(apiKey: string, options?: ApiKeyLookupOptions) {
   if (!apiKey) return false;
 
   // Persistent env-var key — always valid regardless of DB state (#1350)
   const envKey = process.env.OMNIROUTE_API_KEY || process.env.ROUTER_API_KEY;
   if (envKey && timingSafeCompare(apiKey, envKey)) return true;
 
-  return await validateApiKey(apiKey);
+  return await validateApiKey(apiKey, options);
 }

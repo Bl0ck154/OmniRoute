@@ -87,14 +87,18 @@ export async function findAllStaleComboModelRefs(): Promise<StaleComboModelRef[]
     }
   }
 
-  const results: StaleComboModelRef[] = [];
+  const byKey = new Map<string, StaleComboModelRef>();
   for (const providerId of providerIds) {
     // One provider's discovery/DB failure should not hide warnings for others.
     try {
-      results.push(...(await findStaleComboModelRefs(providerId)));
+      for (const ref of await findStaleComboModelRefs(providerId)) {
+        // The same combo step can resolve through a provider alias and its canonical ID.
+        const key = JSON.stringify([ref.comboId, ref.stepId, ref.model]);
+        if (!byKey.has(key)) byKey.set(key, ref);
+      }
     } catch {
       continue;
     }
   }
-  return results;
+  return [...byKey.values()];
 }

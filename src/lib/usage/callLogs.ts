@@ -309,15 +309,18 @@ function snapshotHasOpaqueReasoningItem(body: unknown): boolean {
   const record =
     body !== null && typeof body === "object" && !Array.isArray(body) ? (body as JsonRecord) : null;
   if (!record) return false;
-  const outputs: unknown[] = [];
-  if (Array.isArray(record.output)) outputs.push(...record.output);
   const nested =
     record.response !== null &&
     typeof record.response === "object" &&
     !Array.isArray(record.response)
       ? (record.response as JsonRecord)
       : null;
-  if (nested && Array.isArray(nested.output)) outputs.push(...nested.output);
+  // Array literals, not push(...): no-log attempts pass the live body, and a spread
+  // into call arguments overflows the stack past roughly 125k items.
+  const outputs: unknown[] = [
+    ...(Array.isArray(record.output) ? record.output : []),
+    ...(nested && Array.isArray(nested.output) ? nested.output : []),
+  ];
   return outputs.some((item) => {
     const itemRecord =
       item !== null && typeof item === "object" && !Array.isArray(item)
@@ -510,9 +513,9 @@ async function saveCallLogOperation(entry: any, metadataOnly = false): Promise<v
       logCallLogSaveFailure(error);
     }
   } finally {
-    // The bridge is only needed while the asynchronous save is outstanding.
-    // Release it also on failed INSERT, exhausted retries, and artifact errors.
-    if (typeof entry?.responseId === "string" && entry.responseId.length > 0) {
+    // Clear a temporary continuation even if the row or artifact cannot be written.
+    // Metadata-only summaries must not invalidate a full response's bridge.
+    if (!metadataOnly && typeof entry?.responseId === "string" && entry.responseId.length > 0) {
       clearPendingContinuationState(entry.responseId);
     }
   }
@@ -523,8 +526,6 @@ type PreparedCallLogRow = {
   logEntry: Record<string, unknown>;
   insertParams: Record<string, unknown>;
   hasResilienceColumn: boolean;
-  detailState: CallLogDetailState;
-  responseId: string | null;
   /** Builds the artifact from the row's FINAL id; null when no detail is expected. */
   buildDetailArtifact: (() => ReturnType<typeof buildArtifact>) | null;
 };
@@ -790,8 +791,6 @@ async function buildCallLogRow(entry: any, metadataOnly = false): Promise<Prepar
     logEntry,
     insertParams,
     hasResilienceColumn,
-    detailState,
-    responseId: typeof logEntry.responseId === "string" ? logEntry.responseId : null,
     buildDetailArtifact: detailExpected
       ? () =>
           buildArtifact(
