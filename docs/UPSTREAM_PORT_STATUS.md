@@ -67,13 +67,13 @@ The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` fr
 ## Unported changes / candidate queue
 
 - **Not yet fully classified**: fork-only non-upstream patches. The whole-fork comparison is heavily contaminated by upstream history differences and fork-specific deployment integrations. Do not treat an ahead commit, changed filename or cherry result alone as proof of missing upstream behavior.
-- Next batch: run local `git merge-base`, `git log --cherry-pick --right-only`, `git diff --stat`, `git cherry`, and `git patch-id` against freshly fetched upstream and fork refs. Use compact per-commit titles/file stats only; inspect exact affected code and upstream equivalence for each proposed patch. Reject duplicates of the 41 merged and 12 open PRs.
+- Next batch: run local `git merge-base`, `git log --cherry-pick --right-only`, `git diff --stat`, `git cherry`, and `git patch-id` against freshly fetched upstream and fork refs. Use compact per-commit titles/file stats only; inspect exact affected code and upstream equivalence for each proposed patch. Reject duplicates of the 41 merged and 14 open PRs.
 - Prioritize small independent P0 security/stability changes with tests; then P1 performance; then P2 quality of life.
 
 ## Rejected / not actionable
 
 - **No duplicate PR** for #17961 or any other already merged contribution.
-- **No fresh PR for work already covered** by the 12 open contributions.
+- **No fresh PR for work already covered** by the 14 currently open contributions.
 - **Do not blindly merge #125** or force-rebase `production`. Upstream has moved 27 commits beyond its integration base.
 - **Reclassified 2026-11-09:** fork `954e997a9d` plan header is proposed in [upstream #19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) only as **operator opt-in, disabled by default, known-tier-only** diagnostic; approval and CI remain pending. Do not separately port the old always-on version.
 
