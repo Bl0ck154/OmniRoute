@@ -55,6 +55,18 @@ The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` fr
 - **Do not blindly merge #125** or force-rebase `production`. Upstream has moved 27 commits beyond its integration base.
 - No additional fork-only candidate has yet been conclusively marked rejected or ready to port.
 
+## Verified duplicate-avoidance checks (2026-11-09)
+
+The audited, already-existing Git checkout at `/opt/omniroute-sync-v3851` had fork `origin/production` at the current GitHub SHA and upstream `release/v3.8.54` at `1b2b799cf2ee2729d1d8acafcf621b5fc70c95c6`. A metadata-only fetch confirmed these refs without modifying working files or production deployment.
+
+- `git merge-base` matched `96eb88c1ee48c6d9fc42d9a11038d539f4f93c78`.
+- `git rev-list --left-right --count`: fork-only history 257 / upstream-only 404.
+- `git cherry -v`: 212 unmatched `+` patch IDs / 0 `-`. This is **not** a list of 212 missing features: squash, cherry-pick adaptation and subsequent upstream refactors defeat patch-ID matching. Inspect actual upstream behavior.
+- Historical fork patches found **already implemented** by current upstream: `f6b2920881` Claude explicit strict false, `ba853c1888` exclusive live catalog authority, `94eced2a0e` invalid regex stripping, `d893cd0ed3` no-log reasoning metadata/continuation cleanup, `a343cf77fb` RELAY_TIMEOUT handling, `9dec654b21` non-blocking Undici dispatcher close, `c2be16c3fb` expired OAuth token fallback, `292d188dfa` null-safe serve port detection. **Do not open duplicate PRs** for these.
+- Existing maintained fork safety register: [`docs/maintenance/FORK_PATCH_REGISTER.md`](maintenance/FORK_PATCH_REGISTER.md), updated in documentation [fork PR #134](https://github.com/Bl0ck154/OmniRoute/pull/134). Its fork-only SQLite migration 900 compatibility and deployment gates remain important.
+- Existing upstream #19134 explicitly documents provenance-safe Codex image quota cooldown handling, and its latest four workflows all passed. Do not duplicate the old bot findings without validating latest source.
+- No additional code PR was opened in this audit batch because no **new, behaviorally missing and independently tested** P0 change was established. Avoid speculative code churn on healthy open PRs.
+
 ## Next concrete actions
 
 1. Refresh local upstream tracking ref without downloading a full repository; compute compressed cherry/patch-id inventory and content equivalence checks.
