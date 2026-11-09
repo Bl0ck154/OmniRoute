@@ -2,6 +2,17 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
+## Hosted Codex image reference smoke — server audit (2026-11-09)
+
+**Result: actual 9–16 image backend acceptance remains UNVERIFIED. No live paid image generation was made. Do not claim success or a genuine server-side 8-reference limit.**
+
+- On `zivkr-ai`, running OmniRoute version `3.8.53-custom.44` listens on TCP `20128`. The code calls hosted `https://chatgpt.com/backend-api/codex/responses` with `image_generation` / `action: edit` for legacy `gpt-5.6-*-image` models. The application enforces the eight-image cap in `src/app/api/v1/images/edits/route.ts` **before** its handler can contact the upstream backend. Dedicated `gpt-image-*` models use a different `/backend-api/codex/images/edits` endpoint and are allowed sixteen.
+- Read-only immutable SQLite inspection found **9 active Codex connections including 2 paid Plus accounts** (no credentials disclosed); one had substantially more available weekly quota. No credentials, user images or login secrets were included in the audit output.
+- Direct live OAuth probe was **blocked by connector safety checks** because it would pull an existing access token out of the production DB and send it to an external service. Do not rework around that block by copying tokens. No attempt reached the upstream API.
+- Audited local `call_logs` (Codex image-edit request status counts), `usage_history` table layout and existing application logs (including historical compressed logs); they do not retain per-request numeric reference-image counts adequate to prove whether more than eight were previously accepted. Their absence is not evidence of a backend maximum.
+- Official OpenAI docs: [Images Edit](https://developers.openai.com/api/reference/resources/images/methods/edit) documents up to 16 images for the **Images Edit API**; [Responses image_generation tool](https://developers.openai.com/api/docs/guides/tools-image-generation) accepts input images but does not specify the legacy hosted Codex tool's own 8-vs-16 maximum. Do not conflate the APIs.
+- **Safe follow-up:** perform an authenticated, provider-managed smoke test through a proper operator account/session or an isolated gateway test endpoint that keeps OAuth inside OmniRoute; compare 8, 9 and 16 tiny reference images on the *hosted Responses edit tool*. Cap changes and upstream PRs require actual backend evidence. Avoid deploying a speculative cap increase.
+
 ## Corrected/withdrawn batch — Codex image reference cap test (2026-11-09)
 
 **State: upstream PR [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) CLOSED WITHOUT MERGE.** The original test patch was opened, then withdrawn after the user correctly challenged the eight-image cap.
