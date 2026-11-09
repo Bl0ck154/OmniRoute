@@ -2,6 +2,10 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
+## Active task — image edit reference-cap regression (2026-11-09)
+
+**State: in progress**. Chosen fork patch: `75dd0f943c` (legacy Codex hosted Responses 8-reference limit vs dedicated GPT Image 16-reference limit). Source behavior is **already present in upstream**, so do **not** duplicate the implementation. Upstream does not contain the fork's focused `tests/unit/codex-image-reference-cap-separation.test.ts` and the audit found no test referring to either distinct exported limit constant. This batch ports the missing regression protection only (with actual boundary assertions if appropriate), creates a small upstream test PR, and records the resulting CI/review state. No production deployment.
+
 ## Follow-up batch — Codex plan troubleshooting patch (2026-11-09)
 
 **Status: upstream PR opened; CI/review pending.** This task was recorded as `in progress` earlier in this file, then updated after creating the PR.
