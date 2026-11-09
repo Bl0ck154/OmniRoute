@@ -2,9 +2,14 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
-## Active task — image edit reference-cap regression (2026-11-09)
+## Batch completed — Codex/GPT Image reference-cap regression test (2026-11-09)
 
-**State: in progress**. Chosen fork patch: `75dd0f943c` (legacy Codex hosted Responses 8-reference limit vs dedicated GPT Image 16-reference limit). Source behavior is **already present in upstream**, so do **not** duplicate the implementation. Upstream does not contain the fork's focused `tests/unit/codex-image-reference-cap-separation.test.ts` and the audit found no test referring to either distinct exported limit constant. This batch ports the missing regression protection only (with actual boundary assertions if appropriate), creates a small upstream test PR, and records the resulting CI/review state. No production deployment.
+**State: upstream PR created, mergeable; CI and review pending.** This batch was first recorded in this file as `in progress`, then updated after opening the code review.
+
+- Fork origin: `75dd0f943c`, separating the hosted Codex Responses **8-reference** limit from the dedicated GPT Image **16-reference** limit. The production behavior already exists in upstream [#16623](https://github.com/cheaper-inference/OmniRoute/pull/16623); re-porting the code would be a duplicate.
+- **Created [upstream PR #19593](https://github.com/cheaper-inference/OmniRoute/pull/19593)**, `test(images): protect Codex hosted vs GPT Image edit reference caps` (branch `Bl0ck154:test/codex-gpt-image-reference-cap-boundaries-20261109`, head `a834f42fee40a99ff6dd5392fcda072a4e3c8bb1`). **Open, mergeable, 1 file.** The four upstream GitHub workflows are queued, not yet passed.
+- Ports the missing test-only protection in `tests/unit/codex-image-reference-cap-separation.test.ts`, strengthened to assert real validation boundaries: hosted 8 accepted/9 rejected, dedicated 16 accepted/17 rejected, and the hosted default stays at 8 after use of the dedicated override.
+- No runtime code or production server changes; only repository metadata inspected via read-only host access. Next: review CI outcomes and fix any relevant reviewer comments on the same branch.
 
 ## Follow-up batch — Codex plan troubleshooting patch (2026-11-09)
 
@@ -38,7 +43,7 @@ GitHub author search found **41 merged PRs** by `Bl0ck154` (as of this check). I
 - [#19055](https://github.com/cheaper-inference/OmniRoute/pull/19055), [#19054](https://github.com/cheaper-inference/OmniRoute/pull/19054), [#19053](https://github.com/cheaper-inference/OmniRoute/pull/19053), [#19052](https://github.com/cheaper-inference/OmniRoute/pull/19052): memory/observability.
 - [#18915](https://github.com/cheaper-inference/OmniRoute/pull/18915): admin-only resilience configuration writes.
 
-## Currently open upstream PRs (13, verified after #19592 submission)
+## Currently open upstream PRs (14, verified after #19593 submission)
 
 | Priority | PR | Purpose | Verified state |
 | --- | --- | --- | --- |
@@ -55,6 +60,7 @@ GitHub author search found **41 merged PRs** by `Bl0ck154` (as of this check). I
 | P2 | [#19167](https://github.com/cheaper-inference/OmniRoute/pull/19167) | Codex image quota snapshot telemetry | Open, mergeable; latest checks queued |
 | P2 | [#19590](https://github.com/cheaper-inference/OmniRoute/pull/19590) | Opt-in CLI stack traces | Open, mergeable; newest runs queued (older runs canceled) |
 | P2 | [#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) | Opt-in selected Codex plan response header for troubleshooting | New open, mergeable; four workflows queued; response header off by default |
+| P2 | [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) | Protect distinct Codex hosted and GPT Image edit reference caps | New open, mergeable; four workflows queued; test-only (1 file) |
 
 The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` freeze and explicitly said **no author action** was needed for the base change. Avoid unnecessary rebases.
 
