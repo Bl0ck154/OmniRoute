@@ -2,6 +2,13 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
+## Active task — troubleshoot fork patch (2026-11-09, in progress)
+
+- **Requested:** verify and port the fork's `troubleshoot` / troubleshooting change into `cheaper-inference/OmniRoute`; avoid duplicating upstream or existing PRs.
+- **Initial finding:** the concrete `docs/guides/TROUBLESHOOTING.md` in fork `production` is **33 lines behind** current upstream, not ahead: the upstream guide already documents chat body limits and CCR/dedup troubleshooting, which the fork lacks. `docs/reference/RELAY_TROUBLESHOOTING.md` shows no difference. No code patch uniquely named `troubleshoot` has been identified yet.
+- **Plan:** inventory relevant fork-specific diagnostic/troubleshooting commits; check exact upstream implementations and open PRs; if a small useful missing patch exists, port with tests and open an upstream PR. Document actual result here. Do **not** revert richer upstream docs or open an empty duplicate PR.
+- **State:** investigating, no upstream PR created yet.
+
 ## Repository refs and sync
 
 - Fork default: `production` at `44227d2b842ddc69b180cff850eb189ec0a03146`.
