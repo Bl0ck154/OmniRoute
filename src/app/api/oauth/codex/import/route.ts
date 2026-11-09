@@ -39,11 +39,10 @@ const MIN_USABLE_ACCESS_TOKEN_LIFETIME_SECONDS = 60;
  * runtime token-refresh path) instead of re-implementing the POST — the
  * exchange call itself is free (no model/quota usage).
  *
- * Returns `null` when the token is valid (or the check was inconclusive, e.g.
- * a transient network error) — the import proceeds normally in that case,
- * optionally with rotated tokens already applied to `payload`. Returns an
- * error string when the refresh_token is confirmed dead and the import
- * should be rejected.
+ * Returns `"valid"` when the exchange succeeded (rotated tokens are already
+ * applied to `payload`), `"invalid"` when the refresh_token is confirmed dead,
+ * and `"inconclusive"` when the check could not decide, e.g. a transient
+ * network error. The caller decides what each outcome means for the record.
  */
 async function validateCodexRefreshToken(payload: {
   accessToken: string;
@@ -91,7 +90,8 @@ type ExistingCodexConnection = {
   id?: unknown;
   email?: unknown;
   refreshToken?: unknown;
-  priority?: unknown;
+  expiresAt?: unknown;
+  tokenExpiresAt?: unknown;
   providerSpecificData?: unknown;
 };
 
@@ -102,19 +102,63 @@ function codexAccountId(providerSpecificData: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-async function findExistingCodexConnection(
+// A temporary refresh-validation failure is not proof that an imported token
+// is stale. Only prefer the new credentials when the stored token has expired
+// and the imported record has a later, currently usable expiry.
+function hasNewerCredentialsForExpiredConnection(
+  existing: ExistingCodexConnection,
   payload: CodexImportPayload
-): Promise<ExistingCodexConnection | null> {
+): boolean {
+  const expirations = [existing.expiresAt, existing.tokenExpiresAt]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => Date.parse(value))
+    .filter(Number.isFinite);
+  const importedExpiry = Date.parse(payload.expiresAt);
+  return (
+    expirations.length > 0 &&
+    Math.max(...expirations) <= Date.now() &&
+    Number.isFinite(importedExpiry) &&
+    importedExpiry > Date.now()
+  );
+}
+
+function preserveStoredCodexCredentials(
+  existing: ExistingCodexConnection | null,
+  payload: CodexImportPayload,
+  sameRefreshToken: boolean,
+  validation: RefreshValidation
+): boolean {
+  if (!existing || sameRefreshToken || validation === "valid") return false;
+  if (validation === "invalid") return true;
+  return !hasNewerCredentialsForExpiredConnection(existing, payload);
+}
+
+function findExistingCodexConnection(
+  payload: CodexImportPayload,
+  connections: ExistingCodexConnection[]
+): ExistingCodexConnection | null {
   const accountId = codexAccountId(payload.providerSpecificData);
   if (!accountId) return null;
-  const connections = (await getProviderConnections({
-    provider: "codex",
-    authType: "oauth",
-  })) as ExistingCodexConnection[];
+  const incomingUserId =
+    payload.providerSpecificData && typeof payload.providerSpecificData.chatgptUserId === "string"
+      ? payload.providerSpecificData.chatgptUserId.trim()
+      : "";
   return (
-    connections.find(
-      (connection) => codexAccountId(connection.providerSpecificData) === accountId
-    ) ?? null
+    connections.find((connection) => {
+      if (codexAccountId(connection.providerSpecificData) !== accountId) return false;
+      const data =
+        connection.providerSpecificData &&
+        typeof connection.providerSpecificData === "object" &&
+        !Array.isArray(connection.providerSpecificData)
+          ? (connection.providerSpecificData as Record<string, unknown>)
+          : {};
+      const existingUserId =
+        typeof data.chatgptUserId === "string" ? data.chatgptUserId.trim() : "";
+      // Workspace IDs are shared across members. Never update another member's
+      // credentials or email based solely on the common workspace.
+      if (incomingUserId && existingUserId) return incomingUserId === existingUserId;
+      return connection.email === payload.email;
+    }) ?? null
   );
 }
 
@@ -136,7 +180,7 @@ async function updateExistingCodexImportMetadata(
     email: payload.email,
     providerSpecificData: { ...oldProviderSpecificData, ...newProviderSpecificData },
   };
-  if (payload.priority !== undefined) update.priority = payload.priority;
+  // Priority is operator-managed; metadata-only imports must not reorder it.
   const connection = await updateProviderConnection(id, update);
   if (!connection) throw new Error("Existing Codex connection disappeared during import");
   return connection;
@@ -168,6 +212,67 @@ async function requireAuth(request: Request): Promise<Response | null> {
   return requireManagementAuth(request, { invalidApiKeyStatus: 401 });
 }
 
+type CodexImportRecordResult =
+  | { index: number; ok: true; connectionId: string; email: string; unchanged?: true }
+  | { index: number; ok: false; error: string };
+
+async function importOneCodexRecord(
+  record: unknown,
+  index: number
+): Promise<CodexImportRecordResult> {
+  const norm = normalizeCodexImportRecord(record);
+  if (!norm.ok) return { index, ok: false, error: norm.error };
+
+  try {
+    // Fetched per record: an earlier record in this batch may have just created
+    // the row a later duplicate must match.
+    const connections = (await getProviderConnections({
+      provider: "codex",
+      authType: "oauth",
+    })) as Array<ExistingCodexConnection & Record<string, unknown>>;
+    const existing = findExistingCodexConnection(norm.payload, connections);
+    const sameRefreshToken =
+      existing !== null &&
+      typeof existing.refreshToken === "string" &&
+      existing.refreshToken === norm.payload.refreshToken;
+    const validation = sameRefreshToken ? "valid" : await validateCodexRefreshToken(norm.payload);
+
+    if (validation === "invalid" && !existing && !hasUsableAccessToken(norm.payload)) {
+      return { index, ok: false, error: EXPIRED_SESSION_MESSAGE };
+    }
+
+    // A rotated server token must not be overwritten by a stale exported token.
+    const preserveExistingCredentials = preserveStoredCodexCredentials(
+      existing,
+      norm.payload,
+      sameRefreshToken,
+      validation
+    );
+    let conn;
+    if (preserveExistingCredentials) {
+      conn = await updateExistingCodexImportMetadata(existing, norm.payload);
+    } else {
+      // Keep operator-managed state (priority and providerSpecificData) when
+      // the upsert matches an existing connection.
+      const payload = preserveExistingCodexConnectionState(norm.payload, connections);
+      conn = await createProviderConnection(payload as Record<string, unknown>);
+    }
+    return {
+      index,
+      ok: true,
+      connectionId: String(conn.id),
+      email: String(conn.email ?? norm.payload.email),
+      ...(preserveExistingCredentials ? { unchanged: true as const } : {}),
+    };
+  } catch (error) {
+    return {
+      index,
+      ok: false,
+      error: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
 export async function POST(request: Request) {
   const authResponse = await requireAuth(request);
   if (authResponse) return authResponse;
@@ -195,73 +300,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No accounts found in payload" }, { status: 400 });
   }
 
-  const results: Array<
-    | { index: number; ok: true; connectionId: string; email: string; unchanged?: true }
-    | { index: number; ok: false; error: string }
-  > = [];
+  const results: CodexImportRecordResult[] = [];
   let imported = 0;
   let failed = 0;
 
   for (let i = 0; i < flat.records.length; i++) {
-    const norm = normalizeCodexImportRecord(flat.records[i]);
-    if (!norm.ok) {
-      failed += 1;
-      results.push({ index: i, ok: false, error: norm.error });
-      continue;
-    }
-
-    try {
-      const existing = await findExistingCodexConnection(norm.payload);
-      const sameRefreshToken =
-        existing !== null &&
-        typeof existing.refreshToken === "string" &&
-        existing.refreshToken === norm.payload.refreshToken;
-      const validation = sameRefreshToken ? "valid" : await validateCodexRefreshToken(norm.payload);
-
-      if (validation === "invalid" && !existing && !hasUsableAccessToken(norm.payload)) {
-        failed += 1;
-        results.push({ index: i, ok: false, error: EXPIRED_SESSION_MESSAGE });
-        continue;
-      }
-
-      // A server-side refresh rotates Codex refresh tokens. CodexSwitcher can
-      // therefore keep an older token after OmniRoute has already persisted the
-      // rotated one. Re-importing that stable account is a successful metadata
-      // sync, not a reason to overwrite the working server credentials.
-      const preserveExistingCredentials =
-        existing !== null &&
-        !sameRefreshToken &&
-        (validation === "invalid" || validation === "inconclusive");
-
-      let conn;
-      if (preserveExistingCredentials) {
-        conn = await updateExistingCodexImportMetadata(existing, norm.payload);
-      } else {
-        // Preserve operator-managed state (priority and providerSpecificData)
-        // when the normal upsert path matches an existing connection.
-        const allExisting = await getProviderConnections({ provider: "codex", authType: "oauth" });
-        const payload = preserveExistingCodexConnectionState(
-          norm.payload,
-          allExisting as Array<Record<string, unknown>>
-        );
-        conn = await createProviderConnection(payload as Record<string, unknown>);
-      }
-      imported += 1;
-      results.push({
-        index: i,
-        ok: true,
-        connectionId: String(conn.id),
-        email: String(conn.email ?? norm.payload.email),
-        ...(preserveExistingCredentials ? { unchanged: true as const } : {}),
-      });
-    } catch (error) {
-      failed += 1;
-      results.push({
-        index: i,
-        ok: false,
-        error: sanitizeErrorMessage(error instanceof Error ? error.message : String(error)),
-      });
-    }
+    const result = await importOneCodexRecord(flat.records[i], i);
+    results.push(result);
+    if (result.ok) imported += 1;
+    else failed += 1;
   }
 
   return NextResponse.json({

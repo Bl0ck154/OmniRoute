@@ -148,6 +148,7 @@ export async function GET(request?: Request) {
 
     return NextResponse.json({
       antigravity: resilience.antigravity,
+      antigravityTimingTelemetry: resilience.antigravityTimingTelemetry,
       requestQueue: resilience.requestQueue,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
@@ -212,6 +213,12 @@ export async function PATCH(request) {
     const sparseBase = resolveResilienceSettings(currentSettings);
     const mergedFull = mergeResilienceSettings(sparseBase, {
       ...(body.antigravity ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] } : {}),
+      ...(body.antigravityTimingTelemetry
+        ? {
+            antigravityTimingTelemetry:
+              body.antigravityTimingTelemetry as ResilienceSettingsPatch["antigravityTimingTelemetry"],
+          }
+        : {}),
       ...(body.requestQueue
         ? { requestQueue: body.requestQueue as ResilienceSettingsPatch["requestQueue"] }
         : {}),
@@ -314,6 +321,7 @@ export async function PATCH(request) {
     return NextResponse.json({
       ok: true,
       antigravity: nextResilience.antigravity,
+      antigravityTimingTelemetry: nextResilience.antigravityTimingTelemetry,
       requestQueue: nextResilience.requestQueue,
       connectionCooldown: nextResilience.connectionCooldown,
       providerBreaker: nextResilience.providerBreaker,

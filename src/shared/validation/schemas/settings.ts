@@ -218,6 +218,7 @@ export const updateResilienceSchema = z
       adaptiveHealthEnabled: z.boolean().optional(),
       timingTelemetryEnabled: z.boolean().optional(),
     }).strict().optional(),
+    antigravityTimingTelemetry: z.object({ enabled: z.boolean().optional() }).strict().optional(),
     requestQueue: requestQueueSettingsSchema.optional(),
     connectionCooldown: z
       .object({
@@ -274,25 +275,27 @@ export const updateResilienceSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (
-      !value.requestQueue &&
-      !value.connectionCooldown &&
-      !value.providerBreaker &&
-      !value.waitForCooldown &&
-      !value.comboCooldownWait &&
-      !value.quotaShareConcurrencyLimit &&
-      !value.streamStallCooldown &&
-      !value.p2cLatency &&
-      !value.streamRecovery &&
-      !value.providerCooldown &&
-      !value.quotaPreflight &&
-      !value.profiles &&
-      !value.defaults &&
-      !value.providerQuotaOverrides &&
-      !value.credentialHealthCheck &&
-      !value.tokenRefreshBreaker &&
-      !value.antigravity
-    ) {
+    const provided = [
+      value.requestQueue,
+      value.antigravityTimingTelemetry,
+      value.antigravity,
+      value.connectionCooldown,
+      value.providerBreaker,
+      value.tokenRefreshBreaker,
+      value.waitForCooldown,
+      value.comboCooldownWait,
+      value.quotaShareConcurrencyLimit,
+      value.streamStallCooldown,
+      value.p2cLatency,
+      value.streamRecovery,
+      value.providerCooldown,
+      value.quotaPreflight,
+      value.profiles,
+      value.defaults,
+      value.providerQuotaOverrides,
+      value.credentialHealthCheck,
+    ].some(Boolean);
+    if (!provided) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Must provide resilience settings to update",
