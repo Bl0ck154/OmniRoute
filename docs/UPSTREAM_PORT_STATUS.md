@@ -2,14 +2,15 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
-## Batch completed — Codex/GPT Image reference-cap regression test (2026-11-09)
+## Corrected/withdrawn batch — Codex image reference cap test (2026-11-09)
 
-**State: upstream PR created, mergeable; CI and review pending.** This batch was first recorded in this file as `in progress`, then updated after opening the code review.
+**State: upstream PR [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) CLOSED WITHOUT MERGE.** The original test patch was opened, then withdrawn after the user correctly challenged the eight-image cap.
 
-- Fork origin: `75dd0f943c`, separating the hosted Codex Responses **8-reference** limit from the dedicated GPT Image **16-reference** limit. The production behavior already exists in upstream [#16623](https://github.com/cheaper-inference/OmniRoute/pull/16623); re-porting the code would be a duplicate.
-- **Created [upstream PR #19593](https://github.com/cheaper-inference/OmniRoute/pull/19593)**, `test(images): protect Codex hosted vs GPT Image edit reference caps` (branch `Bl0ck154:test/codex-gpt-image-reference-cap-boundaries-20261109`, head `a834f42fee40a99ff6dd5392fcda072a4e3c8bb1`). **Open, mergeable, 1 file.** The four upstream GitHub workflows are queued, not yet passed.
-- Ports the missing test-only protection in `tests/unit/codex-image-reference-cap-separation.test.ts`, strengthened to assert real validation boundaries: hosted 8 accepted/9 rejected, dedicated 16 accepted/17 rejected, and the hosted default stays at 8 after use of the dedicated override.
-- No runtime code or production server changes; only repository metadata inspected via read-only host access. Next: review CI outcomes and fix any relevant reviewer comments on the same branch.
+- Fork commit `75dd0f943c` restored **8** for the legacy Codex hosted Responses `image_generation` tool while keeping **16** for dedicated GPT Image edits. Current upstream already implements this split; no production code was changed by PR #19593.
+- Provenance: upstream [#8122](https://github.com/cheaper-inference/OmniRoute/pull/8122) introduced **8** as a conservative local input guard, but live OAuth tests only exercised one/two images. It was **not a verified model/backend maximum**. Upstream [#14976](https://github.com/cheaper-inference/OmniRoute/pull/14976) introduced the dedicated Codex Images route; [#16623](https://github.com/cheaper-inference/OmniRoute/pull/16623) enabled **16** for dedicated `gpt-image-*` edits based on the public official Images Edit API, while its PR explicitly warned the live Codex OAuth 16-image behavior was unverified.
+- The new `#19593` test would have ossified an unsupported eight-image restriction without evidence and was therefore **withdrawn; do not re-open it as-is**.
+- **Next candidate:** test 9–16 actual references against the *legacy hosted Responses* tool using an isolated authorized account and safe test fixtures; if backend supports it, raise the hosted limit with real behavioral regression tests. Preserve payload size/magic checks. The documented 16-image cap for the **separate Images Edit API** does not, by itself, establish the hosted Responses tool's contract.
+- No production change or live paid image attempt was made in this review. #19592 remains separately open.
 
 ## Follow-up batch — Codex plan troubleshooting patch (2026-11-09)
 
@@ -43,7 +44,7 @@ GitHub author search found **41 merged PRs** by `Bl0ck154` (as of this check). I
 - [#19055](https://github.com/cheaper-inference/OmniRoute/pull/19055), [#19054](https://github.com/cheaper-inference/OmniRoute/pull/19054), [#19053](https://github.com/cheaper-inference/OmniRoute/pull/19053), [#19052](https://github.com/cheaper-inference/OmniRoute/pull/19052): memory/observability.
 - [#18915](https://github.com/cheaper-inference/OmniRoute/pull/18915): admin-only resilience configuration writes.
 
-## Currently open upstream PRs (14, verified after #19593 submission)
+## Currently open upstream PRs (13; #19593 withdrawn without merge)
 
 | Priority | PR | Purpose | Verified state |
 | --- | --- | --- | --- |
@@ -60,20 +61,20 @@ GitHub author search found **41 merged PRs** by `Bl0ck154` (as of this check). I
 | P2 | [#19167](https://github.com/cheaper-inference/OmniRoute/pull/19167) | Codex image quota snapshot telemetry | Open, mergeable; latest checks queued |
 | P2 | [#19590](https://github.com/cheaper-inference/OmniRoute/pull/19590) | Opt-in CLI stack traces | Open, mergeable; newest runs queued (older runs canceled) |
 | P2 | [#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) | Opt-in selected Codex plan response header for troubleshooting | New open, mergeable; four workflows queued; response header off by default |
-| P2 | [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) | Protect distinct Codex hosted and GPT Image edit reference caps | New open, mergeable; four workflows queued; test-only (1 file) |
+| Withdrawn | [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) | Codex hosted vs GPT Image cap regression test | **Closed without merge**: the 8-reference hosted cap is unverified, so do not enshrine it with tests |
 
 The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` freeze and explicitly said **no author action** was needed for the base change. Avoid unnecessary rebases.
 
 ## Unported changes / candidate queue
 
 - **Not yet fully classified**: fork-only non-upstream patches. The whole-fork comparison is heavily contaminated by upstream history differences and fork-specific deployment integrations. Do not treat an ahead commit, changed filename or cherry result alone as proof of missing upstream behavior.
-- Next batch: run local `git merge-base`, `git log --cherry-pick --right-only`, `git diff --stat`, `git cherry`, and `git patch-id` against freshly fetched upstream and fork refs. Use compact per-commit titles/file stats only; inspect exact affected code and upstream equivalence for each proposed patch. Reject duplicates of the 41 merged and 14 open PRs.
+- Next batch: run local `git merge-base`, `git log --cherry-pick --right-only`, `git diff --stat`, `git cherry`, and `git patch-id` against freshly fetched upstream and fork refs. Use compact per-commit titles/file stats only; inspect exact affected code and upstream equivalence for each proposed patch. Reject duplicates of the 41 merged and 13 open PRs.
 - Prioritize small independent P0 security/stability changes with tests; then P1 performance; then P2 quality of life.
 
 ## Rejected / not actionable
 
 - **No duplicate PR** for #17961 or any other already merged contribution.
-- **No fresh PR for work already covered** by the 14 currently open contributions.
+- **No fresh PR for work already covered** by the 13 currently open contributions.
 - **Do not blindly merge #125** or force-rebase `production`. Upstream has moved 27 commits beyond its integration base.
 - **Reclassified 2026-11-09:** fork `954e997a9d` plan header is proposed in [upstream #19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) only as **operator opt-in, disabled by default, known-tier-only** diagnostic; approval and CI remain pending. Do not separately port the old always-on version.
 
