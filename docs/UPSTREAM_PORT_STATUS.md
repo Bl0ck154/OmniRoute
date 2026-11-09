@@ -2,12 +2,16 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
-## Active task — troubleshoot fork patch (2026-11-09, in progress)
+## Follow-up batch — Codex plan troubleshooting patch (2026-11-09)
 
-- **Requested:** verify and port the fork's `troubleshoot` / troubleshooting change into `cheaper-inference/OmniRoute`; avoid duplicating upstream or existing PRs.
-- **Initial finding:** the concrete `docs/guides/TROUBLESHOOTING.md` in fork `production` is **33 lines behind** current upstream, not ahead: the upstream guide already documents chat body limits and CCR/dedup troubleshooting, which the fork lacks. `docs/reference/RELAY_TROUBLESHOOTING.md` shows no difference. No code patch uniquely named `troubleshoot` has been identified yet.
-- **Plan:** inventory relevant fork-specific diagnostic/troubleshooting commits; check exact upstream implementations and open PRs; if a small useful missing patch exists, port with tests and open an upstream PR. Document actual result here. Do **not** revert richer upstream docs or open an empty duplicate PR.
-- **State:** investigating, no upstream PR created yet.
+**Status: upstream PR opened; CI/review pending.** This task was recorded as `in progress` earlier in this file, then updated after creating the PR.
+
+- Fork origin: commit `954e997a9d`, optional inspection of the selected Codex account plan for routing/paid-model troubleshooting.
+- Current upstream implementation did **not** include `X-OmniRoute-Selected-Connection-Plan` or an equivalent response-plan telemetry field; GitHub PR search found no matching open contribution. By contrast, the fork's `docs/guides/TROUBLESHOOTING.md` is 33 lines **behind** upstream and was not copied.
+- **Created [upstream PR #19592](https://github.com/cheaper-inference/OmniRoute/pull/19592)**: `feat(codex): opt-in selected-account plan header for troubleshooting`. Base `release/v3.8.54`, head `Bl0ck154:contrib/codex-opt-in-plan-debug-header-20261109` at `ba4f6cdda932be429aa0a4d7c551ac64b66e7c44`. **Open and mergeable**; 6 changed files; all four GitHub workflows **queued**, not yet passed, on first check.
+- Privacy adaptation: `OMNIROUTE_CODEX_PLAN_RESPONSE_HEADER=1` is required (default disabled); recognized plan tiers only, no arbitrary provider strings, Codex requests only, no stale tier on no-credentials responses. Existing response policy propagation is retained.
+- Added focused unit tests for disabled default, opt-in, tier normalization and unsafe value suppression; `.env.example` and changelog note included.
+- **Next:** watch #19592 workflow outcomes and review feedback; fix on the same branch if CI or reviewer identifies a real regression. No server deployment or fork `production` change was performed.
 
 ## Repository refs and sync
 
@@ -30,7 +34,7 @@ GitHub author search found **41 merged PRs** by `Bl0ck154` (as of this check). I
 - [#19055](https://github.com/cheaper-inference/OmniRoute/pull/19055), [#19054](https://github.com/cheaper-inference/OmniRoute/pull/19054), [#19053](https://github.com/cheaper-inference/OmniRoute/pull/19053), [#19052](https://github.com/cheaper-inference/OmniRoute/pull/19052): memory/observability.
 - [#18915](https://github.com/cheaper-inference/OmniRoute/pull/18915): admin-only resilience configuration writes.
 
-## Currently open upstream PRs (12)
+## Currently open upstream PRs (13, verified after #19592 submission)
 
 | Priority | PR | Purpose | Verified state |
 | --- | --- | --- | --- |
@@ -46,6 +50,7 @@ GitHub author search found **41 merged PRs** by `Bl0ck154` (as of this check). I
 | P2 | [#18738](https://github.com/cheaper-inference/OmniRoute/pull/18738) | GPT-6.1 Terra catalog and Codex support | Open, mergeable; all four checks succeeded |
 | P2 | [#19167](https://github.com/cheaper-inference/OmniRoute/pull/19167) | Codex image quota snapshot telemetry | Open, mergeable; latest checks queued |
 | P2 | [#19590](https://github.com/cheaper-inference/OmniRoute/pull/19590) | Opt-in CLI stack traces | Open, mergeable; newest runs queued (older runs canceled) |
+| P2 | [#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) | Opt-in selected Codex plan response header for troubleshooting | New open, mergeable; four workflows queued; response header off by default |
 
 The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` freeze and explicitly said **no author action** was needed for the base change. Avoid unnecessary rebases.
 
@@ -60,7 +65,7 @@ The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` fr
 - **No duplicate PR** for #17961 or any other already merged contribution.
 - **No fresh PR for work already covered** by the 12 open contributions.
 - **Do not blindly merge #125** or force-rebase `production`. Upstream has moved 27 commits beyond its integration base.
-- **Defer, do not blindly port:** fork commit `954e997a9d` exposes Codex subscription plan in `X-OmniRoute-Selected-Connection-Plan`. Current upstream intentionally has no such header, and `tests/unit/chat-account-fallback-telemetry.test.ts` asserts it is absent. This is not a stability fix; publicly surfacing account plan metadata needs explicit upstream design/security approval. Do not open an upstream PR for it without that review.
+- **Reclassified 2026-11-09:** fork `954e997a9d` plan header is proposed in [upstream #19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) only as **operator opt-in, disabled by default, known-tier-only** diagnostic; approval and CI remain pending. Do not separately port the old always-on version.
 
 ## Verified duplicate-avoidance checks (2026-11-09)
 
@@ -72,7 +77,7 @@ The audited, already-existing Git checkout at `/opt/omniroute-sync-v3851` had fo
 - Historical fork patches found **already implemented** by current upstream: `f6b2920881` Claude explicit strict false, `ba853c1888` exclusive live catalog authority, `94eced2a0e` invalid regex stripping, `d893cd0ed3` no-log reasoning metadata/continuation cleanup, `a343cf77fb` RELAY_TIMEOUT handling, `9dec654b21` non-blocking Undici dispatcher close, `c2be16c3fb` expired OAuth token fallback, `292d188dfa` null-safe serve port detection. **Do not open duplicate PRs** for these.
 - Existing maintained fork safety register: [`docs/maintenance/FORK_PATCH_REGISTER.md`](maintenance/FORK_PATCH_REGISTER.md), updated in documentation [fork PR #134](https://github.com/Bl0ck154/OmniRoute/pull/134). Its fork-only SQLite migration 900 compatibility and deployment gates remain important.
 - Existing upstream #19134 explicitly documents provenance-safe Codex image quota cooldown handling, and its latest four workflows all passed. Do not duplicate the old bot findings without validating latest source.
-- No additional code PR was opened in this audit batch because no **new, behaviorally missing and independently tested** P0 change was established. Avoid speculative code churn on healthy open PRs.
+- Initial 2026-11-09 audit created no P0 code PR. In the subsequent requested troubleshooting batch, an opt-in P2 Codex telemetry patch was adapted and opened as #19592 (see follow-up above).
 
 ## Next concrete actions
 
