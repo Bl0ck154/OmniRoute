@@ -53,7 +53,7 @@ The release captain re-homed several PRs to `release/v3.8.54` after `v3.8.53` fr
 - **No duplicate PR** for #17961 or any other already merged contribution.
 - **No fresh PR for work already covered** by the 12 open contributions.
 - **Do not blindly merge #125** or force-rebase `production`. Upstream has moved 27 commits beyond its integration base.
-- No additional fork-only candidate has yet been conclusively marked rejected or ready to port.
+- **Defer, do not blindly port:** fork commit `954e997a9d` exposes Codex subscription plan in `X-OmniRoute-Selected-Connection-Plan`. Current upstream intentionally has no such header, and `tests/unit/chat-account-fallback-telemetry.test.ts` asserts it is absent. This is not a stability fix; publicly surfacing account plan metadata needs explicit upstream design/security approval. Do not open an upstream PR for it without that review.
 
 ## Verified duplicate-avoidance checks (2026-11-09)
 
