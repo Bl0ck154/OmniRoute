@@ -2,6 +2,17 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
+## Codex CLI 9/16-reference input smoke — 2026-11-10
+
+**Result: 16 image INPUTS verified; legacy hosted image EDIT tool remains unverified.** This is a CLI multimodal-input result, not evidence that the separate hosted `image_generation` tool accepts more than the local route cap.
+
+- Host: `zivkr-ai`. Installed Codex CLI `0.142.4` using the normal OmniRoute provider failed with `gpt-5.6-sol` **minimum client version** error. Direct ChatGPT mode had an expired/non-refreshable CLI auth session (401); no credentials were extracted, printed or manually reused.
+- Installed official `@openai/codex@0.167.0` **in a temporary directory only**, without replacing the existing system CLI, and used the normal connected `omniroute` CLI provider with model `cx/gpt-5.6-sol`.
+- **9 synthetic PNG attachments:** the CLI request completed with exit 0 (14.4 s); the model indicated image generation is unsupported in this particular CLI/runtime configuration. No generated image, so this establishes successful multimodal submission only.
+- **16 synthetic PNG attachments:** completed with exit 0 (3.8 s) and model identified the complete ordered sequence `1, 2, ..., 16` correctly. Confirms sixteen images reached and were understood by the chat model via Codex CLI / OmniRoute; does not test dedicated `/v1/images/edits` or the hosted `image_generation` edit tool.
+- No production configuration, proxy, release, database or credentials changed. Temporary test images, isolated CLI and npm cache were **deleted after verification**; installed `codex-cli 0.142.4` remained unchanged.
+- Next step for any cap increase: separate provider-managed real edit smoke invoking *the hosted Responses image-generation tool* with 8/9/16 images, rather than claiming a bound from the CLI's image-input support. Don't merge a speculative upstream change.
+
 ## Hosted Codex image reference smoke — server audit (2026-11-09)
 
 **Result: actual 9–16 image backend acceptance remains UNVERIFIED. No live paid image generation was made. Do not claim success or a genuine server-side 8-reference limit.**
