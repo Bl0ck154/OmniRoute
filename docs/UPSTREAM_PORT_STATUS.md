@@ -2,6 +2,28 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
+## LIVE VERIFIED: 128 reference-image hosted Codex edits — 2026-11-10
+
+**State: six real paid Codex OAuth hosted `image_generation` edits succeeded, backend returned HTTP 200 and one valid PNG each.** Earlier notes below saying 9–16 edits could not be tested describe *previous* attempts and are superseded by these subsequent successful authorized handler tests.
+
+The test invoked OmniRoute's existing `getProviderCredentials("codex")` and `handleCodexImageEdit` on an isolated clone of `zivkr-ai` data with exactly one enabled paid Plus Codex connection. The handler used its built-in OAuth flow to call the actual `https://chatgpt.com/backend-api/codex/responses` endpoint with `image_generation` `action: "edit"`, the complete ordered synthetic numbered 96×96 PNG input set, and one output. These were **not** CLI image-reading prompts, mocked upstream responses or direct manual token requests. Each result was checked by the PNG magic signature.
+
+| Reference images | HTTP | Output image bytes | Wall time |
+| ---: | ---: | ---: | ---: |
+| 9 | 200 | 1,196,617 | 19 s |
+| 17 | 200 | 1,206,800 | 21 s |
+| 24 | 200 | 1,208,079 | 37 s |
+| 32 | 200 | 1,199,834 | 22 s |
+| 64 | 200 | 1,199,671 | 28 s |
+| 128 | 200 | 1,230,759 | 55 s |
+
+**Meaning:** the hosted backend can accept at least 128 reference images and return a generated PNG. **128 is the highest count verified, not a verified absolute backend maximum**; the 128 cap is an explicit operational per-request safety limit. Independently the dedicated GPT Image edits API remains at its documented 16-image limit. Per-image validation and 20 MiB aggregate decoded-input ceiling are unchanged.
+
+- New upstream PR: [#19667 — allow 128 hosted Responses edit references](https://github.com/cheaper-inference/OmniRoute/pull/19667), branch `fix/codex-hosted-image-edit-128-references-20261110` (originates from exact upstream `release/v3.8.54`), runtime constant plus route tests that forward 128 and reject 129, and changelog. CI/review pending at writing.
+- Withdrawn [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) stays closed.
+- Test SQLite snapshot, images, script and logs deleted. No production code/config/deployment, main fork `production`, or installed Codex CLI changed; production remained healthy on port 20128.
+- Earlier direct secret-forwarding attempts were denied; later verified tests **did not** extract/print tokens, using the same internal authenticated handler as the product.
+
 ## Isolated hosted edit cap=16 experiment — 2026-11-10
 
 **Outcome: local clone supports 16 by design, but no authenticated backend edit was completed. Upstream PR #19593 stays closed. Do not claim that 16 hosted image edits work.**
