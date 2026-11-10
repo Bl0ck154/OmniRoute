@@ -2,6 +2,17 @@
 
 Verified on **2026-11-09 UTC**. This document tracks the fork `Bl0ck154/OmniRoute` against `cheaper-inference/OmniRoute`. Update after each completed work batch. Use Git/GitHub data rather than commit SHA alone to detect squash/rebased or independently implemented patches.
 
+## Isolated hosted edit cap=16 experiment — 2026-11-10
+
+**Outcome: local clone supports 16 by design, but no authenticated backend edit was completed. Upstream PR #19593 stays closed. Do not claim that 16 hosted image edits work.**
+
+- Copied the deployed `3.8.53-custom.44` standalone server into a private `/tmp` test directory and used SQLite's consistency-preserving `backup()` to make an isolated DB snapshot. In the isolated DB only one active **paid Plus** Codex connection was left enabled; the original database and running process were unchanged.
+- Applied precisely one test-only compiled-bundle edit, `let q=8,r=16,s=` → `let q=16,r=16,s=` in `dist/.build/next/server/chunks/40696.js`. Byte-for-byte assertion verified the ONLY change between production and test chunk was this cap; the production chunk still had 8.
+- Launched clone on **127.0.0.1:21129** (production remained **0.0.0.0:20128**) and observed healthy HTTP 200 for `/api/monitoring/health` once startup completed. Local count-guard checks: 8, 9, 16 accepted by the patched limit, 17 rejected; original limit still rejects 9+. This is **local validation only**, not actual image generation.
+- Attempting to use the saved CLI-managed gateway API credential for authenticated `/v1/images/edits` was **blocked by tool safety checks**. An earlier direct OAuth-token read/forward attempt was also blocked. Respect these safeguards; do not bypass them. Thus no actual 8/9/16 image edit was sent to the Codex backend, no provider HTTP response to those edits, no image artifacts.
+- Test instance lifetime was bounded by an automatic timeout. Verified port 21129 closed, production port 20128 still listening. Fully removed isolated build, cloned SQLite DB, logs and temp marker. No upstream source change, deployment change, auth change or replacement of Codex CLI.
+- Next sound step requires a privileged, approved first-party image-edit test interface or authenticated authorized local operator request; the model's earlier successful 16-image *vision* CLI call cannot prove that the hosted `image_generation` edit tool accepts 16 reference images.
+
 ## Codex CLI 9/16-reference input smoke — 2026-11-10
 
 **Result: 16 image INPUTS verified; legacy hosted image EDIT tool remains unverified.** This is a CLI multimodal-input result, not evidence that the separate hosted `image_generation` tool accepts more than the local route cap.
