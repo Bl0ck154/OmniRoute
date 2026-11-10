@@ -3,6 +3,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Button, Card, Select } from "@/shared/components";
 import Icon from "@/shared/components/Icon";
+import { Spinner } from "@/shared/components/Loading";
 import { useNotificationStore } from "@/store/notificationStore";
 import { useTranslations } from "next-intl";
 import AutoDisableCard from "./AutoDisableCard";
@@ -12,6 +13,11 @@ import { NumberField, BooleanField } from "./ResilienceFields";
 import { throwIfResilienceSaveFailed } from "./resilienceSaveError";
 import AntigravityResilienceCard from "./AntigravityResilienceCard";
 import type { AntigravityResilienceSettings } from "@/lib/resilience/antigravitySettings";
+import PreferredAccountFailoverCard from "./PreferredAccountFailoverCard";
+import type { PreferredAccountFailoverSettings } from "@/lib/resilience/settings/types";
+import AntigravityTimingTelemetryCard, {
+  type AntigravityTimingTelemetryValue,
+} from "./AntigravityTimingTelemetryCard";
 
 type RequestQueueSettings = {
   autoEnableApiKeyProviders: boolean;
@@ -67,6 +73,8 @@ export type ProviderCooldownSettings = {
 
 type ResilienceResponse = {
   antigravity?: AntigravityResilienceSettings;
+  preferredAccountFailover?: PreferredAccountFailoverSettings;
+  antigravityTimingTelemetry?: AntigravityTimingTelemetryValue;
   requestQueue: RequestQueueSettings;
   connectionCooldown: {
     oauth: ConnectionCooldownProfileSettings;
@@ -87,6 +95,8 @@ type ResilienceResponse = {
 function toResilienceResponse(json: ResilienceResponse): ResilienceResponse {
   return {
     antigravity: json.antigravity,
+    preferredAccountFailover: json.preferredAccountFailover,
+    antigravityTimingTelemetry: json.antigravityTimingTelemetry,
     requestQueue: json.requestQueue,
     connectionCooldown: json.connectionCooldown,
     providerBreaker: json.providerBreaker,
@@ -1196,8 +1206,8 @@ export default function ResilienceTab() {
   if (loading && !data) {
     return (
       <Card className="p-6">
-        <div className="flex items-center gap-2 text-sm text-text-muted">
-          <Icon name="progress_activity" className="animate-spin" />
+        <div role="status" className="flex items-center gap-2 text-sm text-text-muted">
+          <Spinner decorative size="sm" />
           {tx("loadingResilience", "Loading resilience settings...")}
         </div>
       </Card>
@@ -1220,6 +1230,24 @@ export default function ResilienceTab() {
       {data.antigravity && (
         <AntigravityResilienceCard value={data.antigravity} saving={savingSection === "antigravity"}
           onSave={(antigravity) => savePatch("antigravity", { antigravity })} />
+      )}
+      {data.preferredAccountFailover && (
+        <PreferredAccountFailoverCard
+          value={data.preferredAccountFailover}
+          saving={savingSection === "preferredAccountFailover"}
+          onSave={(preferredAccountFailover) =>
+            savePatch("preferredAccountFailover", { preferredAccountFailover })
+          }
+        />
+      )}
+      {data.antigravityTimingTelemetry && (
+        <AntigravityTimingTelemetryCard
+          value={data.antigravityTimingTelemetry}
+          saving={savingSection === "antigravityTimingTelemetry"}
+          onSave={(antigravityTimingTelemetry) =>
+            savePatch("antigravityTimingTelemetry", { antigravityTimingTelemetry })
+          }
+        />
       )}
 
       <RequestQueueCard

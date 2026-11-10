@@ -12,10 +12,19 @@
 import type { ModelLockoutEntry, ModelFailureState } from "../accountFallback.ts";
 import { resolveAntigravityModelId } from "../../config/antigravityModelAliases.ts";
 
-function canonicalizeExactModel(canonicalProvider: string, model: string): string {
-  const normalized = model.trim().toLowerCase().replace(/^(?:antigravity|agy)\//, "");
-  if (canonicalProvider === "antigravity" || canonicalProvider === "agy") {
-    return resolveAntigravityModelId(normalized).trim().toLowerCase();
+/**
+ * Antigravity serves one model under several ids, so a lock written under one must be seen
+ * under the others. This runs without the account catalog, so it can only apply the static
+ * alias table: `gemini-3.7-flash-{high,medium,low}` share one key even on an account whose
+ * catalog lists them as separate wire models (`cleanModelName` sends those verbatim). An exact
+ * cooldown on one tier then covers its siblings too, the same collapse the account lease makes
+ * in `canonicalizeAntigravityExactModel`.
+ */
+export function canonicalizeExactModel(provider: string, model: string): string {
+  const normalized = model.trim().toLowerCase();
+  if (provider === "antigravity" || provider === "agy" || provider === "ag") {
+    const bareModel = normalized.replace(/^(?:antigravity|ag|agy)\//, "");
+    return resolveAntigravityModelId(bareModel).trim().toLowerCase();
   }
   return normalized;
 }

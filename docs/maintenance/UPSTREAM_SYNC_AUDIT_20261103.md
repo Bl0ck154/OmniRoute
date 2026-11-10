@@ -62,3 +62,86 @@ The repair needs CI on the updated exact commit, a synthetic historical ledger t
 5. Only then promote an integration PR to production and deploy one verified artifact with a separate reversible SQLite backup plan.
 
 See FORK_PATCH_REGISTER.md and UPSTREAM_UPGRADE_RUNBOOK.md for the operational hard gates.
+
+## 2026-11-04 continuation — integrated v3.8.53 candidate (PR #125)
+
+This section supersedes the earlier **2026-11-03 counts**, not its migration
+history or safety instructions.
+
+| Ref / metric | Verified result |
+| --- | --- |
+| Fork `origin/production` before this integration | `4c7541b4de1393a8c032196465d4df8b3304d27e` |
+| Official `release/v3.8.53` merge parent | `c841dbdcd4fe2710ee51fc8a0b426c35e1a6d618` |
+| Preserved two-parent merge | `1b32eab92522c9fd65eb6da714ea33f1ee7d878d` |
+| Updated candidate head after Codex test maintenance | `6eca3e1fd816904e7c845584f2f9453857ed0aef` |
+| Fork-to-upstream source diff after merge | **184 paths** |
+| `src/` plus `open-sse/` | **61 paths** (includes one colocated test) |
+| `tests/` | **61 paths** |
+| `docs/` | **11 paths** |
+| Other paths | **51 paths** |
+
+These counts are `git diff --name-only upstream/release/v3.8.53 HEAD`
+for the integration candidate, **not** the 1,220-path PR merge diff or the
+number of independent patches. Upstream had advanced by **75 commits** since
+the fork's original merge base. The merge had one textual conflict in
+`AGENTS.md`; fork instructions survived. Upstream introduced migration
+`225_token_ledger_balance_indexes.sql`, and the fork's migrated
+`900_proxy_logs_attempt_timing.sql` remains intact. A synthetic historical
+SQLite upgrade test runs in the fork's off-host selected-regressions workflow.
+
+### First-pass functional decomposition (do not double-count paths as patches)
+
+- **Antigravity resilience / health / timing / UI:** the adaptive model and
+  account health engine, timeout policy, per-stage telemetry, dashboard
+  resilience controls, and associated routing state. Needs a separate
+  upstream-coverage matrix; do not wholesale PR the bundle.
+- **Codex image quota / selection / no-replay:** model account eligibility,
+  quota refresh, image generation and edits, timeout dispatch, per-account
+  artifact and spend tracking. The proxy timeout subset is already upstream
+  PR [#18891](https://github.com/cheaper-inference/OmniRoute/pull/18891).
+- **Routing, retries and Combo:** chatCore request legs and streaming tail,
+  preferred connections, exact model locks, same-account retry, fallback
+  context and combo predicates. Relevant existing PRs include
+  [#18842](https://github.com/cheaper-inference/OmniRoute/pull/18842),
+  [#18916](https://github.com/cheaper-inference/OmniRoute/pull/18916)
+  and [#17961](https://github.com/cheaper-inference/OmniRoute/pull/17961).
+- **Gemini / catalog / model translation:** wire aliases, live reconciliation,
+  Gemini native thinking and media resolution, free model and provider
+  registries. Relevant submitted PRs: #18844, #18895, #18917.
+- **Account administration / security / billing:** OAuth import, admin
+  resilience scope, Gemini project-block response handling. Relevant PRs:
+  #18841, #18915, #18848.
+- **Intentionally fork-local:** Order Forge image artifact sink, SQLite
+  migration compatibility for past custom installs, local release tooling
+  and environment-specific operations.
+
+Exactly **15 distinct core pathnames** overlap a *non-deferred* open upstream
+PR (an overlap does not prove the entire local file change is covered).
+The other **46 core pathnames** still require per-hunk classification into
+(a) new upstream candidate, (b) already solved by upstream, (c) fork-local,
+or (d) stale. This is an initial **path-level** classification only:
+**the count of independent remaining functional patches is unverified**.
+The deferred GPT-6.1 Terra PR #18738 must not be treated as implemented in
+fork production.
+
+### Outstanding review and promotion work
+
+As of the checked GitHub snapshot there are **13 open upstream PRs** from
+`Bl0ck154`, with 16 previously merged upstream. In this cycle:
+- #18891 received a test-only proxy-health mock
+  (`06cf2c4fd4feb7f71d18ce11cc5c3f92c03bc7f4`).
+- #18848 received billing cooldown extension, deactivation classification
+  and regression tests (`632d7abdea40cc0ffd88be161fff3131409e5535`).
+- #18917 had a separately reported missing test import and alias mapping
+  review item; coordinate with its active worktree owner before changing it.
+- The initial PR #125 Codex SSE check failed because a fork-only model test
+  hardcoded CLI `0.159.2` while current upstream uses `0.165.0`. The
+  unrelated duplicate version assertion was removed in `6eca3e1`.
+  The candidate's **Selected upstream regressions** (including core
+  typecheck and historical migration rehearsal) and **Codex SSE regression**
+  passed on that exact commit.
+
+**PR #125 is not a deployed release.** Do not promote the merge candidate
+or run a production migration on the VPS merely because those selected CI
+checks passed. An off-host package build, controlled smoke, historical DB
+safety review and separate deploy/rollback plan remain release gates.

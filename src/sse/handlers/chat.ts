@@ -5,6 +5,10 @@ import { resolveChatRequestBody } from "./requestBody";
 import { getComboCredentialAvailability } from "./comboCredentialAvailability.ts";
 import * as chatAdmission from "./chatAdmission.ts";
 import { buildClientRawRequest, resolveDispatchClientRawRequest } from "./chat/clientRawRequest.ts";
+import {
+  comboStalledConnectionIds,
+  type ComboStalledConnections,
+} from "./chat/comboStalledConnections.ts";
 export { buildClientRawRequest, resolveDispatchClientRawRequest };
 import { normalizeReasoningRequest } from "@/shared/reasoning/effortStandardization";
 import { isDetailedLoggingEnabled } from "@/lib/db/detailedLogs";
@@ -39,8 +43,10 @@ import { getCombo, getComboForModel, getModelInfo } from "../services/model";
 import { stripContextWindowSuffix } from "@omniroute/open-sse/services/model.ts";
 import { resolveBareModelToConnectionDefault } from "@omniroute/open-sse/services/model.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
+import { trustedInternalTestMark } from "@omniroute/open-sse/utils/selfHop.ts";
 import { getImageModelEntry, isImageOnlyModel } from "@omniroute/open-sse/config/imageRegistry.ts";
 import { acceptHeaderForcesStream } from "@omniroute/open-sse/utils/aiSdkCompat.ts";
+import { normalizeVisionImagesInBody } from "@omniroute/open-sse/utils/visionImageNormalization.ts";
 import {
   isAntigravityRefusalReplay,
   usesAntigravity429Budget,
@@ -53,13 +59,16 @@ import { mergeAbortSignals } from "@omniroute/open-sse/executors/base.ts";
 import { resolveRequestAutoControls } from "@omniroute/open-sse/services/autoCombo/requestControls.ts";
 import { isVerifiedNativeCodexRequest } from "@omniroute/open-sse/config/codexIdentity.ts";
 import { resolveCompressionSettings } from "@omniroute/open-sse/handlers/chatCore/compressionSettings.ts";
+import { runWithTurnExecutionOwnership } from "@omniroute/open-sse/handlers/chatCore/turnExecutionContext.ts";
 import type { CompressionExclusions } from "@omniroute/open-sse/services/compression/exclusions.ts";
 import { resolveComboConfig } from "@omniroute/open-sse/services/comboConfig.ts";
 import { injectHandoffIntoBody } from "@omniroute/open-sse/services/contextHandoff.ts";
 import { runWithTransientBackendRetry } from "@omniroute/open-sse/services/transientBackendRetry.ts";
+import { isMarkedLocalProcessPressureResponse } from "@omniroute/open-sse/utils/localPressureResponse.ts";
 import {
   HTTP_STATUS,
   ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE,
+  REQUEST_SCOPED_UPSTREAM_TIMEOUT_CODE,
 } from "@omniroute/open-sse/config/constants.ts";
 import {
   getTargetFormat,
@@ -79,6 +88,7 @@ import { isRuntimeProviderRetirementError } from "@/shared/constants/providerRet
 import { isCommonChatGptWebRetirementError } from "@/shared/constants/chatgptWebRetirement";
 import { isChatGptWebCodexModel } from "@/shared/constants/chatgptWebCodex";
 import { deleteHandoff, getHandoff } from "@/lib/db/contextHandoffs";
+import { scopeHandoffSessionId } from "@omniroute/open-sse/services/combo/handoffSessionScope.ts";
 import { getComboByName, updateCombo } from "@/lib/db/combos";
 import { isModelAllowedForKey } from "@/lib/db/apiKeys";
 import { promoteSuccessfulComboModel } from "@/lib/combos/autoPromote";
@@ -88,8 +98,6 @@ import {
   evictSessionAccountAffinityForConnectionAsync as evictSessionAccountAffinityForConnection,
 } from "@/lib/db/sessionAccountAffinity";
 import { dispatchChatWithAffinityEviction } from "./chatDispatch";
-import { resolveInternalUpstreamStartTimeoutMs } from "../services/internalUpstreamStartTimeout";
-import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
 import { getSettings } from "@/lib/db/settings";
 import { resolveAntigravitySettings, DEFAULT_ANTIGRAVITY_RESILIENCE } from "@/lib/resilience/antigravitySettings";
 import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth";
@@ -101,6 +109,9 @@ import * as muse from "./chat/museOwnership.ts";
 import { comboCheckProvider, ghComboGate } from "./chat/githubLiveCatalogFilter.ts";
 import { markEmergencyFallback } from "./emergencyFallbackHeader.ts";
 import { resolveEmergencyFallbackDecision } from "./emergencyFallbackHeader.ts";
+import { resolveInternalUpstreamStartTimeoutMs } from "../services/internalUpstreamStartTimeout";
+import { resolveResilienceSettings } from "@/lib/resilience/settings";
+import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
 import { evaluateComboTargetPreflight } from "./chat/comboTargetKeyPolicy.ts";
 import * as resolvedPolicy from "./chat/resolvedModelPolicy.ts";
 import { recordGateRejection, recordQuotaParkedSkip } from "./quotaParkedSkipUsage";
@@ -131,7 +142,7 @@ import {
   withModalityBridgeHeader,
   withConversationId,
 } from "./chatHelpers";
-import { buildModalityBridgeHeader } from "@/lib/guardrails/modalityBridge/bridgeStats";
+import { buildModalityBridgeResponseHeaders } from "@/lib/guardrails/modalityBridge/bridgeResponseHeaders";
 import { type VideoBridgeLog, deriveVideoBridgeLog } from "./chat/videoBridgeLog.ts";
 import {
   resolveClientSessionId,
@@ -662,7 +673,7 @@ async function handleChatImplementation(
     return internalUsageCommandResponse;
   }
 
-  const isComboLiveTest = request.headers?.get?.("x-internal-test") === "combo-health-check";
+  const isComboLiveTest = trustedInternalTestMark(request.headers) === "combo-health-check";
 
   if (!modelStr) {
     log.warn("CHAT", "Missing model");
@@ -890,6 +901,20 @@ async function handleChatImplementation(
   const modelBeforeGuardrails =
     typeof body?.model === "string" && body.model.length > 0 ? body.model : modelStr;
   body = preCallGuardrails.payload;
+  // Opt-in (OMNIROUTE_IMAGE_NORMALIZATION=1): normalize inline vision images
+  // (RGB, ≤4096 long edge, ~4MP, baseline JPEG/PNG) before any dispatch —
+  // every combo target and retry sees the same normalized bytes. No-op and
+  // zero cost when the env is unset. Fail-open on any per-image failure.
+  {
+    const visionNorm = await normalizeVisionImagesInBody(body);
+    if (visionNorm.normalized > 0) {
+      log.info(
+        "VISION",
+        `Normalized ${visionNorm.normalized} inline image(s) for upstream vision pipeline`,
+        { skipped: visionNorm.skipped }
+      );
+    }
+  }
   ({ body, modelStr } = await RoutingModelOps.reconcileGuardrailReroute({
     body,
     modelBeforeGuardrails,
@@ -902,7 +927,7 @@ async function handleChatImplementation(
   // Modality Bridge transparency (Task 9): non-null only when a pre-call bridge
   // guardrail transformed the payload (describe path) — stamped on the main
   // success exits below via withModalityBridgeHeader().
-  const modalityBridgeHeader = buildModalityBridgeHeader(preCallGuardrails.results);
+  const modalityBridgeHeader = buildModalityBridgeResponseHeaders(preCallGuardrails.results);
   // #12150 P1b: video-bridge log/Memory shadow — undefined on every
   // non-video request. Threaded through handleSingleModelChat's
   // runtimeOptions -> executeChatWithBreaker -> handleChatCore.
@@ -1192,6 +1217,7 @@ async function handleChatImplementation(
     const perRequestAutoControls = resolveRequestAutoControls(request.headers);
     const relayOptions = {
       sessionId,
+      apiKeyId: apiKeyInfo?.id ?? null,
       ...(combo.strategy === "context-relay" ? { config: relayConfig } : {}),
       ...(bypassProviderQuotaPolicy ? { bypassProviderQuotaPolicy: true } : {}),
       ...perRequestAutoControls,
@@ -1202,6 +1228,8 @@ async function handleChatImplementation(
     // because only this layer knows which connectionId was actually selected.
     const { defer: deferContextOverflowWhenCompressible, exclusions: compressionExclusions } =
       await resolveComboContextOverflowDeferral(log, apiKeyInfo);
+    // Accounts this combo request's per-target timeout abandoned; later targets prefer others.
+    const comboStalledConnections: ComboStalledConnections = new Map();
     const response = await (handleComboChat as any)({
       body,
       combo,
@@ -1282,6 +1310,7 @@ async function handleChatImplementation(
             // entry (trackPendingRequest(false) never runs) — live incident,
             // log id 1784418258231-14961a.
             modelAbortSignal: target?.modelAbortSignal ?? null,
+            comboStalledConnections,
             fallbackAttempts: target?.fallbackAttempts,
           },
           target?.effectiveComboStrategy ?? combo.strategy,
@@ -1315,10 +1344,12 @@ async function handleChatImplementation(
     comboPreselectedCredentials.clear();
 
     // ── Global Fallback Provider (#689) ────────────────────────────────────
-    // If combo exhausted all models, try the global fallback before giving up.
+    // If combo exhausted all models, try the global fallback before giving up. A local pressure
+    // shed did not exhaust anything: the fallback would only be shed again, with retries.
     if (
       !response.ok &&
       [502, 503].includes(response.status) &&
+      !isMarkedLocalProcessPressureResponse(response) &&
       typeof (settings as any)?.globalFallbackModel === "string" &&
       (settings as any).globalFallbackModel.trim()
     ) {
@@ -1459,7 +1490,13 @@ async function handleChatImplementation(
   );
 }
 
-export const handleChat = chatAdmission.withChatAdmission(handleChatImplementation);
+// One turn-execution ownership scope per client request (#18716): every account retry, rotation
+// and combo leg of this request re-enters chatCore under it and reuses the turn slot the request
+// already holds instead of 409ing itself. A scope per dispatch would not span those attempts.
+export const handleChat = chatAdmission.withChatAdmission(
+  (...args: Parameters<typeof handleChatImplementation>) =>
+    runWithTurnExecutionOwnership(() => handleChatImplementation(...args))
+);
 
 function readEmptyStreamSiblingRecoveryFlag(): boolean {
   try {
@@ -1518,6 +1555,8 @@ async function handleSingleModelChat(
      * the signal used for the actual dispatch, not left unused.
      */
     modelAbortSignal?: AbortSignal | null;
+    /** Accounts an earlier target of this combo request stalled on (comboStalledConnections.ts). */
+    comboStalledConnections?: ComboStalledConnections | null;
     fallbackAttempts?: number;
   } = {},
   comboStrategy: string | null = null,
@@ -1552,6 +1591,9 @@ async function handleSingleModelChat(
     // down so getKnownContextOverflow's target-aware deferral check can never drift
     // from chatCore's own native-codex-passthrough decision.
     const sNetSourceFormat = detectFormatFromEndpoint(body, clientRawRequest?.endpoint || "");
+    // A combo target redirected here keeps sharing its outer combo request's record.
+    const sNetStalledConnections: ComboStalledConnections =
+      runtimeOptions.comboStalledConnections ?? new Map();
     return handleComboChat({
       body,
       combo: redirectCombo,
@@ -1596,6 +1638,7 @@ async function handleSingleModelChat(
             previousResponseResumed: runtimeOptions.previousResponseResumed,
             // #7360 follow-up — see the primary handleSingleModel closure above.
             modelAbortSignal: target?.modelAbortSignal ?? null,
+            comboStalledConnections: sNetStalledConnections,
             fallbackAttempts: target?.fallbackAttempts,
           },
           resolvedTarget?.effectiveComboStrategy ?? redirectCombo.strategy ?? "priority",
@@ -1719,9 +1762,13 @@ async function handleSingleModelChat(
   });
 
   const userAgent = request?.headers?.get("user-agent") || "";
-  const baseRetrySettings = resolveCooldownAwareRetrySettings(
-    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})))
-  );
+  const cachedRuntimeSettings =
+    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})));
+  const baseRetrySettings = resolveCooldownAwareRetrySettings(cachedRuntimeSettings);
+  // The read cache invalidates on settings writes (up to its 5s TTL).
+  // No restart is needed for newly dispatched chat requests.
+  const preferredFailoverSettings =
+    resolveResilienceSettings(cachedRuntimeSettings).preferredAccountFailover;
   const retrySettings = disableCooldownAwareRetry(
     baseRetrySettings,
     provider === "claude-web" ||
@@ -1760,6 +1807,9 @@ async function handleSingleModelChat(
   // STREAM_EARLY_EOF_SIBLING_FAILOVER_ENABLED: at most ONE sibling hop per request. Keeps the
   // original early-EOF 502 so an exhausted sibling pool surfaces it verbatim (combo detection).
   let earlyEofOriginal: Response | null = null;
+  // Preferred connection start timeout is a single-hop routing hint, never a cooldown.
+  let preferredTimeoutOriginal: Response | null = null;
+  let preferredFailoverUsed = false;
   const sameAccountTransportRetries = new Map<string, number>();
   // Snapshot once per NEW request, bypassing inherited combo settings snapshots.
   const antigravitySettings = provider === "antigravity" || provider === "agy"
@@ -1771,21 +1821,23 @@ async function handleSingleModelChat(
   let sameAccountRetries = 0;
   let routingWaitMs = 0;
   const accountFallbackReasons: string[] = [];
-  const noteAccountFallback = (reason: string): void => {
-    accountFallbacks += 1;
-    if (accountFallbackReasons.length < 8) accountFallbackReasons.push(reason);
+  let pendingFallback: { reason: string; previousConnectionId: string } | null = null;
+  let pendingStreamRetryConnectionId: string | null = null;
+  // An intention to rotate is not yet a completed account switch.
+  const noteAccountFallback = (reason: string, previousConnectionId: string): void => {
+    pendingFallback = { reason, previousConnectionId };
   };
+  const routingTelemetry = () => ({
+    accountFallbacks,
+    accountFallbackReasons,
+    selectedConnectionPlan,
+    sameAccountRetries,
+    routingWaitMs,
+  });
   const withRoutingTelemetry = (
     response: Response,
     connectionId: string | null | undefined
-  ): Response =>
-    withSelectedConnectionHeader(response, connectionId, {
-      accountFallbacks,
-      accountFallbackReasons,
-      selectedConnectionPlan,
-      sameAccountRetries,
-      routingWaitMs,
-    });
+  ): Response => withSelectedConnectionHeader(response, connectionId, routingTelemetry());
   const occupancySessionKey =
     runtimeOptions.sessionAffinityKey ?? runtimeOptions.sessionId ?? `request:${randomUUID()}`;
   let initialPreselectedCredentials = runtimeOptions.preselectedCredentials;
@@ -1830,6 +1882,12 @@ async function handleSingleModelChat(
       ) {
         emptyTurnExcluded.add(runtimeOptions.emptyTurnConnectionId);
       }
+      // A combo per-target timeout abandoned these accounts earlier in this combo request.
+      // Not flag-gated: it only applies once a target timed out, with the same fallback below.
+      if (!hasForcedConnection && !museOwner && !runtimeOptions.managedLease) {
+        const stalled = runtimeOptions.comboStalledConnections;
+        for (const id of comboStalledConnectionIds(stalled, provider)) emptyTurnExcluded.add(id);
+      }
       const selectCredentials = (excluded: Set<string>) =>
         getProviderCredentialsWithQuotaPreflight(
           provider,
@@ -1843,6 +1901,7 @@ async function handleSingleModelChat(
             preferredConnectionIds: apiKeyInfo?.preferredConnections ?? null,
             reserveOAuthSession: true,
             excludeConnectionIds: Array.from(excluded),
+            ...(hasForcedConnection && !isCombo ? { explicitConnectionPin: true } : {}),
             ...(agy.on ? { reserveAntigravityLease: true, routingRequestId: agy.requestId } : {}),
             ...(runtimeOptions.allowRateLimitedConnection
               ? { allowRateLimitedConnections: true }
@@ -1886,8 +1945,8 @@ async function handleSingleModelChat(
         emptyTurnExcluded.size > excludedConnectionIds.size &&
         (!credentials || "allRateLimited" in credentials || "allExpired" in credentials)
       ) {
-        // Empty turns are stochastic, not account faults. Prefer an allowed sibling,
-        // but a singleton still spends its existing retry on its original account.
+        // Empty turns and combo target timeouts are not account faults. Prefer an allowed
+        // sibling, but a singleton still spends its existing retry on its original account.
         credentials = await selectCredentials(excludedConnectionIds);
       }
       preselectedCredentials = null;
@@ -1914,8 +1973,9 @@ async function handleSingleModelChat(
         "allExpired" in credentials ||
         !credentials.connectionId
       ) {
+        if (preferredTimeoutOriginal) return preferredTimeoutOriginal;
         if (lastAntigravityTimeoutResponse) return lastAntigravityTimeoutResponse;
-        if (earlyEofOriginal) return earlyEofOriginal;
+        if (earlyEofOriginal) return withRoutingTelemetry(earlyEofOriginal, null);
         if (!credentials?.allRateLimited && agy.earliestRetryHintAtMs !== null)
           return agyLease.buildAntigravityPoolBusyResponse(agy.earliestRetryHintAtMs);
         if (credentials?.allRateLimited) {
@@ -2016,6 +2076,25 @@ async function handleSingleModelChat(
         return withRoutingTelemetry(noCredsRes, lastFailedConnectionId);
       }
 
+      if (pendingFallback !== null) {
+        const candidate = pendingFallback;
+        pendingFallback = null;
+        if (credentials.connectionId !== candidate.previousConnectionId) {
+          accountFallbacks += 1;
+          if (accountFallbackReasons.length < 8) accountFallbackReasons.push(candidate.reason);
+        }
+      }
+      if (pendingStreamRetryConnectionId !== null) {
+        if (credentials.connectionId === pendingStreamRetryConnectionId) {
+          sameAccountRetries += 1;
+        } else {
+          accountFallbacks += 1;
+          if (accountFallbackReasons.length < 8) {
+            accountFallbackReasons.push("empty_content_sibling");
+          }
+        }
+        pendingStreamRetryConnectionId = null;
+      }
       selectedConnectionPlan =
         provider === "codex" ? getCodexPlanType(credentials.providerSpecificData) : null;
       const accountId = credentials.connectionId.slice(0, 8);
@@ -2088,13 +2167,14 @@ async function handleSingleModelChat(
         return effectivePolicyRejection;
       }
       let injectedHandoff = null;
+      const handoffSessionId = scopeHandoffSessionId(runtimeOptions.sessionId, apiKeyInfo?.id);
       if (
         comboStrategy === "context-relay" &&
         comboName &&
-        runtimeOptions.sessionId &&
+        handoffSessionId &&
         body?._omnirouteSkipContextRelay !== true
       ) {
-        const handoff = getHandoff(runtimeOptions.sessionId, comboName);
+        const handoff = getHandoff(handoffSessionId, comboName);
         if (handoff && handoff.fromAccount !== credentials.connectionId) {
           // Inject only after a real account switch. The combo loop itself cannot
           // reliably detect this because account selection happens inside auth.
@@ -2189,6 +2269,36 @@ async function handleSingleModelChat(
       }
       const antigravityHealthAttempt = healthTicket
         ? bindAntigravityHealthAttempt(healthTicket, requestSignal) : undefined;
+      // A preferred API-key account can be given one shorter time-to-headers
+      // deadline when a vetted sibling exists. Pins/leases/combo/Muse are excluded.
+      const legacyAntigravityPreferredPolicy =
+        (provider === "antigravity" || provider === "agy") && !preferredFailoverSettings.enabled
+          ? {
+              ...preferredFailoverSettings,
+              enabled: true,
+              providerTimeoutsMs: {
+                ...preferredFailoverSettings.providerTimeoutsMs,
+                antigravity: antigravitySettings.preferredTimeoutMs,
+              },
+              modelTimeoutsMs: {
+                ...preferredFailoverSettings.modelTimeoutsMs,
+                "antigravity/gemini-3.8-flash*": antigravitySettings.gemini38PreferredTimeoutMs,
+              },
+            }
+          : preferredFailoverSettings;
+      const preferredDeadline = resolvePreferredConnectionUpstreamStartTimeoutMs(
+        provider,
+        credentials,
+        requestUpstreamStartTimeoutMs,
+        effectiveModel,
+        preferredFailoverUsed ||
+          hasForcedConnection ||
+          runtimeOptions.managedLease ||
+          museOwner ||
+          isCombo
+          ? { ...legacyAntigravityPreferredPolicy, enabled: false }
+          : legacyAntigravityPreferredPolicy
+      );
       // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
       if (telemetry) telemetry.startPhase("connect");
       let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
@@ -2242,13 +2352,7 @@ async function handleSingleModelChat(
             videoBridgeLog: runtimeOptions.videoBridgeLog,
             previousResponseResumed: runtimeOptions.previousResponseResumed,
             fallbackAttempts: runtimeOptions.fallbackAttempts,
-            requestUpstreamStartTimeoutMs: resolvePreferredConnectionUpstreamStartTimeoutMs(
-              provider,
-              credentials,
-              requestUpstreamStartTimeoutMs,
-              effectiveModel,
-              antigravitySettings
-            ),
+            requestUpstreamStartTimeoutMs: preferredDeadline.timeoutMs,
             beforeUpstreamAttempt:
               museOwner && muse.museBeforeUpstreamAttempt(museOwner, credentials),
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
@@ -2327,8 +2431,8 @@ async function handleSingleModelChat(
         ) {
           breaker._onSuccess();
         }
-        if (injectedHandoff && runtimeOptions.sessionId && comboName) {
-          deleteHandoff(runtimeOptions.sessionId, comboName);
+        if (injectedHandoff && handoffSessionId && comboName) {
+          deleteHandoff(handoffSessionId, comboName);
         }
         if (telemetry) telemetry.startPhase("finalize");
         if (telemetry) telemetry.endPhase();
@@ -2345,6 +2449,29 @@ async function handleSingleModelChat(
         releaseOAuthSession();
         return successResponse;
       }
+      // A trusted caller's deadline must not cool a shared connection.
+      // A shorter *preferred* deadline may perform one in-request sibling hop,
+      // without recording a connection failure or evicting session affinity.
+      if (result.errorCode === REQUEST_SCOPED_UPSTREAM_TIMEOUT_CODE) {
+        if (
+          preferredDeadline.mayRotateOnRequestTimeout &&
+          !preferredFailoverUsed &&
+          requestSignal?.aborted !== true
+        ) {
+          preferredFailoverUsed = true;
+          preferredTimeoutOriginal = withSelectedConnectionHeader(
+            result.response,
+            credentials.connectionId
+          );
+          excludedConnectionIds.add(credentials.connectionId);
+          log.info(
+            "AUTH",
+            "Preferred account response-start timed out; trying one eligible sibling"
+          );
+          continue;
+        }
+        return withSelectedConnectionHeader(result.response, credentials.connectionId);
+      }
       // Never let generic account fallback or affinity eviction move a Muse caller.
       if (museOwner) {
         const museDelayMs = muse.museRetryDelay(
@@ -2355,6 +2482,8 @@ async function handleSingleModelChat(
         );
         if (museDelayMs !== null) {
           await new Promise((resolve) => setTimeout(resolve, museDelayMs));
+          sameAccountRetries += 1;
+          routingWaitMs += Math.max(0, museDelayMs);
           continue;
         }
         if (muse.museFailureMarksAccount(result)) {
@@ -2397,7 +2526,7 @@ async function handleSingleModelChat(
       // per-key policy decision — before the fix it even crashed on
       // `result.response.headers` (bare Response) and returned a 500/502.
       if (result.errorCode === "quota_share_blocked") {
-        return withSelectedConnectionHeader(result.response, credentials.connectionId);
+        return withRoutingTelemetry(result.response, credentials.connectionId);
       }
 
       // Missing Cloud Code project assignment is configuration, not a transient failure.
@@ -2412,7 +2541,7 @@ async function handleSingleModelChat(
       // account. Cooling the connection down would make every other client routed to
       // the same (often single) account fail with the stale error for ~1 minute.
       if (isRequestShapeError(result.status, result.error, provider)) {
-        return withSelectedConnectionHeader(result.response, credentials.connectionId);
+        return withRoutingTelemetry(result.response, credentials.connectionId);
       }
 
       const isAntigravityStreamReadinessFailure =
@@ -2461,7 +2590,7 @@ async function handleSingleModelChat(
           !(isCombo && result.errorCode === "empty_content")
         ) {
           streamEarlyEofRetries += 1;
-          sameAccountRetries += 1;
+          pendingStreamRetryConnectionId = credentials.connectionId;
           if (result.errorCode === "empty_content") {
             runtimeOptions.emptyTurnConnectionId = credentials.connectionId;
           }
@@ -2504,7 +2633,7 @@ async function handleSingleModelChat(
         ) {
           // Retry spent and nothing emitted yet: one hop to a sibling (routing only, no mark).
           log.warn("STREAM", `${provider}/${model} early-EOF retry exhausted — trying one sibling`);
-          noteAccountFallback("stream_early_eof");
+          noteAccountFallback("stream_early_eof", credentials.connectionId);
           earlyEofOriginal = withRoutingTelemetry(
             result.response,
             credentials.connectionId
@@ -2549,7 +2678,7 @@ async function handleSingleModelChat(
               // best-effort: selection also excludes this connection for the current retry.
             }
           }
-          noteAccountFallback("stream_readiness");
+          noteAccountFallback("stream_readiness", credentials.connectionId);
           excludedConnectionIds.add(credentials.connectionId);
           lastError = classificationError;
           lastStatus = result.status;
@@ -2605,8 +2734,11 @@ async function handleSingleModelChat(
               // best-effort: selection also excludes this connection for the current retry.
             }
           }
-          noteAccountFallback(result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
-            ? "pre_response_timeout" : "http_504");
+          noteAccountFallback(
+            result.errorCode === ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE
+              ? "pre_response_timeout" : "http_504",
+            credentials.connectionId
+          );
           lastAntigravityTimeoutResponse = withRoutingTelemetry(result.response, credentials.connectionId);
           excludedConnectionIds.add(credentials.connectionId);
           lastError = result.error;
@@ -2630,7 +2762,7 @@ async function handleSingleModelChat(
           "AUTH",
           `Account ${accountId}... at local concurrency cap, trying fallback account`
         );
-        noteAccountFallback("capacity");
+        noteAccountFallback("capacity", credentials.connectionId);
         excludedConnectionIds.add(credentials.connectionId);
         lastError = result.error;
         lastStatus = result.status;
@@ -2640,7 +2772,7 @@ async function handleSingleModelChat(
       }
 
       // Emergency fallback for budget exhaustion (402 / billing / quota keywords):
-      // reroute to a free model (default provider/model: nvidia + openai/gpt-oss-120b) exactly once.
+      // reroute to a free model (default provider/model: nvidia + nvidia/nemotron-3.5-super-vl-120b-a12b) exactly once.
       // Combo targets never emergency-hop: the combo is the operator's fallback policy
       // (target-level orchestration plus the global fallback #689 after it), and a
       // per-target hop burns extra upstream calls against exhausted providers (#1731).
@@ -2902,7 +3034,10 @@ async function handleSingleModelChat(
           }
         }
         noteAccountFallback(
-          result.status ? `http_${result.status}` : result.errorType || "upstream_error"
+          typeof result.status === "number" && result.status >= 100 && result.status <= 599
+            ? "http_" + result.status
+            : "upstream_error",
+          credentials.connectionId
         );
         excludedConnectionIds.add(credentials.connectionId);
         lastError = result.error;

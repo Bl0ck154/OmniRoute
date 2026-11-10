@@ -6,7 +6,7 @@ import { getSettings, getSettingsRevision, updateSettings, SettingsRevisionConfl
 import { invalidateDbCache } from "../../src/lib/db/readCache.ts";
 import { createAccessToken } from "../../src/lib/db/accessTokens.ts";
 import { resolveAntigravitySettings } from "../../src/lib/resilience/antigravitySettings.ts";
-import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../../src/sse/services/preferredConnectionFailover.ts";
+import { resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs } from "../../src/sse/services/preferredConnectionFailover.ts";
 import { GET, PATCH } from "../../src/app/api/resilience/route.ts";
 
 const url = "http://localhost/api/resilience";
@@ -23,12 +23,12 @@ async function patch(antigravity: Record<string, unknown>) {
 
 test("hot persisted timeout updates affect new request snapshots without a restart", async () => {
   const before = resolveAntigravitySettings(await getSettings());
-  assert.equal(resolvePreferredConnectionUpstreamStartTimeoutMs("agy", preferred, undefined, "gemini-3.8-flash", before), 12000);
+  assert.equal(resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs("agy", preferred, undefined, "gemini-3.8-flash", before), 12000);
   assert.equal((await patch({ preferredTimeoutMs: 7000, gemini38PreferredTimeoutMs: 19000 })).status, 200);
   const after = resolveAntigravitySettings(await getSettings());
-  assert.equal(resolvePreferredConnectionUpstreamStartTimeoutMs("agy", preferred, undefined, "gemini-3.8-flash-high", after), 19000);
-  assert.equal(resolvePreferredConnectionUpstreamStartTimeoutMs("agy", preferred, undefined, "claude-sonnet-4-6", after), 7000);
-  assert.equal(resolvePreferredConnectionUpstreamStartTimeoutMs("agy", preferred, 1000, "gemini-3.8-flash-low", after), 1000);
+  assert.equal(resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs("agy", preferred, undefined, "gemini-3.8-flash-high", after), 19000);
+  assert.equal(resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs("agy", preferred, undefined, "claude-sonnet-4-6", after), 7000);
+  assert.equal(resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs("agy", preferred, 1000, "gemini-3.8-flash-low", after), 1000);
   assert.equal(before.gemini38PreferredTimeoutMs, 12000, "in-flight request snapshot remains stable");
   const response = await GET(await makeManagementSessionRequest(url));
   assert.equal((await response.json()).antigravity.gemini38PreferredTimeoutMs, 19000);

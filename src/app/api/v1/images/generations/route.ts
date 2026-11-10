@@ -1,3 +1,4 @@
+import { getFalCompatibilityPreparer } from "@/lib/fal/compatibility";
 import { handleImageGeneration } from "@omniroute/open-sse/handlers/imageGeneration.ts";
 import { getRequestedModelEndpointMismatch } from "@/lib/providerModels/modelEndpointGuard";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
@@ -26,7 +27,6 @@ import {
   isKeyScopeBlockedCredentials,
   keyScopeBlockedResponse,
   keylessProviderRejection,
-  narrowConnectionScope,
   resolveKeyConnectionScope,
   withoutKeyScopeBlocked,
 } from "@/sse/services/keyConnectionScope";
@@ -65,6 +65,7 @@ import {
   persistOrderForgeImageArtifacts,
   resolveOrderForgeImageArtifactCapture,
 } from "@/lib/usage/orderForgeImageArtifactSink";
+import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 import {
   assertCommonChatGptWebModelAvailable,
@@ -73,7 +74,6 @@ import {
 } from "@/shared/constants/chatgptWebRetirement";
 import { PLAYGROUND_IMAGE_STREAM_HEADER } from "@/shared/utils/playgroundImageStream";
 import { createPlaygroundImageStreamResponse } from "@/lib/playground/imageGenerationStream";
-import { getImageLongJobOptions } from "@/lib/images/imageGenerationLongJobs";
 import { isImageGenerationLongJobsEnabled } from "@/shared/utils/featureFlags";
 
 export const dynamic = "force-dynamic";
@@ -136,7 +136,7 @@ function publicBaseUrlHeaders(headers: Headers): Record<string, string> {
   return out;
 }
 
-async function postHandler(request, context) {
+async function postHandler(request, _context) {
   let rawBody;
   try {
     rawBody = await request.json();
@@ -204,6 +204,7 @@ async function postHandler(request, context) {
         body.model as string,
         body,
         {
+          prepareFalInput: getFalCompatibilityPreparer(),
           request,
           policy,
           keyScope: {
@@ -425,11 +426,26 @@ async function postHandler(request, context) {
           },
           () =>
             handleImageGeneration({
+              prepareFalInput: getFalCompatibilityPreparer(),
               body,
               credentials: attemptCredentials,
               log,
               ...(isCustomModel && { resolvedProvider: provider }),
               signal: orderForgeImageArtifactCapture ? null : request.signal,
+              // #16260 — IMAGE_GENERATION_LONG_JOBS (default off): null keeps the default path.
+              longJobs: getImageLongJobOptions(),
+              // Providers that refresh OAuth credentials mid-request persist them like chat does.
+              onCredentialsRefreshed: attemptCredentials?.connectionId
+                ? async (next: Record<string, unknown>) => {
+                    await updateProviderCredentials(attemptCredentials.connectionId, {
+                      accessToken: next.accessToken,
+                      refreshToken: next.refreshToken,
+                      expiresIn: next.expiresIn,
+                      expiresAt: next.expiresAt,
+                      providerSpecificData: next.providerSpecificData,
+                    });
+                  }
+                : undefined,
               clientHeaders: publicBaseUrlHeaders(request.headers),
               // Trusted "loopback"|"lan"|"remote" verdict stamped by the authz
               // pipeline from the real TCP peer (never the spoofable Host

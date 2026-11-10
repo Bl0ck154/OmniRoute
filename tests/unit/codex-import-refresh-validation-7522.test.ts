@@ -254,6 +254,43 @@ test("import: repeated stable account preserves rotated server credentials", asy
   );
 });
 
+test("import: a transient validation error does not overwrite a usable rotated session", async () => {
+  const accountId = "stable-transient-account-2026-11-03";
+  const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+  await providersDb.createProviderConnection({
+    provider: "codex",
+    authType: "oauth",
+    name: "Usable server session",
+    email: "stable-transient@example.com",
+    accessToken: "server-access",
+    refreshToken: "server-rotated-refresh",
+    expiresAt,
+    tokenExpiresAt: expiresAt,
+    providerSpecificData: { chatgptAccountId: accountId, workspaceId: accountId },
+  });
+  await withMockedFetch(
+    (async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch,
+    async () => {
+      const { body } = await postImport({
+        accounts: {
+          ...BASE_RECORD,
+          account_id: accountId,
+          email: "stable-transient@example.com",
+          expired: new Date(Date.now() + 7_200_000).toISOString(),
+        },
+      });
+      assert.equal(body.success, true);
+      assert.equal(body.results[0].unchanged, true);
+      const rows = await providersDb.getProviderConnections({ provider: "codex" });
+      const existing = rows.find((row) => row.email === "stable-transient@example.com");
+      assert.equal(existing?.refreshToken, "server-rotated-refresh");
+      assert.equal(existing?.accessToken, "server-access");
+    }
+  );
+});
+
 test("import: identical stored refresh_token skips a destructive validation exchange", async () => {
   const accountId = "stable-identical-account-2026-09-04";
   let refreshCalls = 0;
@@ -283,6 +320,58 @@ test("import: identical stored refresh_token skips a destructive validation exch
           accountId
       );
       assert.equal(matching.length, 1);
+    }
+  );
+});
+
+test("import: separate users in the same Codex workspace keep separate credentials", async () => {
+  const accountId = "shared-workspace-separate-users-2026-11-03";
+  let refreshCalls = 0;
+  await withMockedFetch(
+    (async () => {
+      refreshCalls += 1;
+      if (refreshCalls === 1) {
+        return jsonResponse({
+          access_token: "alice-rotated-access",
+          refresh_token: "alice-rotated-refresh",
+          expires_in: 3600,
+        });
+      }
+      return jsonResponse({ error: { code: "refresh_token_reused" } }, 400);
+    }) as unknown as typeof fetch,
+    async () => {
+      const alice = await postImport({
+        accounts: {
+          ...BASE_RECORD,
+          email: "alice-shared@example.com",
+          account_id: accountId,
+        },
+      });
+      assert.equal(alice.body.imported, 1);
+      const bob = await postImport({
+        accounts: {
+          ...BASE_RECORD,
+          email: "bob-shared@example.com",
+          account_id: accountId,
+          access_token: jwtWithExpiry(Math.floor(Date.now() / 1000) + 3600),
+          refresh_token: "bob-new-refresh",
+        },
+      });
+      assert.equal(bob.body.imported, 1);
+      assert.equal(bob.body.failed, 0);
+      assert.equal(refreshCalls, 2);
+
+      const rows = (await providersDb.getProviderConnections({ provider: "codex" })).filter(
+        (row) =>
+          (row.providerSpecificData as Record<string, unknown> | undefined)?.chatgptAccountId ===
+          accountId
+      );
+      assert.equal(rows.length, 2, "same workspace must not merge distinct users");
+      const restoredAlice = rows.find((row) => row.email === "alice-shared@example.com");
+      const newBob = rows.find((row) => row.email === "bob-shared@example.com");
+      assert.equal(restoredAlice?.refreshToken, "alice-rotated-refresh");
+      assert.equal(restoredAlice?.accessToken, "alice-rotated-access");
+      assert.equal(newBob?.refreshToken, "bob-new-refresh");
     }
   );
 });

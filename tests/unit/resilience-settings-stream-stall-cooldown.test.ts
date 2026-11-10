@@ -48,3 +48,16 @@ test("PATCH /api/resilience schema accepts streamStallCooldown on its own", () =
     false
   );
 });
+
+test("PATCH schema also accepts standalone p2c, recovery, and refresh-breaker settings", () => {
+  assert.equal(updateResilienceSchema.safeParse({ p2cLatency: { weight: 5 } }).success, true);
+  assert.equal(
+    updateResilienceSchema.safeParse({ streamRecovery: { throughputWatchdog: { enabled: true } } }).success,
+    true
+  );
+  assert.equal(
+    updateResilienceSchema.safeParse({ tokenRefreshBreaker: { scope: "connection" } }).success,
+    true
+  );
+  assert.equal(updateResilienceSchema.safeParse({}).success, false);
+});

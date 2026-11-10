@@ -17,7 +17,11 @@ import {
   getDefaultThinkingBudget,
 } from "../../../src/lib/modelCapabilities.ts";
 import { getModelSpec } from "../../../src/shared/constants/modelSpecs.ts";
-import { gemini38ThinkingConfig, isGemini38Model } from "../../services/thinkingBudget.ts";
+import {
+  gemini38ThinkingConfig,
+  isGeminiThinkingLevelModel,
+  resolveNativeGeminiThinking,
+} from "../../services/thinkingBudget.ts";
 
 import {
   DEFAULT_SAFETY_SETTINGS,
@@ -108,60 +112,6 @@ type GeminiRequest = {
 };
 
 type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
-type ResolvedGeminiThinking = { level: GeminiThinkingLevel; includeThoughts: boolean };
-
-function resolveNativeGeminiThinkingLevel(
-  model: string,
-  body: Record<string, any>,
-  explicitThinkingLevel: GeminiThinkingLevel | null
-): ResolvedGeminiThinking | null {
-  const spec = getModelSpec(model);
-  const supported = spec?.geminiThinkingLevels;
-  if (!supported?.length) return null;
-  // The operator's explicit Gemini 3 thinkingLevel takes precedence over
-  // a translated OpenAI effort or the model default.
-  if (explicitThinkingLevel && supported.includes(explicitThinkingLevel)) {
-    return { level: explicitThinkingLevel, includeThoughts: true };
-  }
-
-  const reasoning = body.reasoning && typeof body.reasoning === "object" ? body.reasoning : {};
-  const rawEffort = body.reasoning_effort ?? reasoning.effort;
-  if (typeof rawEffort === "string") {
-    const effort = rawEffort.trim().toLowerCase();
-    const mapped: GeminiThinkingLevel | null =
-      effort === "none" || effort === "minimal"
-        ? "minimal"
-        : effort === "low" || effort === "medium" || effort === "high"
-          ? effort
-          : effort === "xhigh" || effort === "max" || effort === "auto"
-            ? "high"
-            : null;
-    if (mapped && supported.includes(mapped)) {
-      return { level: mapped, includeThoughts: effort !== "none" };
-    }
-  }
-
-  const thinking = body.thinking && typeof body.thinking === "object" ? body.thinking : {};
-  if (body.thinking === false || thinking.type === "disabled") {
-    const level = supported.includes("minimal") ? "minimal" : spec?.defaultGeminiThinkingLevel;
-    return level && supported.includes(level) ? { level, includeThoughts: false } : null;
-  }
-  const rawBudget = thinking.budget_tokens ?? thinking.budgetTokens;
-  if (typeof rawBudget === "number" && Number.isFinite(rawBudget)) {
-    const mapped: GeminiThinkingLevel =
-      rawBudget <= 0 ? "minimal" : rawBudget <= 1024 ? "low" : rawBudget <= 8192 ? "medium" : "high";
-    if (supported.includes(mapped)) {
-      return { level: mapped, includeThoughts: rawBudget > 0 };
-    }
-  }
-
-  const level =
-    spec?.defaultGeminiThinkingLevel && supported.includes(spec.defaultGeminiThinkingLevel)
-      ? spec.defaultGeminiThinkingLevel
-      : supported[0];
-  return level ? { level, includeThoughts: true } : null;
-}
-
 // Convert OpenAI tool_choice into Gemini's functionCallingConfig mode. Mirrors
 // convertOpenAIToolChoice in openai-to-claude.ts (same enum shapes from the client).
 // Gemini's modes: AUTO (model decides), ANY (must call a function — OpenAI's
@@ -336,14 +286,9 @@ function openaiToGeminiBase(
   // Do not attach thinkingConfig to image, TTS or transcription models:
   // they reject the entire field, including a native thinkingLevel.
   const rejectsThinkingConfig = geminiModelRejectsThinkingConfig(model);
-  const nativeThinkingLevel = rejectsThinkingConfig
-    ? null
-    : resolveNativeGeminiThinkingLevel(model, body, explicitThinkingLevel);
-  if (nativeThinkingLevel !== null) {
-    result.generationConfig.thinkingConfig = {
-      thinkingLevel: nativeThinkingLevel.level,
-      includeThoughts: nativeThinkingLevel.includeThoughts,
-    };
+  const nativeThinking = rejectsThinkingConfig ? null : resolveNativeGeminiThinking(model, body);
+  if (nativeThinking !== null) {
+    result.generationConfig.thinkingConfig = nativeThinking;
   } else if (model.startsWith("gemma-4") || rejectsThinkingConfig) {
     // gemma-4 models returns - 400: Thinking budget is not supported for this model
   } else {
@@ -380,7 +325,7 @@ function openaiToGeminiBase(
       // only include thinkingBudget when no explicit level was supplied.
       result.generationConfig.thinkingConfig = explicitThinkingLevel
         ? { includeThoughts: budget !== 0 }
-        : isGemini38Model(model)
+        : isGeminiThinkingLevelModel(model)
           ? gemini38ThinkingConfig(model, budget, body)
           : buildGeminiThinkingConfig(model, budget, budget !== 0);
     }
@@ -404,7 +349,7 @@ function openaiToGeminiBase(
       if (cappedBudget > 0 || getModelSpec(model)?.thinkingBudgetCap !== 0) {
         result.generationConfig.thinkingConfig = explicitThinkingLevel
           ? { includeThoughts: cappedBudget !== 0 }
-          : isGemini38Model(model)
+          : isGeminiThinkingLevelModel(model)
             ? gemini38ThinkingConfig(model, cappedBudget, body)
             : buildGeminiThinkingConfig(model, cappedBudget, cappedBudget !== 0);
       }
@@ -454,7 +399,7 @@ function openaiToGeminiBase(
       }
       result.generationConfig.thinkingConfig = explicitThinkingLevel
         ? { includeThoughts: true }
-        : isGemini38Model(model)
+        : isGeminiThinkingLevelModel(model)
           ? gemini38ThinkingConfig(model, defaultBudget, body)
           : { thinkingBudget: defaultBudget, includeThoughts: true };
     }
@@ -1065,29 +1010,14 @@ export function openaiToAntigravityRequest(model, body, stream, credentials = nu
 
   const envelope = wrapInCloudCodeEnvelope(model, cloudCodeRequest, credentials);
 
-  // Match real Antigravity client: don't send maxOutputTokens when the user
-  // hasn't explicitly specified max_tokens / max_completion_tokens.
-  // The Cloud Code server decides the output limit on its own.
-  // Note: read hasThinking BEFORE stripping thinkingConfig below — for Claude
-  // models the Cloud Code envelope still carries a thinkingBudget set upstream
-  // by applyAntigravityGenerationDefaults, which we must consult here so we
-  // do not accidentally drop the maxOutputTokens it bumped for us.
+  // Requests without an explicit limit use the native upstream default.
   const clientRequestedMaxTokens = body.max_tokens ?? body.max_completion_tokens;
-  const hasThinking = !!envelope.request?.generationConfig?.thinkingConfig?.thinkingBudget;
-  if (
-    clientRequestedMaxTokens === undefined &&
-    !(isClaude && hasThinking) &&
-    envelope.request?.generationConfig
-  ) {
+  if (clientRequestedMaxTokens == null && envelope.request?.generationConfig) {
     delete envelope.request.generationConfig.maxOutputTokens;
   }
 
   // Claude models on Antigravity use their own native thinking — Gemini's thinkingConfig
   // is not understood by the Cloud Code Claude endpoint and must be stripped.
-  // applyAntigravityGenerationDefaults (inside wrapInCloudCodeEnvelope) already bumped
-  // maxOutputTokens to thinkingBudget+1 before we get here, so the budget is preserved.
-  // Must run AFTER the hasThinking-derived maxOutputTokens decision above so the
-  // budget is accounted for before the field is removed.
   if (isClaude && envelope.request?.generationConfig) {
     delete envelope.request.generationConfig.thinkingConfig;
   }
