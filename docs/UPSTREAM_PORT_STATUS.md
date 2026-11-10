@@ -22,7 +22,7 @@ Last verified: **2026-11-10** using GitHub repository/compare, PR metadata, revi
 
 The connected account also has older merged upstream PRs; this is an intentionally concise register of representative accepted patches, not a total contribution count.
 
-## Currently open upstream PRs (14; reviewed 2026-11-10)
+## Currently open upstream PRs (15; reviewed 2026-11-10)
 
 | Priority | PR | Verified head / CI / next step |
 | --- | --- | --- |
@@ -32,6 +32,7 @@ The connected account also has older merged upstream PRs; this is an intentional
 | P0 | [#19171](https://github.com/cheaper-inference/OmniRoute/pull/19171) combo prompt-cache account binding | `637f4fcd`, mergeable; all four workflows **passed**, review thread resolved. Await review. |
 | P1 | [#19667](https://github.com/cheaper-inference/OmniRoute/pull/19667) 128 verified hosted edits | `60267143`, mergeable. API Typecheck/Semgrep green; CI/Quality Gates **pending/queued**. |
 | P1 | [#19680](https://github.com/cheaper-inference/OmniRoute/pull/19680) delayed credential-probe test isolation | `79da76e7`, mergeable; **queued** new CI. Test uses request-local `AsyncLocalStorage` and covers a prior request's delayed probe. |
+| P1 | [#19681](https://github.com/cheaper-inference/OmniRoute/pull/19681) combo stale-model badge fault isolation | `f5f2f29f`, mergeable. **New 3-file upstream PR** from current v3.8.54; a provider catalog failure no longer hides badges from other providers; focused regression test added. Four CI workflows **queued**, not yet passed. |
 | P1 | [#18895](https://github.com/cheaper-inference/OmniRoute/pull/18895) Gemini 3.5 Flash-Lite thinkingLevel | `d4e39762`, mergeable. Focused tests/build passed, but CI/Quality Gates red on **repository-wide CodeQL alerts ratchet**; no confirmed PR-specific failure. |
 | P1 | [#18738](https://github.com/cheaper-inference/OmniRoute/pull/18738) Terra model support | `2f5532d7`, mergeable; all four workflows **passed**; await review. |
 | P1 | [#19132](https://github.com/cheaper-inference/OmniRoute/pull/19132) bounded Antigravity health quarantine | `7b282c6d`, mergeable; CI/Quality Gates red from repository-wide CodeQL ratchet, no confirmed PR-specific failing job; review threads resolved. |
@@ -56,7 +57,7 @@ The connected account also has older merged upstream PRs; this is an intentional
 
 ## Next precise actions
 
-1. Let #19680 run to completion, then verify its isolated unit test and re-check #19167 against the newest upstream base. Avoid opening a second PR for the same flaky fixture.
+1. Check exact-head CI on new #19681 (four workflows queued), including the provider-fault isolation regression. Let #19680 run to completion, then verify its isolated unit test and re-check #19167 against the newest upstream base; do not duplicate that fixture patch.
 2. Check exact-head CI/Quality Gates on #18733, #19667, #19590 and #19592; distinguish actual test failure from queue/CodeQL ratchet. Fix only a reproducible PR-local defect.
 3. When #125 can be revisited, incorporate its remaining **44 upstream commits** on a separate integration branch, preserve fork-only patches, and run full off-host migration rehearsals including previously applied 194/223/224 → 900 mapping. **No production promotion** in this task.
 4. In a disposable off-host Git checkout, use `git merge-base`, `git log --left-right --cherry-pick`, `git cherry`, `git diff --stat`, and `git patch-id --stable` against current upstream. Exclude merged PRs and already open heads, and inspect only selected small unported code patches; verify equivalent upstream behavior after squash/rebase.
