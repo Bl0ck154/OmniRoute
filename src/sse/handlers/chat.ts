@@ -98,7 +98,6 @@ import {
   evictSessionAccountAffinityForConnectionAsync as evictSessionAccountAffinityForConnection,
 } from "@/lib/db/sessionAccountAffinity";
 import { dispatchChatWithAffinityEviction } from "./chatDispatch";
-import { resolveInternalUpstreamStartTimeoutMs } from "../services/internalUpstreamStartTimeout";
 import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
 import { getSettings } from "@/lib/db/settings";
 import { resolveAntigravitySettings, DEFAULT_ANTIGRAVITY_RESILIENCE } from "@/lib/resilience/antigravitySettings";

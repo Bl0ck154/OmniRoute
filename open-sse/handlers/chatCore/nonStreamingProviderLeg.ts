@@ -35,7 +35,6 @@ import { sanitizeUsagePayloadForRequest } from "../../utils/usageTracking.ts";
 import { createErrorResult, formatProviderError } from "../../utils/error.ts";
 import { isLocalStreamLifecycleError } from "@/shared/utils/circuitBreaker";
 import { isAntigravityPreResponseTimeout } from "../../services/antigravityTimeout.ts";
-import { ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE } from "../../config/constants.ts";
 import {
   ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE,
   REQUEST_SCOPED_UPSTREAM_TIMEOUT_CODE,
