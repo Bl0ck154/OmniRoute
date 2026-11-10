@@ -7,6 +7,10 @@ import {
 import type { JsonRecord, ResilienceSettings, ResilienceSettingsPatch } from "./settings/types";
 import { DEFAULT_ANTIGRAVITY_RESILIENCE, normalizeAntigravitySettings } from "./antigravitySettings";
 import {
+  normalizePreferredFailoverSettings,
+  readPreferredFailoverSettings,
+} from "@/sse/services/preferredConnectionFailover";
+import {
   asRecord,
   toBoolean,
   toInteger,
@@ -86,6 +90,7 @@ export const DEFAULT_REQUEST_QUEUE_MAX_DEPTH = (() => {
 
 export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
   antigravity: DEFAULT_ANTIGRAVITY_RESILIENCE,
+  preferredAccountFailover: readPreferredFailoverSettings(),
   antigravityTimingTelemetry: {
     enabled: process.env.OMNIROUTE_ANTIGRAVITY_TIMING_TELEMETRY === "true",
   },
@@ -367,6 +372,7 @@ function buildLegacyFallback(settings: JsonRecord): ResilienceSettings {
     streamRecovery: streamRecoveryDefaults,
     providerQuotaOverrides: DEFAULT_RESILIENCE_SETTINGS.providerQuotaOverrides,
     credentialHealthCheck: DEFAULT_RESILIENCE_SETTINGS.credentialHealthCheck,
+    preferredAccountFailover: DEFAULT_RESILIENCE_SETTINGS.preferredAccountFailover,
     antigravityTimingTelemetry: DEFAULT_RESILIENCE_SETTINGS.antigravityTimingTelemetry,
   };
 }
@@ -408,6 +414,10 @@ export function resolveResilienceSettings(
 
   const resolved: ResilienceSettings = {
     antigravity: normalizeAntigravitySettings(current.antigravity),
+    preferredAccountFailover: normalizePreferredFailoverSettings(
+      current.preferredAccountFailover,
+      fallback.preferredAccountFailover
+    ),
     antigravityTimingTelemetry: normalizeAntigravityToggle(
       current.antigravityTimingTelemetry,
       legacyAntigravitySettings.timingTelemetryEnabled,
@@ -472,8 +482,14 @@ export function mergeResilienceSettings(
 ): ResilienceSettings {
   return {
     antigravity: normalizeAntigravitySettings(updates.antigravity, current.antigravity),
+    preferredAccountFailover: normalizePreferredFailoverSettings(
+      updates.preferredAccountFailover,
+      current.preferredAccountFailover
+    ),
     antigravityTimingTelemetry: normalizeAntigravityToggle(
-      updates.antigravityTimingTelemetry, undefined, current.antigravityTimingTelemetry.enabled
+      updates.antigravityTimingTelemetry,
+      undefined,
+      current.antigravityTimingTelemetry.enabled
     ),
     requestQueue: normalizeRequestQueueSettings(updates.requestQueue, current.requestQueue),
     connectionCooldown: normalizeCooldownProfiles(

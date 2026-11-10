@@ -150,6 +150,7 @@ export async function GET(request?: Request) {
       antigravity: resilience.antigravity,
       antigravityTimingTelemetry: resilience.antigravityTimingTelemetry,
       requestQueue: resilience.requestQueue,
+      preferredAccountFailover: resilience.preferredAccountFailover,
       connectionCooldown: resilience.connectionCooldown,
       providerBreaker: resilience.providerBreaker,
       tokenRefreshBreaker: resilience.tokenRefreshBreaker,
@@ -213,6 +214,12 @@ export async function PATCH(request) {
     const sparseBase = resolveResilienceSettings(currentSettings);
     const mergedFull = mergeResilienceSettings(sparseBase, {
       ...(body.antigravity ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] } : {}),
+      ...(body.preferredAccountFailover
+        ? {
+            preferredAccountFailover:
+              body.preferredAccountFailover as ResilienceSettingsPatch["preferredAccountFailover"],
+          }
+        : {}),
       ...(body.antigravityTimingTelemetry
         ? {
             antigravityTimingTelemetry:
@@ -323,6 +330,7 @@ export async function PATCH(request) {
       antigravity: nextResilience.antigravity,
       antigravityTimingTelemetry: nextResilience.antigravityTimingTelemetry,
       requestQueue: nextResilience.requestQueue,
+      preferredAccountFailover: nextResilience.preferredAccountFailover,
       connectionCooldown: nextResilience.connectionCooldown,
       providerBreaker: nextResilience.providerBreaker,
       tokenRefreshBreaker: nextResilience.tokenRefreshBreaker,

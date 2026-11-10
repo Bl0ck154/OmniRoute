@@ -20,6 +20,7 @@ import { getModelSpec } from "../../../src/shared/constants/modelSpecs.ts";
 import {
   gemini38ThinkingConfig,
   isGeminiThinkingLevelModel,
+  resolveNativeGeminiThinking,
 } from "../../services/thinkingBudget.ts";
 
 import {
@@ -111,66 +112,6 @@ type GeminiRequest = {
 };
 
 type GeminiThinkingLevel = "minimal" | "low" | "medium" | "high";
-type ResolvedGeminiThinking = { level: GeminiThinkingLevel; includeThoughts: boolean };
-
-function resolveNativeGeminiThinkingLevel(
-  model: string,
-  body: Record<string, unknown>,
-  explicitThinkingLevel: GeminiThinkingLevel | null
-): ResolvedGeminiThinking | null {
-  const spec = getModelSpec(model);
-  const supported = spec?.geminiThinkingLevels;
-  if (!supported?.length) return null;
-  // The operator's explicit Gemini 3 thinkingLevel takes precedence over
-  // a translated OpenAI effort or the model default.
-  if (explicitThinkingLevel && supported.includes(explicitThinkingLevel)) {
-    return { level: explicitThinkingLevel, includeThoughts: true };
-  }
-
-  const reasoning: Record<string, unknown> =
-    body.reasoning && typeof body.reasoning === "object"
-      ? (body.reasoning as Record<string, unknown>)
-      : {};
-  const rawEffort = body.reasoning_effort ?? reasoning.effort;
-  if (typeof rawEffort === "string") {
-    const effort = rawEffort.trim().toLowerCase();
-    const mapped: GeminiThinkingLevel | null =
-      effort === "none" || effort === "minimal"
-        ? "minimal"
-        : effort === "low" || effort === "medium" || effort === "high"
-          ? effort
-          : effort === "xhigh" || effort === "max" || effort === "auto"
-            ? "high"
-            : null;
-    if (mapped && supported.includes(mapped)) {
-      return { level: mapped, includeThoughts: effort !== "none" };
-    }
-  }
-
-  const thinking: Record<string, unknown> =
-    body.thinking && typeof body.thinking === "object"
-      ? (body.thinking as Record<string, unknown>)
-      : {};
-  if (body.thinking === false || thinking.type === "disabled") {
-    const level = supported.includes("minimal") ? "minimal" : spec?.defaultGeminiThinkingLevel;
-    return level && supported.includes(level) ? { level, includeThoughts: false } : null;
-  }
-  const rawBudget = thinking.budget_tokens ?? thinking.budgetTokens;
-  if (typeof rawBudget === "number" && Number.isFinite(rawBudget)) {
-    const mapped: GeminiThinkingLevel =
-      rawBudget <= 0 ? "minimal" : rawBudget <= 1024 ? "low" : rawBudget <= 8192 ? "medium" : "high";
-    if (supported.includes(mapped)) {
-      return { level: mapped, includeThoughts: rawBudget > 0 };
-    }
-  }
-
-  const level =
-    spec?.defaultGeminiThinkingLevel && supported.includes(spec.defaultGeminiThinkingLevel)
-      ? spec.defaultGeminiThinkingLevel
-      : supported[0];
-  return level ? { level, includeThoughts: true } : null;
-}
-
 // Convert OpenAI tool_choice into Gemini's functionCallingConfig mode. Mirrors
 // convertOpenAIToolChoice in openai-to-claude.ts (same enum shapes from the client).
 // Gemini's modes: AUTO (model decides), ANY (must call a function — OpenAI's
@@ -345,14 +286,9 @@ function openaiToGeminiBase(
   // Do not attach thinkingConfig to image, TTS or transcription models:
   // they reject the entire field, including a native thinkingLevel.
   const rejectsThinkingConfig = geminiModelRejectsThinkingConfig(model);
-  const nativeThinkingLevel = rejectsThinkingConfig
-    ? null
-    : resolveNativeGeminiThinkingLevel(model, body, explicitThinkingLevel);
-  if (nativeThinkingLevel !== null) {
-    result.generationConfig.thinkingConfig = {
-      thinkingLevel: nativeThinkingLevel.level,
-      includeThoughts: nativeThinkingLevel.includeThoughts,
-    };
+  const nativeThinking = rejectsThinkingConfig ? null : resolveNativeGeminiThinking(model, body);
+  if (nativeThinking !== null) {
+    result.generationConfig.thinkingConfig = nativeThinking;
   } else if (model.startsWith("gemma-4") || rejectsThinkingConfig) {
     // gemma-4 models returns - 400: Thinking budget is not supported for this model
   } else {

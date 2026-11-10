@@ -98,7 +98,6 @@ import {
   evictSessionAccountAffinityForConnectionAsync as evictSessionAccountAffinityForConnection,
 } from "@/lib/db/sessionAccountAffinity";
 import { dispatchChatWithAffinityEviction } from "./chatDispatch";
-import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
 import { getSettings } from "@/lib/db/settings";
 import { resolveAntigravitySettings, DEFAULT_ANTIGRAVITY_RESILIENCE } from "@/lib/resilience/antigravitySettings";
 import { antigravityHealth } from "@omniroute/open-sse/services/antigravityHealth";
@@ -111,6 +110,8 @@ import { comboCheckProvider, ghComboGate } from "./chat/githubLiveCatalogFilter.
 import { markEmergencyFallback } from "./emergencyFallbackHeader.ts";
 import { resolveEmergencyFallbackDecision } from "./emergencyFallbackHeader.ts";
 import { resolveInternalUpstreamStartTimeoutMs } from "../services/internalUpstreamStartTimeout";
+import { resolveResilienceSettings } from "@/lib/resilience/settings";
+import { resolvePreferredConnectionUpstreamStartTimeoutMs } from "../services/preferredConnectionFailover";
 import { evaluateComboTargetPreflight } from "./chat/comboTargetKeyPolicy.ts";
 import * as resolvedPolicy from "./chat/resolvedModelPolicy.ts";
 import { recordGateRejection, recordQuotaParkedSkip } from "./quotaParkedSkipUsage";
@@ -1761,9 +1762,13 @@ async function handleSingleModelChat(
   });
 
   const userAgent = request?.headers?.get("user-agent") || "";
-  const baseRetrySettings = resolveCooldownAwareRetrySettings(
-    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})))
-  );
+  const cachedRuntimeSettings =
+    runtimeOptions.cachedSettings ?? (await getCachedSettings().catch(() => ({})));
+  const baseRetrySettings = resolveCooldownAwareRetrySettings(cachedRuntimeSettings);
+  // The read cache invalidates on settings writes (up to its 5s TTL).
+  // No restart is needed for newly dispatched chat requests.
+  const preferredFailoverSettings =
+    resolveResilienceSettings(cachedRuntimeSettings).preferredAccountFailover;
   const retrySettings = disableCooldownAwareRetry(
     baseRetrySettings,
     provider === "claude-web" ||
@@ -1802,6 +1807,9 @@ async function handleSingleModelChat(
   // STREAM_EARLY_EOF_SIBLING_FAILOVER_ENABLED: at most ONE sibling hop per request. Keeps the
   // original early-EOF 502 so an exhausted sibling pool surfaces it verbatim (combo detection).
   let earlyEofOriginal: Response | null = null;
+  // Preferred connection start timeout is a single-hop routing hint, never a cooldown.
+  let preferredTimeoutOriginal: Response | null = null;
+  let preferredFailoverUsed = false;
   const sameAccountTransportRetries = new Map<string, number>();
   // Snapshot once per NEW request, bypassing inherited combo settings snapshots.
   const antigravitySettings = provider === "antigravity" || provider === "agy"
@@ -1965,6 +1973,7 @@ async function handleSingleModelChat(
         "allExpired" in credentials ||
         !credentials.connectionId
       ) {
+        if (preferredTimeoutOriginal) return preferredTimeoutOriginal;
         if (lastAntigravityTimeoutResponse) return lastAntigravityTimeoutResponse;
         if (earlyEofOriginal) return withRoutingTelemetry(earlyEofOriginal, null);
         if (!credentials?.allRateLimited && agy.earliestRetryHintAtMs !== null)
@@ -2260,6 +2269,36 @@ async function handleSingleModelChat(
       }
       const antigravityHealthAttempt = healthTicket
         ? bindAntigravityHealthAttempt(healthTicket, requestSignal) : undefined;
+      // A preferred API-key account can be given one shorter time-to-headers
+      // deadline when a vetted sibling exists. Pins/leases/combo/Muse are excluded.
+      const legacyAntigravityPreferredPolicy =
+        (provider === "antigravity" || provider === "agy") && !preferredFailoverSettings.enabled
+          ? {
+              ...preferredFailoverSettings,
+              enabled: true,
+              providerTimeoutsMs: {
+                ...preferredFailoverSettings.providerTimeoutsMs,
+                antigravity: antigravitySettings.preferredTimeoutMs,
+              },
+              modelTimeoutsMs: {
+                ...preferredFailoverSettings.modelTimeoutsMs,
+                "antigravity/gemini-3.8-flash*": antigravitySettings.gemini38PreferredTimeoutMs,
+              },
+            }
+          : preferredFailoverSettings;
+      const preferredDeadline = resolvePreferredConnectionUpstreamStartTimeoutMs(
+        provider,
+        credentials,
+        requestUpstreamStartTimeoutMs,
+        effectiveModel,
+        preferredFailoverUsed ||
+          hasForcedConnection ||
+          runtimeOptions.managedLease ||
+          museOwner ||
+          isCombo
+          ? { ...legacyAntigravityPreferredPolicy, enabled: false }
+          : legacyAntigravityPreferredPolicy
+      );
       // 4. Execute chat via core after breaker gate checks (with optional TLS tracking)
       if (telemetry) telemetry.startPhase("connect");
       let execution: Awaited<ReturnType<typeof dispatchChatWithAffinityEviction>>;
@@ -2313,13 +2352,7 @@ async function handleSingleModelChat(
             videoBridgeLog: runtimeOptions.videoBridgeLog,
             previousResponseResumed: runtimeOptions.previousResponseResumed,
             fallbackAttempts: runtimeOptions.fallbackAttempts,
-            requestUpstreamStartTimeoutMs: resolvePreferredConnectionUpstreamStartTimeoutMs(
-              provider,
-              credentials,
-              requestUpstreamStartTimeoutMs,
-              effectiveModel,
-              antigravitySettings
-            ),
+            requestUpstreamStartTimeoutMs: preferredDeadline.timeoutMs,
             beforeUpstreamAttempt:
               museOwner && muse.museBeforeUpstreamAttempt(museOwner, credentials),
             forcedConnectionId: hasForcedConnection ? forcedConnectionId : null, // #14116
@@ -2416,9 +2449,27 @@ async function handleSingleModelChat(
         releaseOAuthSession();
         return successResponse;
       }
-      // A trusted request's shorter deadline is local to this caller. Do not
-      // penalize or rotate a healthy shared connection, even for Muse traffic.
+      // A trusted caller's deadline must not cool a shared connection.
+      // A shorter *preferred* deadline may perform one in-request sibling hop,
+      // without recording a connection failure or evicting session affinity.
       if (result.errorCode === REQUEST_SCOPED_UPSTREAM_TIMEOUT_CODE) {
+        if (
+          preferredDeadline.mayRotateOnRequestTimeout &&
+          !preferredFailoverUsed &&
+          requestSignal?.aborted !== true
+        ) {
+          preferredFailoverUsed = true;
+          preferredTimeoutOriginal = withSelectedConnectionHeader(
+            result.response,
+            credentials.connectionId
+          );
+          excludedConnectionIds.add(credentials.connectionId);
+          log.info(
+            "AUTH",
+            "Preferred account response-start timed out; trying one eligible sibling"
+          );
+          continue;
+        }
         return withSelectedConnectionHeader(result.response, credentials.connectionId);
       }
       // Never let generic account fallback or affinity eviction move a Muse caller.

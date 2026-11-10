@@ -13,6 +13,8 @@ import { NumberField, BooleanField } from "./ResilienceFields";
 import { throwIfResilienceSaveFailed } from "./resilienceSaveError";
 import AntigravityResilienceCard from "./AntigravityResilienceCard";
 import type { AntigravityResilienceSettings } from "@/lib/resilience/antigravitySettings";
+import PreferredAccountFailoverCard from "./PreferredAccountFailoverCard";
+import type { PreferredAccountFailoverSettings } from "@/lib/resilience/settings/types";
 import AntigravityTimingTelemetryCard, {
   type AntigravityTimingTelemetryValue,
 } from "./AntigravityTimingTelemetryCard";
@@ -71,6 +73,7 @@ export type ProviderCooldownSettings = {
 
 type ResilienceResponse = {
   antigravity?: AntigravityResilienceSettings;
+  preferredAccountFailover?: PreferredAccountFailoverSettings;
   antigravityTimingTelemetry?: AntigravityTimingTelemetryValue;
   requestQueue: RequestQueueSettings;
   connectionCooldown: {
@@ -92,6 +95,7 @@ type ResilienceResponse = {
 function toResilienceResponse(json: ResilienceResponse): ResilienceResponse {
   return {
     antigravity: json.antigravity,
+    preferredAccountFailover: json.preferredAccountFailover,
     antigravityTimingTelemetry: json.antigravityTimingTelemetry,
     requestQueue: json.requestQueue,
     connectionCooldown: json.connectionCooldown,
@@ -1226,6 +1230,15 @@ export default function ResilienceTab() {
       {data.antigravity && (
         <AntigravityResilienceCard value={data.antigravity} saving={savingSection === "antigravity"}
           onSave={(antigravity) => savePatch("antigravity", { antigravity })} />
+      )}
+      {data.preferredAccountFailover && (
+        <PreferredAccountFailoverCard
+          value={data.preferredAccountFailover}
+          saving={savingSection === "preferredAccountFailover"}
+          onSave={(preferredAccountFailover) =>
+            savePatch("preferredAccountFailover", { preferredAccountFailover })
+          }
+        />
       )}
       {data.antigravityTimingTelemetry && (
         <AntigravityTimingTelemetryCard

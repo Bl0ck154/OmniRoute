@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   ANTIGRAVITY_PREFERRED_FAILOVER_START_TIMEOUT_MS,
-  resolvePreferredConnectionUpstreamStartTimeoutMs,
+  resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs,
 } from "../../src/sse/services/preferredConnectionFailover.ts";
 import {
   isRequestScopedUpstreamFailure,
@@ -12,7 +12,7 @@ import {
 
 test("Antigravity preferred account with a sibling gets a bounded start timeout", () => {
   assert.equal(
-    resolvePreferredConnectionUpstreamStartTimeoutMs("antigravity", {
+    resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs("antigravity", {
       selectedByApiKeyPreference: true,
       preferredFallbackAvailable: true,
     }),
@@ -22,7 +22,7 @@ test("Antigravity preferred account with a sibling gets a bounded start timeout"
 
 test("preferred failover cap never lengthens a stricter trusted request hint", () => {
   assert.equal(
-    resolvePreferredConnectionUpstreamStartTimeoutMs(
+    resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs(
       "antigravity",
       { selectedByApiKeyPreference: true, preferredFallbackAvailable: true },
       3_000
@@ -33,14 +33,14 @@ test("preferred failover cap never lengthens a stricter trusted request hint", (
 
 test("no preferred sibling means no implicit start timeout", () => {
   assert.equal(
-    resolvePreferredConnectionUpstreamStartTimeoutMs("antigravity", {
+    resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs("antigravity", {
       selectedByApiKeyPreference: true,
       preferredFallbackAvailable: false,
     }),
     undefined
   );
   assert.equal(
-    resolvePreferredConnectionUpstreamStartTimeoutMs(
+    resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs(
       "codex",
       { selectedByApiKeyPreference: true, preferredFallbackAvailable: true },
       4_000
