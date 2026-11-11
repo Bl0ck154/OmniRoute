@@ -1,5 +1,7 @@
 # Fork patch register — Bl0ck154/OmniRoute
 
+> **Current contribution status:** [Upstream port status](../UPSTREAM_PORT_STATUS.md) tracks verified upstream PRs, fork synchronization, CI blockers and next actions. Historical counts and SHA references below are dated snapshots, not live status.
+
 **Late 2026-11-03 migration correction:** Upstream now owns SQL versions 223 (call-log queue wait) and 224 (per-family proxy egress IPs). The fork-owned proxy attempt timing migration uses **900** to avoid recurring adjacent-version collisions. Both previously shipped ledger identities, 223 and 224 with name `proxy_logs_attempt_timing`, reconcile to 900 before the official migrations run; synthetic tests cover both upgrade paths.
 
 **Update 2026-11-03:** Fresh upstream integration analysis and a source-delta inventory are in [UPSTREAM_SYNC_AUDIT_20261103.md](UPSTREAM_SYNC_AUDIT_20261103.md). The historical 2026-10-24 table below is deliberately unchanged. Upstream PRs **#18040** and **#18052** merged on 2026-10-25, followed by Gemini accounting **#18100** and migration repair **#18096**. Of 19 upstream PRs authored by Bl0ck154, 16 are merged and 3 remain open as of this check. Do not promote or deploy the new integration until off-host CI and synthetic historical SQLite migration tests pass.
