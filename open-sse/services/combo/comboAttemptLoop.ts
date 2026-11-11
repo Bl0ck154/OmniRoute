@@ -148,6 +148,12 @@ async function computeEarliestSkippedRateLimitedUntil(
   }
 }
 
+/** Pinned lookups stay exact. An empty connection id scans every account. */
+function lookupComboModelLockout(provider: string, connectionId: string, rawModel: string) {
+  if (!connectionId) return scanTransientModelLock(provider, rawModel);
+  return getModelLockoutInfo(provider, connectionId, rawModel);
+}
+
 /**
  * Resolve the earliest TRANSIENT model-lockout expiry across the skipped
  * targets (#16319). `computeEarliestSkippedRateLimitedUntil` only reads
@@ -184,12 +190,6 @@ async function computeEarliestSkippedModelLockUntil(
 }
 
 /** Earliest of two optional ISO instants (null-safe). */
-/** Pinned lookups stay exact. An empty connection id scans every account. */
-function lookupComboModelLockout(provider: string, connectionId: string, rawModel: string) {
-  if (!connectionId) return scanTransientModelLock(provider, rawModel);
-  return getModelLockoutInfo(provider, connectionId, rawModel);
-}
-
 function earliestIsoInstant(a: string | null, b: string | null): string | null {
   if (a && b) return Date.parse(a) <= Date.parse(b) ? a : b;
   return a || b;
