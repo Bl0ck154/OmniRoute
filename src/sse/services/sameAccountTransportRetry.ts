@@ -36,6 +36,8 @@ const RETRYABLE_TRANSPORT_TEXT = [
 ];
 
 // 499 = client closed request; 4xx auth/quota/validation errors never succeed on a replay.
+const NON_RETRYABLE_TRANSPORT_STATUSES = new Set([499, 429, 401, 400]);
+
 const NON_RETRYABLE_ERROR_TYPES = new Set([
   "lease_error",
   "account_semaphore_capacity",
@@ -51,17 +53,8 @@ export function isRetryablePreOutputTransportError(
   status: unknown,
   errorText: string | null | undefined,
   errorCode?: string | null,
-  errorType?: string | null,
-  provider?: string | null
+  errorType?: string | null
 ): boolean {
-  // Timeouts already spent their waiting budget. They must reach account fallback,
-  // including callers outside chat.ts's specialized Antigravity branch.
-  if (errorCode === "ANTIGRAVITY_PRE_RESPONSE_TIMEOUT" || errorType === "upstream_timeout") {
-    return false;
-  }
-  if ((provider === "antigravity" || provider === "agy") && Number(status) === 504) {
-    return false;
-  }
   if (errorType && NON_RETRYABLE_ERROR_TYPES.has(errorType)) return false;
   if (errorCode && String(errorCode).startsWith("LEASE_")) return false;
   // #18019: a missing/unsafe local executor config fails the same way on a replay.
@@ -69,7 +62,7 @@ export function isRetryablePreOutputTransportError(
 
   const text = String(errorText || "");
   const numericStatus = Number(status);
-  if (numericStatus === 499 || numericStatus === 429 || numericStatus === 401 || numericStatus === 400) return false;
+  if (NON_RETRYABLE_TRANSPORT_STATUSES.has(numericStatus)) return false;
   if (/quota (threshold|exhausted)|credits exhausted/i.test(text)) return false;
   if (/invalid_request|prompt is too long|context.?length|unsupported model/i.test(text)) {
     return false;
@@ -94,6 +87,7 @@ export function sameAccountTransportRetryDelayMs(random: () => number = Math.ran
 }
 
 export function shouldRetrySameAccountTransport(options: {
+  provider?: string;
   status: unknown;
   errorText?: string | null;
   errorCode?: string | null;
@@ -101,7 +95,6 @@ export function shouldRetrySameAccountTransport(options: {
   attempt: number;
   hasForcedConnection?: boolean;
   hasEmittedOutput?: boolean;
-  provider?: string | null;
 }): boolean {
   if (options.hasForcedConnection) return false;
   if (options.hasEmittedOutput) return false;
@@ -120,8 +113,7 @@ export function shouldRetrySameAccountTransport(options: {
     options.status,
     options.errorText,
     options.errorCode,
-    options.errorType,
-    options.provider
+    options.errorType
   );
 }
 

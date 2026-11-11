@@ -541,6 +541,7 @@ async function saveCallLogOperation(entry: any, metadataOnly = false): Promise<v
     }
   }
 }
+
 type PreparedCallLogRow = {
   metadataOnly: boolean;
   db: ReturnType<typeof getDbInstance>;
