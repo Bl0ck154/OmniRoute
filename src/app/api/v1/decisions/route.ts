@@ -20,6 +20,7 @@ import { errorResponse, sanitizeErrorMessage } from "@omniroute/open-sse/utils/e
 import { saveCallLog } from "@/lib/usageDb";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
+import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 
 export const dynamic = "force-dynamic";
 const PROVIDER = "gemini";
@@ -45,10 +46,12 @@ function jsonSuccess(body: Record<string, unknown>, duration: number, attempts: 
   attachOmniRouteMetaHeaders(headers, {
     provider: PROVIDER,
     model: GEMINI_DECISION_MODEL,
-    costUsd: 0, // No invented billing: upstream reports tokens, not a dollar price.
+    usage: { input: geminiDecisionInputTokens(body), output: 0 },
     latencyMs: duration,
     requestId: generateRequestId(),
   });
+  // Google reports token counts, not a dollar charge. Never advertise a false $0 cost.
+  headers.delete(OMNIROUTE_RESPONSE_HEADERS.responseCost);
   headers.set("X-OmniRoute-Decisions-Attempts", String(attempts));
   return new Response(JSON.stringify(body), { status: 200, headers });
 }
@@ -141,6 +144,7 @@ export async function POST(request: Request): Promise<Response> {
   let lastStatus = 503;
   let lastError = "No eligible Gemini credentials for Decisions API";
   let lastRetryAfter: string | null = null;
+  let lastCode: string | null = null;
 
   for (let selection = 0; selection < MAX_CREDENTIAL_SELECTIONS &&
     upstreamAttempts < MAX_UPSTREAM_ATTEMPTS; selection++) {
@@ -159,6 +163,7 @@ export async function POST(request: Request): Promise<Response> {
       return upstreamAttempts === 0 ? unavailable :
         errorResponse(lastStatus, lastError, lastRetryAfter ? {
           retryAfter: Number(lastRetryAfter) || undefined,
+          code: lastCode ?? undefined,
         } : undefined);
     }
     const credentials = selected as Credential;
@@ -188,6 +193,10 @@ export async function POST(request: Request): Promise<Response> {
     lastError = error ? sanitizeErrorMessage(error).slice(0, 350) :
       `Google Decisions returned HTTP ${response.status}`;
     lastRetryAfter = response.headers.get("retry-after");
+    const upstreamError = response.body?.error;
+    lastCode = upstreamError && typeof upstreamError === "object" && !Array.isArray(upstreamError) &&
+      typeof (upstreamError as Record<string, unknown>).code === "string"
+      ? (upstreamError as Record<string, string>).code : null;
 
     // Retry only account / transport failures. Input validation, policy and
     // content-safety refusals are not repaired by changing API keys.
@@ -209,5 +218,6 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return errorResponse(lastStatus, lastError, lastRetryAfter && /^\d+(?:\.\d+)?$/.test(lastRetryAfter)
-    ? { retryAfter: Number(lastRetryAfter) } : undefined);
+    ? { retryAfter: Number(lastRetryAfter), code: lastCode ?? undefined }
+    : { code: lastCode ?? undefined });
 }
