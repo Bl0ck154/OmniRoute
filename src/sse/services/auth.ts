@@ -879,6 +879,7 @@ async function materializeConnection(
     email: connection.email,
     connectionId: connection.id,
     testStatus: connection.testStatus,
+    lastErrorAt: connection.lastErrorAt,
     lastError: connection.lastError,
     lastErrorType: connection.lastErrorType,
     lastErrorSource: connection.lastErrorSource,
