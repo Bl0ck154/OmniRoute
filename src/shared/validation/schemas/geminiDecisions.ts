@@ -4,7 +4,7 @@ import { parseAndValidatePublicUrl } from "@/shared/network/outboundUrlGuard";
 
 export const GEMINI_DECISION_MODEL = "gemini-decision-1";
 export const GEMINI_DECISION_PUBLIC_MODEL = "gemini/gemini-decision-1";
-export const MAX_DECISIONS_REQUEST_BYTES = 105 * 1024 * 1024;
+export const MAX_DECISIONS_REQUEST_BYTES = 145 * 1024 * 1024;
 const MAX_INLINE_BYTES = 100 * 1024 * 1024;
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 
