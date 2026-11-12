@@ -32,6 +32,7 @@ jobs:
             --import ./open-sse/utils/setupPolyfill.ts \
             --import ./tests/_setup/isolateDataDir.ts \
             --test --test-force-exit --test-concurrency=2 \
+            tests/unit/gemini-decisions.test.ts \
             tests/unit/antigravity-claude-55-live-tier-ids.test.ts \
             tests/unit/gemini-38-thinking-level-output.test.ts \
             tests/unit/gemini-sse-cached-tokens-prompt-narrowing.test.ts \

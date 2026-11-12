@@ -190,6 +190,14 @@ export async function POST(request) {
         // never reads the request body a second time. See chatCompletionsRouteShapeSchema
         // for why this stays scoped to record-shaped bodies and deliberately permissive.
         if (isRecord(parsedBody)) {
+          // Gemini Decision 1 is a typed Decisions API model, not generateContent.
+          // Reject before entering the chat executor rather than leaking Google's 404.
+          if (
+            typeof parsedBody.model === "string" &&
+            ["gemini-decision-1", "gemini/gemini-decision-1"].includes(parsedBody.model.toLowerCase())
+          ) {
+            return finishAdmission(errorResponse(400, "Gemini Decision 1 requires POST /v1/decisions"));
+          }
           const shapeCheck = chatCompletionsRouteShapeSchema.safeParse(parsedBody);
           if (!shapeCheck.success) {
             const issue = shapeCheck.error.issues[0];
