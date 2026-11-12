@@ -120,6 +120,14 @@ export function getModelEndpointDecision(
   if (isDecisionsOnlyProvider(provider)) {
     return { kind: "non-chat", chatSelectable: false, reason: "provider-policy" };
   }
+  // Gemini Decision 1 only supports POST /v1beta/decisions, not generateContent.
+  // Existing imported rows may carry a synthetic ["chat"] endpoint: override it.
+  if (
+    provider?.trim().toLowerCase() === "gemini" &&
+    /^(?:gemini\\/)?gemini-decision-1$/i.test(modelId.trim())
+  ) {
+    return { kind: "non-chat", chatSelectable: false, reason: "provider-policy" };
+  }
   if (provider?.trim().toLowerCase() === "openrouter") {
     // Unconditional, unlike the OpenAI branch below: there is no "batch"
     // endpoint name an upstream could declare alongside a chat one, and the
