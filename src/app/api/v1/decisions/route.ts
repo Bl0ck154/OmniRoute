@@ -18,6 +18,7 @@ import {
 } from "@omniroute/open-sse/handlers/geminiDecisions.ts";
 import { errorResponse, sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
 import { saveCallLog } from "@/lib/usageDb";
+import { getProviderConnections } from "@/lib/db/providers";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
@@ -25,13 +26,16 @@ import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 export const dynamic = "force-dynamic";
 const PROVIDER = "gemini";
 const MAX_UPSTREAM_ATTEMPTS = 4;
-const MAX_CREDENTIAL_SELECTIONS = 16;
 const TOTAL_DEADLINE_MS = 45_000;
 
 type Credential = {
   apiKey?: string | null;
   connectionId?: string | null;
   projectId?: string | null;
+  id?: string | null;
+  testStatus?: string | null;
+  lastErrorAt?: string | null;
+  rateLimitedUntil?: string | null;
   providerSpecificData?: Record<string, unknown> | null;
 };
 
@@ -39,6 +43,19 @@ function projectIdOf(credentials: Credential): string | null {
   const data = credentials.providerSpecificData;
   const possible = credentials.projectId || data?.googleProjectId || data?.projectId;
   return typeof possible === "string" && possible.trim() ? possible.trim() : null;
+}
+
+/** Exclude all known sibling keys sharing an exhausted Google project's quota. */
+async function excludeProjectSiblings(project: string, excluded: Set<string>): Promise<void> {
+  try {
+    const connections = await getProviderConnections({ provider: PROVIDER });
+    for (const connection of connections) {
+      const sibling = connection as Credential;
+      if (projectIdOf(sibling) === project && sibling.id) excluded.add(sibling.id);
+    }
+  } catch {
+    // The normal selection still excludes each previously selected connection.
+  }
 }
 
 function jsonSuccess(body: Record<string, unknown>, duration: number, attempts: number): Response {
@@ -146,8 +163,10 @@ export async function POST(request: Request): Promise<Response> {
   let lastRetryAfter: string | null = null;
   let lastCode: string | null = null;
 
-  for (let selection = 0; selection < MAX_CREDENTIAL_SELECTIONS &&
-    upstreamAttempts < MAX_UPSTREAM_ATTEMPTS; selection++) {
+  // The selector always excludes every previously seen connection, so this
+  // terminates on pool exhaustion without starving healthy projects behind
+  // an arbitrary count of keys belonging to an exhausted project.
+  while (upstreamAttempts < MAX_UPSTREAM_ATTEMPTS) {
     if (request.signal.aborted) return errorResponse(499, "Client request cancelled");
     const remaining = TOTAL_DEADLINE_MS - (Date.now() - started);
     if (remaining <= 0) break;
@@ -175,6 +194,11 @@ export async function POST(request: Request): Promise<Response> {
     // project does NOT provide extra capacity. Unknown projects are not guessed.
     if (project && exhaustedProjects.has(project)) continue;
 
+    const recoverySnapshot = {
+      testStatus: credentials.testStatus ?? null,
+      lastErrorAt: credentials.lastErrorAt ?? null,
+      rateLimitedUntil: credentials.rateLimitedUntil ?? null,
+    };
     upstreamAttempts++;
     const response = await executeGeminiDecision({ model: body.model, input: body.input, questions: body.questions }, credentials.apiKey, {
       signal: request.signal,
@@ -184,7 +208,7 @@ export async function POST(request: Request): Promise<Response> {
     logAttempt(response.status, credentials, response.latencyMs, response.body, error);
 
     if (response.status === 200 && response.body) {
-      await clearRecoveredProviderState(credentials);
+      await clearRecoveredProviderState(credentials, recoverySnapshot);
       return jsonSuccess(response.body, Date.now() - started, upstreamAttempts);
     }
     if (response.status === 499) return errorResponse(499, "Client request cancelled");
@@ -202,7 +226,10 @@ export async function POST(request: Request): Promise<Response> {
     // content-safety refusals are not repaired by changing API keys.
     if (![401, 402, 403, 408, 429, 500, 502, 503, 504].includes(response.status)) break;
 
-    if (project && response.status === 429) exhaustedProjects.add(project);
+    if (project && response.status === 429) {
+      exhaustedProjects.add(project);
+      await excludeProjectSiblings(project, tried);
+    }
     if (connectionId !== "env:GEMINI_API_KEY") {
       try {
         await markAccountUnavailable(
