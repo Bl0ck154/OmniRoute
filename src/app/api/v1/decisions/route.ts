@@ -176,7 +176,7 @@ export async function POST(request: Request): Promise<Response> {
     if (project && exhaustedProjects.has(project)) continue;
 
     upstreamAttempts++;
-    const response = await executeGeminiDecision(body, credentials.apiKey, {
+    const response = await executeGeminiDecision({ model: body.model, input: body.input, questions: body.questions }, credentials.apiKey, {
       signal: request.signal,
       timeoutMs: Math.min(20_000, remaining),
     });
