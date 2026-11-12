@@ -124,7 +124,7 @@ export function getModelEndpointDecision(
   // Existing imported rows may carry a synthetic ["chat"] endpoint: override it.
   if (
     provider?.trim().toLowerCase() === "gemini" &&
-    /^(?:gemini\\/)?gemini-decision-1$/i.test(modelId.trim())
+    ["gemini-decision-1", "gemini/gemini-decision-1"].includes(modelId.trim().toLowerCase())
   ) {
     return { kind: "non-chat", chatSelectable: false, reason: "provider-policy" };
   }
