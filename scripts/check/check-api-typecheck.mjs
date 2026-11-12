@@ -88,7 +88,7 @@ function main() {
     process.exit(2);
   }
 
-  const live = parseTscOutput(stdout);
+  for (const line of stdout.split("\n")) {\n    if (line.includes("src/app/api/v1/decisions/route.ts")) console.error("[decisions-debug] " + line);\n  }\n  const live = parseTscOutput(stdout);
   const liveErrorCount = totalErrors(live);
   console.log(`apiTypecheckErrors=${liveErrorCount}`);
 
