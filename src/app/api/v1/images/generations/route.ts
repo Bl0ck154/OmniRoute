@@ -75,6 +75,7 @@ import {
 import { PLAYGROUND_IMAGE_STREAM_HEADER } from "@/shared/utils/playgroundImageStream";
 import { createPlaygroundImageStreamResponse } from "@/lib/playground/imageGenerationStream";
 import { isImageGenerationLongJobsEnabled } from "@/shared/utils/featureFlags";
+import { getImageLongJobOptions } from "@/lib/images/imageGenerationLongJobs";
 
 export const dynamic = "force-dynamic";
 
