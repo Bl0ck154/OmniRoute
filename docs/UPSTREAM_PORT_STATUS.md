@@ -1,28 +1,5 @@
 # Upstream port status — Bl0ck154/OmniRoute
 
-## Current checkpoint — 2026-11-16
-
-**Authoritative live snapshot; historical notes below are dated.** GitHub inventory: **49 merged, 21 open, 3 closed-unmerged** upstream PRs by `Bl0ck154`, including two newly opened PRs in this pass. Upstream `release/v3.8.54` at `225bedf8b5e2`; fork `production` at `5f1dd9f1fa72`; merge-base `b002cf45dcf1`. Historical counts of 22 open or 44 merged below are superseded.
-
-### New upstream ports
-
-- **[#20331](https://github.com/cheaper-inference/OmniRoute/pull/20331)** — `fix(gemini): normalize and validate explicit thinkingLevel overrides`, head `56892c1d6da0`, 2 files +52/−5; 3 translator regressions. Stops unsupported thinking-level strings reaching Gemini and normalizes valid casing. GitHub mergeable; exact-head API Route Typecheck and Semgrep passed; CI queued and Quality Gates in progress at checkpoint. Adapted **only the useful enum-validation hunk** from the fork to current upstream, not the older translator.
-- **[#20332](https://github.com/cheaper-inference/OmniRoute/pull/20332)** — `test(antigravity): prove exact quota locks span 3.7 tier aliases`, head `38a4fa4797ee`, 1 file +18/−1. The diff's stable patch-id matches the fork exactly: `8c136b80a4cd0b7174f1c11cd5dd8544f9adf057`. Existing runtime canonicalization stays untouched. GitHub mergeable; all exact-head CI jobs in progress at checkpoint.
-- Both PR branches are based on upstream `225bedf8b5e2`, pushed without force, with no live worktree edits or production changes. Never infer green CI from mere mergeability.
-
-### Accepted upstream changes since last checkpoint
-
-- **Merged 2026-11-12:** false global 503 [#18733](https://github.com/cheaper-inference/OmniRoute/pull/18733), API-key-scoped image credential fallback [#19165](https://github.com/cheaper-inference/OmniRoute/pull/19165), Codex hosted-image quota [#19134](https://github.com/cheaper-inference/OmniRoute/pull/19134), Combo account binding [#19171](https://github.com/cheaper-inference/OmniRoute/pull/19171), CLI diagnostics [#19590](https://github.com/cheaper-inference/OmniRoute/pull/19590). Do not port or fix these again. Additional accepted PRs may exist; recheck GitHub.
-
-### Remaining fork deltas — content triage
-
-- After excluding paths touched by the **19 upstream PRs that were already open before this pass**, 970 executable-code files differ across current fork/upstream trees. Most are new **upstream-only** changes: among 937 non-overlapping paths, **912 changed only upstream**, **15 only in the fork**, **10 on both sides** since the common ancestor. These are path counts, **not unported-patch counts**.
-- Ported in this pass: the isolated Gemini explicit-level validation and the missing Antigravity 3.7 tier-quota regression.
-- **Do not blindly port:** `orderForgeImageArtifactSink.ts` / streaming hooks (fork-specific), SQLite migrations 194/900 (fork compatibility), old Antigravity model registry (diverged/retired catalog), or stale monolithic `withSelectedConnectionHeader` over upstream's newer module.
-- **Needs semantic review before any extra PR:** fork Antigravity hot-settings UI / connection health additions versus open [#19132](https://github.com/cheaper-inference/OmniRoute/pull/19132); fresh Codex quota query helper versus [#19167](https://github.com/cheaper-inference/OmniRoute/pull/19167) and already merged image quota code; changed-on-both-side routing/migration files. Avoid stacked or redundant PRs.
-- **Next actions:** inspect exact-head CI / maintainer reviews of #20331 and #20332, fix only real introduced regressions, then review the remaining fork-only groups against current upstream and existing PRs. No builds/tests on production VPS; GitHub Actions provides off-host validation.
-
----
 
 Verified **2026-11-16** against GitHub and local partial-clone Git refs. Source tracking only; **no production deployment is authorized**. For patch history, see [FORK_PATCH_REGISTER.md](maintenance/FORK_PATCH_REGISTER.md) and [UPSTREAM_UPGRADE_RUNBOOK.md](maintenance/UPSTREAM_UPGRADE_RUNBOOK.md).
 
@@ -59,11 +36,12 @@ The missing `getImageLongJobOptions` import repaired by fork [#141](https://gith
 | P1 | [#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) Codex opt-in plan header: **conflict repaired and non-force pushed** as `d3fed137913c` on Nov 16. Kept upstream no-replay behavior; the PR-relative patch is seven files with its regression test, and relative `git diff --check` passed. Renewed CI is pending/unstable; no build was run on the VPS. |
 | P1 | [#19167](https://github.com/cheaper-inference/OmniRoute/pull/19167) Codex image quota header; [#19258](https://github.com/cheaper-inference/OmniRoute/pull/19258) preferred timeout telemetry; [#19680](https://github.com/cheaper-inference/OmniRoute/pull/19680) async probe test isolation; [#19681](https://github.com/cheaper-inference/OmniRoute/pull/19681) stale Combo badges. Check exact-head CI failures and resolved review threads before pushing changes. |
 | P1 | [#19940](https://github.com/cheaper-inference/OmniRoute/pull/19940) Gemini free-tier catalog: clean, 31 successful checks. Maintainer's new derived-count policy and the generated SVG count/test interaction remain a review topic; don't rewrite managed counts in a feature PR. |
-| P1 | [#20331](https://github.com/cheaper-inference/OmniRoute/pull/20331) explicit Gemini thinkingLevel normalization; [#20332](https://github.com/cheaper-inference/OmniRoute/pull/20332) Antigravity 3.7 alias quota tests; [#19890](https://github.com/cheaper-inference/OmniRoute/pull/19890) AgY timeout marker; [#19874](https://github.com/cheaper-inference/OmniRoute/pull/19874) expired Responses count. All open; do not duplicate. |
+| P1 | [#20331](https://github.com/cheaper-inference/OmniRoute/pull/20331) Gemini explicit thinkingLevel normalization (2 files, +52/−5, three translator regressions, head `56892c1d6da0`, API Typecheck and Semgrep passed; other CI in progress); [#20332](https://github.com/cheaper-inference/OmniRoute/pull/20332) Antigravity 3.7 tier-alias quota test (1 file, +18/−1, exact fork patch-id `8c136b80a4cd`, head `38a4fa4797ee`, Typecheck passed; other CI in progress); [#19890](https://github.com/cheaper-inference/OmniRoute/pull/19890) AgY timeout marker; [#19874](https://github.com/cheaper-inference/OmniRoute/pull/19874) expired Responses count. All open; do not duplicate. |
 | P2 / tests | [#18738](https://github.com/cheaper-inference/OmniRoute/pull/18738) GPT-6.1 Terra; [#19948](https://github.com/cheaper-inference/OmniRoute/pull/19948), [#19949](https://github.com/cheaper-inference/OmniRoute/pull/19949), [#19950](https://github.com/cheaper-inference/OmniRoute/pull/19950), [#19865](https://github.com/cheaper-inference/OmniRoute/pull/19865), [#19866](https://github.com/cheaper-inference/OmniRoute/pull/19866), [#19867](https://github.com/cheaper-inference/OmniRoute/pull/19867). Most have old red quality/lint checks; distinguish shared baseline failures from introduced regressions. |
 
 ## Still to triage / not to port
 
+- **This pass (Nov 16):** ported the fork's valid explicit Gemini thinking-level normalization to upstream #20331 without copying old translator code; ported the exact Antigravity 3.7 quota-lock alias regression as test-only #20332. Both branch merges verified clean; no server builds/tests/deployment. The old fork-only counters are not unported-patch counts.
 - At pinned refs, **50** fork-touched runtime TS/JS paths were detected: **29** not changed along the upstream path since the common ancestor, **21** changed on both sides. Many are already represented by open PRs, upstream-equivalent changes, or fork-only integrations. The path count is **not** a count of unported patches.
 - Target content-level triage: `open-sse/config/providers/registry/github/index.ts`, `open-sse/handlers/imageResult.ts`, `open-sse/translator/request/openai-to-gemini/helpers.ts`. Compare actual behavior and tests to upstream and existing PRs; propose a new PR only for independently missing, reproducible behavior.
 - Keep Order Forge's `orderForgeImageArtifactSink.ts` and legacy SQLite 194/900 compatibility in the fork unless upstream expressly requires them. Do not restore old Antigravity model catalogs wholesale.
