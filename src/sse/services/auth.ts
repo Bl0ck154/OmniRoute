@@ -2482,27 +2482,15 @@ async function applyEgressIpLockout(
   }
 }
 
+type ExhaustionOptions = NonNullable<Parameters<typeof markAccountUnavailable>[6]>;
+
 /** Build the options for markAccountUnavailable on the chat exhaustion path.
  * Single place that forwards the request id so no chat sender can forget it:
  * every chat caller passes its in-scope id through here. */
 export function buildExhaustionOptions(
   correlationId: string | null,
-  rest: {
-    persistUnavailableState?: boolean;
-    /** Caller is the combo engine — it records its own model-level lockouts. */
-    isCombo?: boolean;
-    headers?: Headers | Record<string, string> | null;
-    structuredError?: { code?: string | null; type?: string | null } | null;
-    streamOutputEmitted?: boolean;
-  } = {}
-): {
-  persistUnavailableState?: boolean;
-  isCombo?: boolean;
-  headers?: Headers | Record<string, string> | null;
-  structuredError?: { code?: string | null; type?: string | null } | null;
-  streamOutputEmitted?: boolean;
-  correlationId: string | null;
-} {
+  rest: Omit<ExhaustionOptions, "correlationId"> = {}
+): ExhaustionOptions & { correlationId: string | null } {
   return { ...rest, correlationId };
 }
 
