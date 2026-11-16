@@ -80,6 +80,7 @@
       "tests/unit/shadow-routing-stream-drain.test.ts",
       "tests/unit/shadow-routing-copy-on-dispatch.test.ts",
       "tests/unit/combo-credential-auth-error-scoping.test.ts",
+      "tests/unit/preferred-connection-failover.test.ts",
       "tests/unit/combo-family-selected-connection-16223.test.ts",
       "tests/unit/combo-safety-stop.test.ts",
       "tests/unit/combo-live-connection-id-18374.test.ts",
