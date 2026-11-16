@@ -5,7 +5,6 @@ import {
 } from "@omniroute/open-sse/config/constants";
 
 import type { JsonRecord, ResilienceSettings, ResilienceSettingsPatch } from "./settings/types";
-import { DEFAULT_ANTIGRAVITY_RESILIENCE, normalizeAntigravitySettings } from "./antigravitySettings";
 import {
   normalizePreferredFailoverSettings,
   readPreferredFailoverSettings,
@@ -89,7 +88,6 @@ export const DEFAULT_REQUEST_QUEUE_MAX_DEPTH = (() => {
 })();
 
 export const DEFAULT_RESILIENCE_SETTINGS: ResilienceSettings = {
-  antigravity: DEFAULT_ANTIGRAVITY_RESILIENCE,
   preferredAccountFailover: readPreferredFailoverSettings(),
   antigravityTimingTelemetry: {
     enabled: process.env.OMNIROUTE_ANTIGRAVITY_TIMING_TELEMETRY === "true",
@@ -361,7 +359,6 @@ function buildLegacyFallback(settings: JsonRecord): ResilienceSettings {
         DEFAULT_RESILIENCE_SETTINGS.waitForCooldown.budgetMs
       ),
     },
-    antigravity: DEFAULT_ANTIGRAVITY_RESILIENCE,
     comboCooldownWait: DEFAULT_RESILIENCE_SETTINGS.comboCooldownWait,
     quotaShareConcurrencyLimit: DEFAULT_RESILIENCE_SETTINGS.quotaShareConcurrencyLimit,
     streamStallCooldown: DEFAULT_RESILIENCE_SETTINGS.streamStallCooldown,
@@ -413,7 +410,6 @@ export function resolveResilienceSettings(
   const fallback = buildLegacyFallback(record);
 
   const resolved: ResilienceSettings = {
-    antigravity: normalizeAntigravitySettings(current.antigravity),
     preferredAccountFailover: normalizePreferredFailoverSettings(
       current.preferredAccountFailover,
       fallback.preferredAccountFailover
@@ -481,7 +477,6 @@ export function mergeResilienceSettings(
   updates: ResilienceSettingsPatch
 ): ResilienceSettings {
   return {
-    antigravity: normalizeAntigravitySettings(updates.antigravity, current.antigravity),
     preferredAccountFailover: normalizePreferredFailoverSettings(
       updates.preferredAccountFailover,
       current.preferredAccountFailover

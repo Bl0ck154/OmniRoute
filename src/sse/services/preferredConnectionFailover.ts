@@ -1,5 +1,3 @@
-import { DEFAULT_ANTIGRAVITY_RESILIENCE, type AntigravityResilienceSettings } from "@/lib/resilience/antigravitySettings";
-import { normalizeAntigravityHealthModel } from "@omniroute/open-sse/services/antigravityHealth";
 import type { PreferredAccountFailoverSettings } from "@/lib/resilience/settings/types";
 
 /**
@@ -173,39 +171,4 @@ export function resolvePreferredConnectionUpstreamStartTimeoutMs(
     // This guard is also necessary when a provider has an internal shorter cap.
     mayRotateOnRequestTimeout: hint === undefined || capMs < hint,
   };
-}
-
-
-// Compatibility for the existing Antigravity-only hot settings and its callers.
-// Global preferred-account failover has a distinct opt-in and returns a routing decision;
-// keep the old numeric helper separate so the two policies cannot be confused.
-export const ANTIGRAVITY_PREFERRED_FAILOVER_START_TIMEOUT_MS =
-  DEFAULT_ANTIGRAVITY_RESILIENCE.preferredTimeoutMs;
-export const ANTIGRAVITY_GEMINI_38_PREFERRED_FAILOVER_START_TIMEOUT_MS =
-  DEFAULT_ANTIGRAVITY_RESILIENCE.gemini38PreferredTimeoutMs;
-
-export function resolveAntigravityLegacyPreferredConnectionUpstreamStartTimeoutMs(
-  provider: string,
-  credentials: { selectedByApiKeyPreference?: boolean; preferredFallbackAvailable?: boolean } | null | undefined,
-  requestHintMs?: number,
-  modelId?: string,
-  settings: AntigravityResilienceSettings = DEFAULT_ANTIGRAVITY_RESILIENCE
-): number | undefined {
-  const hint =
-    typeof requestHintMs === "number" && Number.isFinite(requestHintMs) && requestHintMs > 0
-      ? Math.floor(requestHintMs)
-      : undefined;
-  const isAntigravity = provider === "antigravity" || provider === "agy";
-  const selected =
-    isAntigravity &&
-    credentials?.selectedByApiKeyPreference === true &&
-    credentials?.preferredFallbackAvailable === true
-      ? /^gemini-3\.8-flash(?:-tiered|-high|-medium|-low)?$/i.test(
-          normalizeAntigravityHealthModel(modelId ?? "")
-        )
-        ? settings.gemini38PreferredTimeoutMs
-        : settings.preferredTimeoutMs
-      : undefined;
-  if (selected === undefined) return hint;
-  return hint === undefined ? selected : Math.min(hint, selected);
 }
