@@ -135,14 +135,6 @@ export const githubProvider: RegistryEntry = {
       supportedThinkingEfforts: ["low", "medium", "high", "xhigh"],
     },
     {
-      id: "claude-sonnet-4.5",
-      name: "Claude Sonnet 4.5",
-      targetFormat: "claude",
-      contextLength: 1000000,
-      maxOutputTokens: 128000,
-      supportedThinkingEfforts: ["low", "medium", "high", "xhigh"],
-    },
-    {
       id: "claude-opus-4.8-fast",
       name: "Claude Opus 4.8 (fast mode)",
       targetFormat: "claude",
