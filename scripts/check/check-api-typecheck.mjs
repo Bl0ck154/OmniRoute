@@ -88,6 +88,9 @@ function main() {
     process.exit(2);
   }
 
+  // TEMP diagnostic on the fork cleanup PR; remove after locating the new TS2353.
+  console.log("[fork-cleanup-debug] " + stdout.split(/\r?\n/).filter((line) =>
+    line.includes("src/sse/handlers/chat.ts")).join("\n"));
   const live = parseTscOutput(stdout);
   const liveErrorCount = totalErrors(live);
   console.log(`apiTypecheckErrors=${liveErrorCount}`);
