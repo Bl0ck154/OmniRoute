@@ -294,7 +294,6 @@ export interface AntigravityTimingTelemetrySettings {
 }
 
 export interface ResilienceSettings {
-  antigravity: import("../antigravitySettings").AntigravityResilienceSettings;
   preferredAccountFailover: PreferredAccountFailoverSettings;
   antigravityTimingTelemetry: AntigravityTimingTelemetrySettings;
   requestQueue: RequestQueueSettings;
@@ -314,7 +313,6 @@ export interface ResilienceSettings {
 }
 
 export interface ResilienceSettingsPatch {
-  antigravity?: Partial<import("../antigravitySettings").AntigravityResilienceSettings>;
   preferredAccountFailover?: Partial<PreferredAccountFailoverSettings>;
   antigravityTimingTelemetry?: Partial<AntigravityTimingTelemetrySettings>;
   requestQueue?: Partial<RequestQueueSettings>;

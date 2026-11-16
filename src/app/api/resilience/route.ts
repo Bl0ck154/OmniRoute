@@ -147,7 +147,6 @@ export async function GET(request?: Request) {
     const resilience = resolveResilienceSettings(settings);
 
     return NextResponse.json({
-      antigravity: resilience.antigravity,
       antigravityTimingTelemetry: resilience.antigravityTimingTelemetry,
       requestQueue: resilience.requestQueue,
       preferredAccountFailover: resilience.preferredAccountFailover,
@@ -213,7 +212,6 @@ export async function PATCH(request) {
     const currentSettings = await getSettings();
     const sparseBase = resolveResilienceSettings(currentSettings);
     const mergedFull = mergeResilienceSettings(sparseBase, {
-      ...(body.antigravity ? { antigravity: body.antigravity as ResilienceSettingsPatch["antigravity"] } : {}),
       ...(body.preferredAccountFailover
         ? {
             preferredAccountFailover:
@@ -327,7 +325,6 @@ export async function PATCH(request) {
 
     return NextResponse.json({
       ok: true,
-      antigravity: nextResilience.antigravity,
       antigravityTimingTelemetry: nextResilience.antigravityTimingTelemetry,
       requestQueue: nextResilience.requestQueue,
       preferredAccountFailover: nextResilience.preferredAccountFailover,

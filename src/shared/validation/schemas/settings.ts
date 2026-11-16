@@ -239,12 +239,6 @@ export const preferredAccountFailoverSchema = z
 
 export const updateResilienceSchema = z
   .object({
-    antigravity: z.object({
-      preferredTimeoutMs: z.number().int().min(500).max(120000).optional(),
-      gemini38PreferredTimeoutMs: z.number().int().min(500).max(120000).optional(),
-      adaptiveHealthEnabled: z.boolean().optional(),
-      timingTelemetryEnabled: z.boolean().optional(),
-    }).strict().optional(),
     preferredAccountFailover: preferredAccountFailoverSchema.optional(),
     antigravityTimingTelemetry: z.object({ enabled: z.boolean().optional() }).strict().optional(),
     requestQueue: requestQueueSettingsSchema.optional(),
@@ -307,7 +301,6 @@ export const updateResilienceSchema = z
       value.requestQueue,
       value.preferredAccountFailover,
       value.antigravityTimingTelemetry,
-      value.antigravity,
       value.connectionCooldown,
       value.providerBreaker,
       value.tokenRefreshBreaker,

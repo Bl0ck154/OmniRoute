@@ -125,21 +125,10 @@ export default function ConnectionDetail({
       ) : (
         <p className="text-sm text-text-muted">{t("detail.never")}</p>
       )}
-      <hr />
-      <h3>{t("detail.lockouts")}</h3>
-      {(connection.antigravityHealth?.length ?? 0) > 0 && (
-        <div className="my-3 space-y-2">
-          <h3>{typeof t.has === "function" && t.has("detail.antigravityHealth" as never) ? t("detail.antigravityHealth" as never) : "Antigravity model health"}</h3>
-          {connection.antigravityHealth?.map((health) => (
-            <div key={health.model} className="rounded border border-border p-3 text-sm">
-              <div>{health.model}: {health.state}</div>
-              <div>{health.timeouts}/{health.samples} confirmed header timeouts ({Math.round(health.timeoutRatio * 100)}%)</div>
-              <div>{health.reason ?? "healthy"}; {formatRemaining(health.cooldownRemainingMs)}; {health.inflight} inflight</div>
-              <div>{health.recoverySuccesses}/2 recovery successes</div>
-            </div>
-          ))}
-        </div>
-      )}
+
+      <h3 className="ci-heading mt-4 mb-2 border-t border-border pt-4 text-sm">
+        {t("detail.lockouts")}
+      </h3>
       {connection.lockouts.length > 0 ? (
         <ul className="list-disc space-y-1 pl-5 text-sm">
           {connection.lockouts.map((l, i) => (
