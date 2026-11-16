@@ -11,6 +11,12 @@ Verified **2026-11-16** against GitHub and local partial-clone Git refs. Source 
 - **Fork is not fully synchronized.** Fork [#125](https://github.com/Bl0ck154/OmniRoute/pull/125) merged on Nov 10. Fork [#138](https://github.com/Bl0ck154/OmniRoute/pull/138) is still an open draft, clean to merge, but covers only seven earlier upstream commits through `4421ce47`. Its focused regression run passed; a nonpublishing candidate build failed twice before app compilation during Chromium install because the hosted runner could not resolve Ubuntu mirrors. Do not merge/release on that evidence. Fork [#142](https://github.com/Bl0ck154/OmniRoute/pull/142) is open for Codex live-plan test coverage.
 - No code was built on the production server. No service, deployed package or production SQLite database was changed in this porting pass.
 
+## Fork-only Codex quota cache repair (2026-11-16)
+
+- **Merged [fork PR #145](https://github.com/Bl0ck154/OmniRoute/pull/145)** into `production` as squash commit [`87c6dc82`](https://github.com/Bl0ck154/OmniRoute/commit/87c6dc8228153a0f3201b9d40d6b8a0d922d0763). This **restores upstream owner/credential identity-epoch guards** in `open-sse/services/codexQuotaFetcher.ts`: credentials are resolved before cached quota, token/workspace changes invalidate old entries, and late results from a previous registration cannot repopulate or delete the new owner's cache. The fork-specific `fetchFreshCodexQuota()` API for Codex images was preserved.
+- Also restored upstream `tests/unit/codex-quota-owner-cache.test.ts` and added it plus `codex-quota-fetcher.test.ts` to the fork's selected regression workflow. [Off-host GitHub Actions run #43856560482](https://github.com/Bl0ck154/OmniRoute/actions/runs/43856560482) **passed** the selected tests, core typecheck and synthetic legacy SQLite migration tests; `git merge-tree` was clean before merge.
+- **No upstream PR**: these guards were already present upstream and missing from the fork. Merge updated GitHub source only. No running OmniRoute service was deployed, restarted, or migrated.
+
 ## Already in upstream
 
 GitHub showed **49 merged PRs authored by Bl0ck154** on this snapshot; verify the [live merged-PR query](https://github.com/cheaper-inference/OmniRoute/pulls?q=is%3Apr+is%3Amerged+author%3ABl0ck154) instead of relying on this number later.
