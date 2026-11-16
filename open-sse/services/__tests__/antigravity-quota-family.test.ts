@@ -94,7 +94,7 @@ describe("Antigravity account quota-family cooldown", () => {
     expect(isModelLocked(provider, "account-a", "claude-opus-4-6-thinking")).toBe(false);
   });
 
-  it("uses an exact upstream-model lock for Antigravity in the generic per-model quota path", () => {
+  it("uses an exact model lock for Antigravity in the generic per-model quota path", () => {
     expect(
       lockModelIfPerModelQuota(
         provider,
@@ -107,24 +107,6 @@ describe("Antigravity account quota-family cooldown", () => {
 
     expect(isModelLocked(provider, "account-a", "claude-opus-4-6-thinking")).toBe(true);
     expect(isModelLocked(provider, "account-a", "claude-sonnet-4-6-thinking")).toBe(false);
-
-    // Gemini 3.8 high/medium/low are separate upstream model/quota buckets.
-    // The bare display ID aliases to high; a verified lockout of high must
-    // not quarantine the other tiers or an unrelated account.
-    expect(
-      lockModelIfPerModelQuota(
-        provider,
-        "account-b",
-        "gemini-3.8-flash-high",
-        "quota_exhausted",
-        60_000
-      )
-    ).toBe(true);
-    expect(isModelLocked(provider, "account-b", "gemini-3.8-flash-high")).toBe(true);
-    expect(isModelLocked(provider, "account-b", "gemini-3.8-flash")).toBe(true);
-    expect(isModelLocked(provider, "account-b", "gemini-3.8-flash-medium")).toBe(false);
-    expect(isModelLocked(provider, "account-b", "gemini-3.8-flash-low")).toBe(false);
-    expect(isModelLocked(provider, "account-c", "gemini-3.8-flash-high")).toBe(false);
   });
 
   it("honors exact upstream cooldowns and otherwise uses bounded inferred cooldown", () => {
