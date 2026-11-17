@@ -86,7 +86,7 @@ In the Inspector UI:
 
 Edit your `claude_desktop_config.json` to use the STDIO transport:
 
-**macOS/Linux:** `~/.claude/claude_desktop_config.json`  
+**macOS/Linux:** `~/.claude/claude_desktop_config.json`
 **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
