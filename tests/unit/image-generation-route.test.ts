@@ -208,11 +208,23 @@ test("v1 image routes fail closed for the retired ChatGPT Web alias without netw
   assert.equal(fetchCalls, 0);
 });
 
+// Model discovery uses the same API-key authentication gate as /v1/models.
+async function authenticatedImageCatalog(): Promise<Response> {
+  const key = await apiKeysDb.createApiKey("Image catalog regression", "image-catalog-regression");
+  const response = await imageRoute.GET(
+    new Request("http://localhost/api/v1/images/generations", {
+      headers: { Authorization: `Bearer ${key.key}` },
+    })
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  return response;
+}
+
 test("v1 image models GET exposes image-only modalities for credential-backed image-only models", async () => {
   await seedConnection("topaz", { apiKey: "topaz-key" });
   await seedConnection("stability-ai", { apiKey: "stability-key" });
 
-  const response = await imageRoute.GET();
+  const response = await authenticatedImageCatalog();
   const body = (await response.json()) as { data: ImageModelRow[] };
   const byId = new Map(body.data.map((item) => [item.id, item]));
 
@@ -225,7 +237,7 @@ test("v1 image models GET exposes image-only modalities for credential-backed im
 test("v1 image models GET exposes current Codex image models and hides inactive providers", async () => {
   await seedConnection("codex", { apiKey: "codex-key" });
 
-  const response = await imageRoute.GET();
+  const response = await authenticatedImageCatalog();
   const body = (await response.json()) as { data: Array<{ id: string }> };
   const ids = body.data.map((item) => item.id);
 
@@ -997,7 +1009,7 @@ test("v1 image edit POST rejects excessive or malformed Codex reference sets", a
   const body = (await response.json()) as ErrorResponseBody;
 
   assert.equal(response.status, 400);
-  assert.match(body.error.message, /at most 16 reference images/i);
+  assert.match(body.error.message, /at most 8 reference images/i);
 
   const jsonResponse = await imageEditRoute.POST(
     new Request("http://localhost/api/v1/images/edits", {
@@ -1544,7 +1556,7 @@ for (const [provider, alias] of [
     assert.deepEqual(((await response.json()) as ImageResponseBody).data, [
       { b64_json: "ZmFrZQ==" },
     ]);
-    const catalog = await imageRoute.GET(new Request("http://localhost/v1/images/generations"));
+    const catalog = await authenticatedImageCatalog();
     const payload = (await catalog.json()) as { data: ImageModelRow[] };
     assert.ok(payload.data.some((row) => row.id === `${provider}/grok-imagine-image-2.0`));
   });
