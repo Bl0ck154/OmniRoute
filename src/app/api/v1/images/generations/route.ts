@@ -51,7 +51,6 @@ import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
-import { runWithCallLogApiKeyContext } from "@/lib/usage/callLogApiKeyContext";
 import {
   attachCodexImageQuotaHeaders,
   mergeFreshCodexImageQuotaBaseline,
@@ -348,7 +347,7 @@ async function postHandler(request, _context) {
       null,
       syncedEndpointRoute?.connectionIds ?? null,
       requestedModel,
-      imageCredentialOptions
+      imageQuotaPreflightOptions(provider)
     );
     if (!credentials) {
       return errorResponse(
@@ -379,7 +378,7 @@ async function postHandler(request, _context) {
       null,
       null,
       requestedModel,
-      imageCredentialOptions
+      imageQuotaPreflightOptions(provider)
     );
     const keylessRejection = await keylessProviderRejection(
       provider,
@@ -421,11 +420,16 @@ async function postHandler(request, _context) {
       }
 
       const generateImage = async () => {
-        const imageResult = await runWithCallLogApiKeyContext(
+        // Bill exactly the executed image attempt, preserving the per-key and
+        // per-connection call-log context as well as fork image quota telemetry.
+        const imageResult = await runImageRequestWithAccounting(
           {
-            apiKeyId: policy.apiKeyInfo?.id ?? null,
-            apiKeyName: policy.apiKeyInfo?.name ?? null,
-            connectionId,
+            endpoint: "/v1/images/generations",
+            provider,
+            model: isCustomModel ? body.model : requestedModel,
+            apiKeyInfo: policy.apiKeyInfo,
+            credentials: attemptCredentials,
+            startTime,
           },
           () =>
             handleImageGeneration({
