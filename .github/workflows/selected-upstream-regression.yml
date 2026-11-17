@@ -66,6 +66,10 @@ jobs:
             tests/unit/breaker-network-error-guard.test.ts \
             tests/unit/buffered-responses-failure.test.ts \
             tests/unit/codex-overload-scope.test.ts \
+            tests/unit/image-credential-retry-429.test.ts \
+            tests/unit/codex-images-dedicated-endpoint.test.ts \
+            tests/unit/image-generation-route.test.ts \
+            tests/unit/image-registry-gpt56.test.ts \
             tests/unit/codex-quota-owner-cache.test.ts \
             tests/unit/codex-quota-fetcher.test.ts \
             tests/unit/combo-auto-candidate-expansion.test.ts \
