@@ -19,6 +19,7 @@ import { RENDERHOUR_BASE_URL } from "../../config/providers/registry/renderhour/
 import { sanitizeErrorMessage } from "../../utils/error.ts";
 import { stripTrailingSlashes } from "../../utils/urlSanitize.ts";
 import { sleep } from "../../utils/sleep.ts";
+import { stripTrailingSlashes } from "../../utils/urlSanitize.ts";
 import {
   MAX_CONSECUTIVE_POLL_RETRIES,
   computePollRetryDelayMs,

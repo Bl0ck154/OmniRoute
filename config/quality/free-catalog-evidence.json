@@ -24,7 +24,6 @@
     "kilo-gateway/poolside/laguna-m.1:free",
     "kilo-gateway/stepfun/step-3.7-flash:free",
     "kilo-gateway/tencent/hy3:free",
-    "ollama-cloud/qwen3.5:397b",
     "requesty/openai/gpt-oss-120b",
     "routeway/laguna-m.1:free",
     "routeway/laguna-xs.2:free",
@@ -486,64 +485,16 @@
       "limitations": "Requires a registered NVIDIA account and API key. Prototyping/trial use only; no production entitlement, permanent availability, token allowance, guaranteed throughput or billing hard stop is established. Limits vary by model and traffic; trial terms may permit credits. Paid dedicated deployments are separate."
     },
     {
-      "provider": "gemini",
-      "modelId": "gemini-3.5-flash",
-      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
+      "provider": "nvidia",
+      "modelId": "openai/gpt-oss-20b",
+      "catalogHash": "530f96440a244cc6b680997519e2d5e99383e7cd5012d1171842d5da9ca52454",
       "sourceType": "public-page",
-      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
-      "checkedAt": "2026-11-05",
+      "sourceUrl": "https://build.nvidia.com/openai/gpt-oss-20b",
+      "checkedAt": "2026-11-10",
       "claim": "recurring-free-access",
-      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
-      "summary": "The official Google Gemini Developer API Standard pricing table lists gemini-3.5-flash input and output tokens as free of charge under Free Tier; paid tier and optional tools have separate rates.",
-      "limitations": "A Google Gemini API project eligible for the free tier is required. Rate and project/model limits apply. Free input/output does not mean unlimited capacity, a monthly allowance guarantee, or cost protection when using a paid tier; paid cache storage and tools have separate rules."
-    },
-    {
-      "provider": "gemini",
-      "modelId": "gemini-3.5-flash-lite",
-      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
-      "sourceType": "public-page",
-      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
-      "checkedAt": "2026-11-05",
-      "claim": "recurring-free-access",
-      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
-      "summary": "The official Google Gemini Developer API Standard pricing table lists gemini-3.5-flash-lite input and output tokens as free of charge under Free Tier.",
-      "limitations": "Requires an eligible Gemini API free-tier project. Rate limits apply and context caching is not available in the free tier; paid usage and tools differ. No monthly token allowance, unrestricted throughput or billing hard stop is established."
-    },
-    {
-      "provider": "gemini",
-      "modelId": "gemini-3.6-flash",
-      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
-      "sourceType": "public-page",
-      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
-      "checkedAt": "2026-11-05",
-      "claim": "recurring-free-access",
-      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
-      "summary": "The official Google Gemini Developer API Standard pricing table identifies gemini-3.6-flash and lists Free Tier input/output as free of charge.",
-      "limitations": "Only the eligible Google Gemini API Standard free tier is covered. Project/model rate limits and availability apply; paid/flex/batch or optional tools may be billed separately. No guaranteed token allowance or unlimited request volume is established."
-    },
-    {
-      "provider": "gemini",
-      "modelId": "gemini-3.7-flash",
-      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
-      "sourceType": "public-page",
-      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
-      "checkedAt": "2026-11-05",
-      "claim": "recurring-free-access",
-      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
-      "summary": "The official Google Gemini Developer API Standard pricing table identifies gemini-3.7-flash and lists Free Tier input/output as free of charge.",
-      "limitations": "Google Gemini API free-tier eligibility and project/model rate limits apply. Paid-tier token prices and separately billed tools differ. The listing does not promise guaranteed availability, unrestricted throughput or a monthly allowance."
-    },
-    {
-      "provider": "gemini",
-      "modelId": "gemini-3.8-flash",
-      "catalogHash": "1cd3a64608f7dda0fe18bf0eac2cc63a9d3c0b7054284e040f293f4f9c1a7750",
-      "sourceType": "public-page",
-      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
-      "checkedAt": "2026-11-05",
-      "claim": "recurring-free-access",
-      "verifiedBy": "Official Google pricing-page review (2026-11-05)",
-      "summary": "The official Google Gemini Developer API Standard pricing table identifies gemini-3.8-flash and lists Free Tier input/output as free of charge.",
-      "limitations": "Only the eligible Gemini API Free Tier is free; Google lists paid-tier, storage and tool costs separately, and availability/model rate limits remain. Not evidence of unlimited capacity, a monthly token budget, a permanent price guarantee, or protection on paid projects."
+      "verifiedBy": "KytranKatarn",
+      "summary": "NVIDIA's model page (https://build.nvidia.com/openai/gpt-oss-20b) hosts the endpoint under the NVIDIA API Trial Terms of Service and shows no deprecation or end-of-life notice. The community free-API list (https://github.com/mnfst/awesome-free-llm-apis) reports 40 RPM / 10,000 RPD per model under the NVIDIA Developer Program free tier.",
+      "limitations": "The endpoint is governed by NVIDIA API Trial Terms; the trial notice prohibits personal/confidential submissions and says prompts are logged to improve products. The listed quota is request-based, not a token allowance. Account eligibility and current quota must be checked in NVIDIA's console; no billing hard stop is established here. This is for development/evaluation, not production traffic."
     }
   ]
 }
