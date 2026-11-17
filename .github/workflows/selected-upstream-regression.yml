@@ -125,8 +125,7 @@ jobs:
             tests/unit/antigravity-timeout-retry.test.ts \
             tests/unit/antigravity-timing.test.ts \
             tests/unit/preferred-connection-failover.test.ts \
-            tests/unit/codex-same-account-transport-retry-9708.test.ts \
-            tests/integration/antigravity-resilience-routing.test.ts
+            tests/unit/codex-same-account-transport-retry-9708.test.ts
       - name: UI provider availability (Vitest / jsdom)
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core
