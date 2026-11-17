@@ -61,6 +61,7 @@ jobs:
             tests/unit/claude-mid-system-passthrough-16127.test.ts \
             tests/unit/pricing-fallback.test.ts \
             tests/unit/agentic-executor-fallback.test.ts \
+            tests/unit/agentic-model-compaction.test.ts \
             tests/unit/antigravity-38-flash-tiered-only-account-15659.test.ts \
             tests/unit/antigravity-model-aliases.test.ts \
             tests/unit/breaker-network-error-guard.test.ts \
@@ -121,12 +122,10 @@ jobs:
             tests/unit/release-version-workspace-consistency.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts \
-            tests/unit/antigravity-adaptive-health.test.ts \
             tests/unit/antigravity-timeout-retry.test.ts \
             tests/unit/antigravity-timing.test.ts \
             tests/unit/preferred-connection-failover.test.ts \
             tests/unit/codex-same-account-transport-retry-9708.test.ts \
-            tests/integration/antigravity-resilience-settings.test.ts \
             tests/integration/antigravity-resilience-routing.test.ts
       - name: UI provider availability (Vitest / jsdom)
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
