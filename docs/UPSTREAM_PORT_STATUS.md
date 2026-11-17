@@ -1,12 +1,12 @@
 # Upstream port status — Bl0ck154/OmniRoute
 
 
-Verified **2026-11-16** against GitHub and local partial-clone Git refs. Source tracking only; **no production deployment is authorized**. For patch history, see [FORK_PATCH_REGISTER.md](maintenance/FORK_PATCH_REGISTER.md) and [UPSTREAM_UPGRADE_RUNBOOK.md](maintenance/UPSTREAM_UPGRADE_RUNBOOK.md).
+Verified **2026-11-17** against GitHub and local partial-clone Git refs. Source tracking only; **no production deployment is authorized**. For patch history, see [FORK_PATCH_REGISTER.md](maintenance/FORK_PATCH_REGISTER.md) and [UPSTREAM_UPGRADE_RUNBOOK.md](maintenance/UPSTREAM_UPGRADE_RUNBOOK.md).
 
 ## Refs and fork synchronization
 
-- Upstream `cheaper-inference/OmniRoute`, `release/v3.8.54`: `225bedf8b5e2`.
-- Fork `Bl0ck154/OmniRoute`, `production`: `5f1dd9f1fa72` before this documentation commit.
+- Current upstream development target: `cheaper-inference/OmniRoute`, `release/v3.8.55` at `e23b43952533` (Nov 17). The `release/v3.8.54` branch is **frozen** in [release-freeze #20389](https://github.com/cheaper-inference/OmniRoute/issues/20389); do not queue new changes to it. Earlier patch inventory metrics below were measured against `release/v3.8.54` at `225bedf8b5e2` on Nov 16, **not** against the new base.
+- Fork `Bl0ck154/OmniRoute`, `production`: `6d462d6627` before this documentation update; Sonnet 4.5 cleanup [`de9ea543`](https://github.com/Bl0ck154/OmniRoute/commit/de9ea543f4ca77d96291e9a0c3af7afbf0433ccd), legacy Antigravity hot-settings removal [#144](https://github.com/Bl0ck154/OmniRoute/pull/144), and Codex quota cache owner-guard restoration [#145](https://github.com/Bl0ck154/OmniRoute/pull/145) are merged in source.
 - Merge base: `b002cf45dcf1`. `git rev-list --left-right --count fork...upstream`: **312 / 876**; `git cherry` finds **253 unmatched fork patch IDs**. These numbers reflect divergent history, merges, fork-only features and upstream changes. **They do not count missing upstream fixes.**
 - **Fork is not fully synchronized.** Fork [#125](https://github.com/Bl0ck154/OmniRoute/pull/125) merged on Nov 10. Fork [#138](https://github.com/Bl0ck154/OmniRoute/pull/138) is still an open draft, clean to merge, but covers only seven earlier upstream commits through `4421ce47`. Its focused regression run passed; a nonpublishing candidate build failed twice before app compilation during Chromium install because the hosted runner could not resolve Ubuntu mirrors. Do not merge/release on that evidence. Fork [#142](https://github.com/Bl0ck154/OmniRoute/pull/142) is open for Codex live-plan test coverage.
 - No code was built on the production server. No service, deployed package or production SQLite database was changed in this porting pass.
@@ -33,7 +33,9 @@ The missing `getImageLongJobOptions` import repaired by fork [#141](https://gith
 
 ## Open upstream contributions
 
-**21 open PRs** at this check. GitHub's `UNSTABLE` often means failing/pending checks, not a Git conflict; inspect actual workflow jobs before editing. None of the following has confirmed human approval here.
+**Current review/CI checkpoint (Nov 17):** [#19132](https://github.com/cheaper-inference/OmniRoute/pull/19132) head `38336a6ed0`, [#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) head `d3fed13791`, and [#18738](https://github.com/cheaper-inference/OmniRoute/pull/18738) head `db6313add2` had clean, all-green checks on the prior base, but were just retargeted and require new-head/new-base checks. [#20178](https://github.com/cheaper-inference/OmniRoute/pull/20178) and [#20079](https://github.com/cheaper-inference/OmniRoute/pull/20079) had 31/30 successful individual checks before base retarget; their subsequent aggregate `Gate / CI` and `Gate / Quality` results are red because input jobs were **cancelled**, not from a confirmed feature-code regression. Do not use cancelled aggregate runs as evidence of code failure or success. Maintainer `diegosouzapw` review is already requested. Do not apply queue labels without the required human pre-merge review.
+
+**20 open PRs** as of Nov 17; all target the active `release/v3.8.55`. Five older PRs ([#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592), [#19258](https://github.com/cheaper-inference/OmniRoute/pull/19258), [#19167](https://github.com/cheaper-inference/OmniRoute/pull/19167), [#19132](https://github.com/cheaper-inference/OmniRoute/pull/19132), [#18738](https://github.com/cheaper-inference/OmniRoute/pull/18738)) were retargeted via GitHub API on Nov 17 and the new base verified: `gh pr edit --base` had silently failed to update them. **Their CI must be revalidated after the base change.** GitHub's `UNSTABLE` often means failing/pending checks, not a Git conflict; inspect actual workflow jobs before editing. None of the following has confirmed human approval here.
 
 | Priority | Existing PRs and current follow-up |
 | --- | --- |
@@ -57,7 +59,7 @@ The missing `getImageLongJobOptions` import repaired by fork [#141](https://gith
 
 ## Next actions
 
-1. Recheck #19592 `d3fed137913c` and #19132 `7aecfccda3` CI and review threads. Address PR-specific failures only; don't lower security or quality gates to hide existing upstream baseline problems.
+1. Recheck #19592 `d3fed137913c` and #19132 `38336a6ed0` on the newly active `release/v3.8.55` CI and review threads. Address PR-specific failures only; don't lower security or quality gates to hide existing upstream baseline problems.
 2. Confirm the new #20178 revision and #20079 CI, then follow up with maintainers where reviews are needed. Review #19940's generator-versus-release-derived-count policy without adding managed count updates.
 3. Inspect the two remaining fork-only candidate files against current upstream and open PRs. Use `git merge-base`, `git log --cherry-pick`, `git cherry`, `git diff --stat`, `git patch-id --stable`; open small tested PRs only for confirmed gaps.
 4. Update this file after another verified port/merge. Leave fork #138 draft until an off-host candidate build, package smoke, and legacy SQLite migration rehearsal pass. **No automatic deployment.**
