@@ -3,7 +3,8 @@ import * as log from "../utils/logger";
 import * as passive from "@omniroute/open-sse/services/tokenRefresh/passiveCodex.ts";
 import { stripTrailingSlashes } from "@omniroute/open-sse/utils/urlSanitize.ts";
 import { registerCredentialRefresher } from "@omniroute/open-sse/utils/registeredCredentialRefresher.ts";
-import { updateProviderConnection } from "@/lib/db/providers";
+import { getProviderConnectionById, updateProviderConnection } from "@/lib/db/providers";
+import { codexCredentialBindingMismatch } from "@omniroute/open-sse/services/usage/codexCredentialBinding.ts";
 import { parseTokenExpiryMs } from "@/lib/tokenHealthCheckExpiry";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { resolveProxyForProvider, hasBlockingProxyAssignment } from "@/lib/db/proxies";
@@ -191,6 +192,27 @@ export const getAllAccessTokens = (userInfo: any) =>
 // Local-specific: Update credentials in localDb
 export async function updateProviderCredentials(connectionId: string, newCredentials: any) {
   try {
+    // Reject a rotated token whose authenticated user does not match the
+    // Codex connection's persisted identity. Never persist a cross-account
+    // refresh into another connection.
+    if (newCredentials.accessToken) {
+      const existing = await getProviderConnectionById(connectionId);
+      if (existing?.provider === "codex") {
+        const mismatch = codexCredentialBindingMismatch(
+          newCredentials.accessToken,
+          existing.providerSpecificData,
+          existing.idToken
+        );
+        if (mismatch) {
+          log.warn("TOKEN_REFRESH", "Rejected Codex OAuth identity change during token rotation", {
+            connectionId,
+            reason: mismatch,
+          });
+          return false;
+        }
+      }
+    }
+
     const updates: Record<string, any> = {};
 
     if (newCredentials.accessToken) {
@@ -300,7 +322,12 @@ export async function checkAndRefreshToken(provider: string, credentials: any) {
       // The separate withConnectionRefreshMutex wrapper is no longer needed here.
       const persistCallback = connectionId
         ? async (result: any) => {
-            await updateProviderCredentials(connectionId, result);
+            const persisted = await updateProviderCredentials(connectionId, result);
+            // Do not let a rejected Codex rotation escape the refresh mutex
+            // as a usable new token.
+            if (provider === "codex" && !persisted) {
+              throw new Error("Codex OAuth token refresh was rejected");
+            }
           }
         : undefined;
 

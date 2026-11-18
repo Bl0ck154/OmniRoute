@@ -101,6 +101,8 @@ jobs:
           tests/unit/buffered-responses-failure.test.ts
           tests/unit/codex-overload-scope.test.ts
           tests/unit/codex-quota-owner-cache.test.ts
+          tests/unit/codex-credential-binding.test.ts
+          tests/unit/codex-refresh-token-identity.test.ts
           tests/unit/codex-quota-fetcher.test.ts
           tests/unit/codex-plan-live-sync.test.ts
           tests/unit/codex-plan-usage-integration.test.ts
