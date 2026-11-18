@@ -17,7 +17,6 @@ import { randomUUID } from "node:crypto";
 
 import { RENDERHOUR_BASE_URL } from "../../config/providers/registry/renderhour/mediaModels.ts";
 import { sanitizeErrorMessage } from "../../utils/error.ts";
-import { stripTrailingSlashes } from "../../utils/urlSanitize.ts";
 import { sleep } from "../../utils/sleep.ts";
 import { stripTrailingSlashes } from "../../utils/urlSanitize.ts";
 import {
