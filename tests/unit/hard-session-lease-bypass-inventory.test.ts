@@ -71,6 +71,9 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/app/api/v1/audio/transcriptions/route.ts": 3,
     "src/app/api/v1/audio/translations/route.ts": 2,
     "src/app/api/v1/classify/route.ts": 1,
+    // Gemini Decision 1 uses the same API-key-scoped quota-preflight credential
+    // resolver as classify/systemone; managed leases remain fenced (class B).
+    "src/app/api/v1/decisions/route.ts": 1,
     // v3.8.51 #11754: the second resolveImageRouteModel() call (a duplicate
     // of the retirement-check one hoisted before enforceApiKeyPolicy) was
     // removed as dead redundant code, 6->5. #12653 added combo target
@@ -80,7 +83,9 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     // shape as the sibling provider branches, 7->8.
     // #14619 extracted Firefly's credential lookup into adobeFireflyEdit.ts;
     // the same class-B site moves with it, 8->7 here and 0->1 in the helper.
-    "src/app/api/v1/images/edits/route.ts": 7,
+    // New hosted image-edit branch resolves scoped provider credentials with
+    // the same guard as the seven existing edit routes (class B).
+    "src/app/api/v1/images/edits/route.ts": 8,
     "src/app/api/v1/images/generations/route.ts": 3,
     "src/app/api/v1/images/upscale/route.ts": 1,
     "src/app/api/v1/messages/count_tokens/route.ts": 1,
@@ -268,6 +273,9 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/app/api/usage/local-summary/route.ts": 1,
     "src/app/api/usage/quota/route.ts": 1,
     "src/app/api/usage/utilization/route.ts": 1,
+    // Decision 1 lists Gemini connection siblings to exclude exhausted projects;
+    // the actual model selection is separately quota/allowlist fenced (class C).
+    "src/app/api/v1/decisions/route.ts": 1,
     "src/app/api/v1beta/models/route.ts": 1,
     "src/instrumentation-node.ts": 1,
     "src/lib/a2a/skills/providerDiscovery.ts": 1,
