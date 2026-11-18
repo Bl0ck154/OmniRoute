@@ -620,7 +620,7 @@ test("Codex image generation reports a fresh 5h baseline without requiring artif
     })
   );
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200, await response.clone().text());
   assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "70");
   assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "68.5");
   assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "1.5");
@@ -687,7 +687,7 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
         body: formData,
       })
     );
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.clone().text());
     assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "89");
     assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "87.75");
     assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "1.25");
