@@ -322,7 +322,12 @@ export async function checkAndRefreshToken(provider: string, credentials: any) {
       // The separate withConnectionRefreshMutex wrapper is no longer needed here.
       const persistCallback = connectionId
         ? async (result: any) => {
-            await updateProviderCredentials(connectionId, result);
+            const persisted = await updateProviderCredentials(connectionId, result);
+            // Do not let a rejected Codex rotation escape the refresh mutex
+            // as a usable new token.
+            if (provider === "codex" && !persisted) {
+              throw new Error("Codex OAuth token refresh was rejected");
+            }
           }
         : undefined;
 
