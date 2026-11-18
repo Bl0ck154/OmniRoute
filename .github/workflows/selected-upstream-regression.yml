@@ -74,6 +74,7 @@ jobs:
             tests/unit/codex-quota-fetcher.test.ts \
             tests/unit/codex-credential-binding.test.ts \
             tests/unit/codex-refresh-token-identity.test.ts \
+            tests/unit/hard-session-lease-bypass-inventory.test.ts \
             tests/unit/combo-auto-candidate-expansion.test.ts \
             tests/unit/combo-stale-auto-prune-13505.test.ts \
             tests/unit/combo-stale-model-refs-13505.test.ts \

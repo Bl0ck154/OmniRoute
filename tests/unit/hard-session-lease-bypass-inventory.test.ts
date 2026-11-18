@@ -395,6 +395,9 @@ const EXPECTED: Record<InventoryKind, Record<string, number>> = {
     "src/sse/handlers/chat/museOwnership.ts": 2,
     "src/sse/handlers/chatHelpers.ts": 1,
     "src/sse/services/auth.ts": 4,
+    // Merged fork #148: token rotation reads only the selected connection's row
+    // to reject a Codex OAuth account mismatch. No account selection/dispatch (class C).
+    "src/sse/services/tokenRefresh.ts": 1,
   },
 };
 
