@@ -5,7 +5,8 @@ import { stripTrailingSlashes } from "@omniroute/open-sse/utils/urlSanitize.ts";
 import { isTransientRefreshError } from "@omniroute/open-sse/services/tokenRefresh/transientError.ts";
 import { registerCredentialRefresher } from "@omniroute/open-sse/utils/registeredCredentialRefresher.ts";
 import { registerCodexRefreshPersistence } from "@omniroute/open-sse/services/codexAccount/refreshPersistence.ts";
-import { updateProviderConnection } from "@/lib/db/providers";
+import { getProviderConnectionById, updateProviderConnection } from "@/lib/db/providers";
+import { codexCredentialBindingMismatch } from "@omniroute/open-sse/services/usage/codexCredentialBinding.ts";
 import {
   captureCodexConnectionFence,
   captureCodexConnectionOwnerFence,
@@ -275,6 +276,27 @@ export async function updateProviderCredentials(
   onCodexFenceCommitted?: (fence: CodexConnectionFence) => void
 ) {
   try {
+    // Reject a rotated token whose authenticated user does not match the
+    // Codex connection's persisted identity. Never persist a cross-account
+    // refresh into another connection.
+    if (newCredentials.accessToken) {
+      const existing = await getProviderConnectionById(connectionId);
+      if (existing?.provider === "codex") {
+        const mismatch = codexCredentialBindingMismatch(
+          newCredentials.accessToken,
+          existing.providerSpecificData,
+          existing.idToken
+        );
+        if (mismatch) {
+          log.warn("TOKEN_REFRESH", "Rejected Codex OAuth identity change during token rotation", {
+            connectionId,
+            reason: mismatch,
+          });
+          return false;
+        }
+      }
+    }
+
     const updates: Record<string, any> = {};
 
     if (newCredentials.accessToken) {
@@ -393,6 +415,7 @@ function adoptProactiveRefresh(
 }
 
 function createRefreshPersistCallback(
+  provider: string,
   connectionId: string | undefined,
   getFence: () => CodexConnectionFence | null,
   adoptCommittedRefresh: (result: object) => boolean
@@ -407,7 +430,10 @@ function createRefreshPersistCallback(
       return;
     }
     const applied = await updateProviderCredentials(connectionId, result);
-    if (!applied && getCodexOperationFence(connectionId)) throw new StaleCodexOperationError();
+    // A rejected Codex owner change must not escape the refresh mutex as a usable token,
+    // even when this caller has no captured connection fence.
+    if (!applied && (provider === "codex" || getCodexOperationFence(connectionId)))
+      throw new StaleCodexOperationError();
   };
 }
 
@@ -512,6 +538,7 @@ async function checkAndRefreshTokenInner(provider: string, credentials: any) {
       // and re-uses a rotated refresh token (refresh_token_reused on Codex/OpenAI).
       // The separate withConnectionRefreshMutex wrapper is no longer needed here.
       const persistCallback = createRefreshPersistCallback(
+        provider,
         connectionId,
         () => resultFence,
         adoptCommittedRefresh
