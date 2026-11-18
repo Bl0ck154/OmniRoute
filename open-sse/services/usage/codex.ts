@@ -17,6 +17,7 @@ import { isCodexLimitReached } from "../codexQuotaSignals.ts";
 import { fetchWithConnectionProxy } from "../connectionProxyFetch.ts";
 import { getCodexBackendIdentityHeaders } from "../../config/codexClient.ts";
 import { getFieldValue } from "./scalars.ts";
+import { codexCredentialBindingMismatch } from "./codexCredentialBinding.ts";
 
 // Codex (OpenAI) API config
 const CODEX_CONFIG = {
@@ -45,6 +46,20 @@ function completenessAttestation(data: unknown): { quotasComplete?: true } {
 }
 
 export async function getCodexUsage(
+  accessToken?: string,
+  providerSpecificData: Record<string, unknown> = {},
+  connectionId?: string
+) {
+  // Keep credential preflight outside the quota fetcher: existing quota
+  // handling has a strict complexity ratchet and must not grow a new branch.
+  const mismatch = codexCredentialBindingMismatch(accessToken, providerSpecificData);
+  if (mismatch) {
+    return { message: "Codex OAuth token identity does not match this connection; re-authenticate it." };
+  }
+  return fetchCodexUsageUnchecked(accessToken, providerSpecificData, connectionId);
+}
+
+async function fetchCodexUsageUnchecked(
   accessToken?: string,
   providerSpecificData: Record<string, unknown> = {},
   connectionId?: string
