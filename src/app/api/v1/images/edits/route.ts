@@ -904,7 +904,7 @@ async function postHandler(request: Request, _context?: unknown) {
               signal: orderForgeImageArtifactCapture ? null : request.signal,
             })
           );
-          if (imageResult.success && freshQuotaBefore) {
+          if (imageResult.success && freshQuotaBefore?.window5h) {
             imageResult.telemetry = {
               codexQuota: mergeFreshCodexImageQuotaBaseline(imageResult.telemetry?.codexQuota, {
                 connectionId,

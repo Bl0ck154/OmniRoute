@@ -465,7 +465,7 @@ async function postHandler(request, _context) {
         if (
           imageResult.success &&
           provider === "codex" &&
-          freshQuotaBefore
+          freshQuotaBefore?.window5h
         ) {
           const currentTelemetry = (imageResult as {
             telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape };

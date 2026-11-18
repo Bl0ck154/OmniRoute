@@ -582,8 +582,8 @@ test("Codex image generation reports a fresh 5h baseline without requiring artif
       return new Response(
         JSON.stringify({
           rate_limit: {
-            primary_window: { used_percent: 30, reset_after_seconds: 3600 },
-            secondary_window: { used_percent: 40, reset_after_seconds: 86400 },
+            primary_window: { used_percent: 30, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+            secondary_window: { used_percent: 40, limit_window_seconds: 604800, reset_after_seconds: 86400 },
           },
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -652,8 +652,8 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
         return new Response(
           JSON.stringify({
             rate_limit: {
-              primary_window: { used_percent: 11, reset_after_seconds: 3600 },
-              secondary_window: { used_percent: 20, reset_after_seconds: 86400 },
+              primary_window: { used_percent: 11, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+              secondary_window: { used_percent: 20, limit_window_seconds: 604800, reset_after_seconds: 86400 },
             },
           }),
           { status: 200, headers: { "content-type": "application/json" } }
