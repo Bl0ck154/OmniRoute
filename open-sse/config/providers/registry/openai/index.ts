@@ -10,6 +10,8 @@ export const openaiProvider: RegistryEntry = {
   reasoningTransport: "opaque",
   authType: "apikey",
   authHeader: "bearer",
+  // OpenAI Chat Completions rejects function names over 64 chars (MCP tool names hit this).
+  toolNameMaxLength: 64,
   defaultContextLength: 128000,
   models: [
     // API: GPT-6.1 Sol supports 1.05M context and low..max reasoning.

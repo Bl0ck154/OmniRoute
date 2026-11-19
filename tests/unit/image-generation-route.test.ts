@@ -208,11 +208,23 @@ test("v1 image routes fail closed for the retired ChatGPT Web alias without netw
   assert.equal(fetchCalls, 0);
 });
 
+// Model discovery uses the same API-key authentication gate as /v1/models.
+async function authenticatedImageCatalog(): Promise<Response> {
+  const key = await apiKeysDb.createApiKey("Image catalog regression", "image-catalog-regression");
+  const response = await imageRoute.GET(
+    new Request("http://localhost/api/v1/images/generations", {
+      headers: { Authorization: `Bearer ${key.key}` },
+    })
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  return response;
+}
+
 test("v1 image models GET exposes image-only modalities for credential-backed image-only models", async () => {
   await seedConnection("topaz", { apiKey: "topaz-key" });
   await seedConnection("stability-ai", { apiKey: "stability-key" });
 
-  const response = await imageRoute.GET();
+  const response = await authenticatedImageCatalog();
   const body = (await response.json()) as { data: ImageModelRow[] };
   const byId = new Map(body.data.map((item) => [item.id, item]));
 
@@ -225,7 +237,7 @@ test("v1 image models GET exposes image-only modalities for credential-backed im
 test("v1 image models GET exposes current Codex image models and hides inactive providers", async () => {
   await seedConnection("codex", { apiKey: "codex-key" });
 
-  const response = await imageRoute.GET();
+  const response = await authenticatedImageCatalog();
   const body = (await response.json()) as { data: Array<{ id: string }> };
   const ids = body.data.map((item) => item.id);
 
@@ -238,6 +250,8 @@ test("v1 image models GET exposes current Codex image models and hides inactive 
       "codex/gpt-5.6-terra-image",
       "codex/gpt-5.6-luna-image",
       "codex/gpt-image-2.5-flare",
+      "codex/gpt-image-2.5-sunburst",
+      "codex/gpt-image-2.6-sunburst",
       "codex/gpt-image-2",
     ]
   );
@@ -568,8 +582,8 @@ test("Codex image generation reports a fresh 5h baseline without requiring artif
       return new Response(
         JSON.stringify({
           rate_limit: {
-            primary_window: { used_percent: 30, reset_after_seconds: 3600 },
-            secondary_window: { used_percent: 40, reset_after_seconds: 86400 },
+            primary_window: { used_percent: 30, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+            secondary_window: { used_percent: 40, limit_window_seconds: 604800, reset_after_seconds: 86400 },
           },
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -606,7 +620,7 @@ test("Codex image generation reports a fresh 5h baseline without requiring artif
     })
   );
 
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200, await response.clone().text());
   assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "70");
   assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "68.5");
   assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "1.5");
@@ -638,8 +652,8 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
         return new Response(
           JSON.stringify({
             rate_limit: {
-              primary_window: { used_percent: 11, reset_after_seconds: 3600 },
-              secondary_window: { used_percent: 20, reset_after_seconds: 86400 },
+              primary_window: { used_percent: 11, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+              secondary_window: { used_percent: 20, limit_window_seconds: 604800, reset_after_seconds: 86400 },
             },
           }),
           { status: 200, headers: { "content-type": "application/json" } }
@@ -673,7 +687,7 @@ test("Order Forge image edit uses a fresh 5h baseline and durably retains the su
         body: formData,
       })
     );
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.clone().text());
     assert.equal(response.headers.get("x-omniroute-codex-5h-before-remaining"), "89");
     assert.equal(response.headers.get("x-omniroute-codex-5h-after-remaining"), "87.75");
     assert.equal(response.headers.get("x-omniroute-codex-5h-delta-used"), "1.25");
@@ -995,7 +1009,7 @@ test("v1 image edit POST rejects excessive or malformed Codex reference sets", a
   const body = (await response.json()) as ErrorResponseBody;
 
   assert.equal(response.status, 400);
-  assert.match(body.error.message, /at most 16 reference images/i);
+  assert.match(body.error.message, /at most 8 reference images/i);
 
   const jsonResponse = await imageEditRoute.POST(
     new Request("http://localhost/api/v1/images/edits", {
@@ -1542,7 +1556,7 @@ for (const [provider, alias] of [
     assert.deepEqual(((await response.json()) as ImageResponseBody).data, [
       { b64_json: "ZmFrZQ==" },
     ]);
-    const catalog = await imageRoute.GET(new Request("http://localhost/v1/images/generations"));
+    const catalog = await authenticatedImageCatalog();
     const payload = (await catalog.json()) as { data: ImageModelRow[] };
     assert.ok(payload.data.some((row) => row.id === `${provider}/grok-imagine-image-2.0`));
   });

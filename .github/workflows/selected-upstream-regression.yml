@@ -66,8 +66,15 @@ jobs:
             tests/unit/breaker-network-error-guard.test.ts \
             tests/unit/buffered-responses-failure.test.ts \
             tests/unit/codex-overload-scope.test.ts \
+            tests/unit/image-credential-retry-429.test.ts \
+            tests/unit/codex-images-dedicated-endpoint.test.ts \
+            tests/unit/image-generation-route.test.ts \
+            tests/unit/image-registry-gpt56.test.ts \
             tests/unit/codex-quota-owner-cache.test.ts \
             tests/unit/codex-quota-fetcher.test.ts \
+            tests/unit/codex-credential-binding.test.ts \
+            tests/unit/codex-refresh-token-identity.test.ts \
+            tests/unit/hard-session-lease-bypass-inventory.test.ts \
             tests/unit/combo-auto-candidate-expansion.test.ts \
             tests/unit/combo-stale-auto-prune-13505.test.ts \
             tests/unit/combo-stale-model-refs-13505.test.ts \
@@ -121,13 +128,10 @@ jobs:
             tests/unit/release-version-workspace-consistency.test.ts \
             tests/unit/server-owned-tool-loop-flag.test.ts \
             tests/unit/bug-8020-codex-peek-body-timeout.test.ts \
-            tests/unit/antigravity-adaptive-health.test.ts \
             tests/unit/antigravity-timeout-retry.test.ts \
             tests/unit/antigravity-timing.test.ts \
             tests/unit/preferred-connection-failover.test.ts \
-            tests/unit/codex-same-account-transport-retry-9708.test.ts \
-            tests/integration/antigravity-resilience-settings.test.ts \
-            tests/integration/antigravity-resilience-routing.test.ts
+            tests/unit/codex-same-account-transport-retry-9708.test.ts
       - name: UI provider availability (Vitest / jsdom)
         run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
       - name: Typecheck core

@@ -48,17 +48,18 @@ import {
 } from "@/lib/providerModels/syncedEndpointRouting";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
-import { calculateModalCost } from "@/lib/usage/costCalculator";
-import { recordModalCallCost } from "@/domain/costRules";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
-import { runWithCallLogApiKeyContext } from "@/lib/usage/callLogApiKeyContext";
 import {
   attachCodexImageQuotaHeaders,
   mergeFreshCodexImageQuotaBaseline,
   type CodexImageQuotaTelemetryShape,
 } from "@/lib/images/codexImageQuotaTelemetry";
+import {
+  imageRequestBill,
+  runImageRequestWithAccounting,
+} from "@/lib/usage/imageRequestAccounting";
 import { executeImageWithCredentialFallback } from "@/sse/services/imageCredentialRetry";
 import { fetchFreshCodexQuota } from "@omniroute/open-sse/services/codexQuotaFetcher.ts";
 import {
@@ -66,6 +67,7 @@ import {
   resolveOrderForgeImageArtifactCapture,
 } from "@/lib/usage/orderForgeImageArtifactSink";
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
+import { imageQuotaPreflightOptions } from "@/sse/services/imageQuotaSelectionPolicy";
 import { AUTHZ_HEADER_PEER_LOCALITY } from "@/server/authz/headers";
 import {
   assertCommonChatGptWebModelAvailable,
@@ -313,15 +315,14 @@ async function postHandler(request, _context) {
   // Get credentials — skip for local providers (authType: "none").
   // ChatGPT/Codex hosted image_generation has image-specific usage limits, so
   // cached Codex text quota must not suppress an otherwise eligible image account.
-  const imageCredentialOptions = provider === "codex" ? { bypassQuotaPolicy: true } : {};
   let credentials = null;
   if (providerConfig && providerConfig.authType !== "none") {
     credentials = await getProviderCredentialsWithQuotaPreflight(
       provider,
       null,
-      null,
+      allowedConnections,
       requestedModel,
-      imageCredentialOptions
+      imageQuotaPreflightOptions(provider)
     );
     if (!credentials) {
       return errorResponse(
@@ -346,7 +347,7 @@ async function postHandler(request, _context) {
       null,
       syncedEndpointRoute?.connectionIds ?? null,
       requestedModel,
-      imageCredentialOptions
+      imageQuotaPreflightOptions(provider)
     );
     if (!credentials) {
       return errorResponse(
@@ -377,7 +378,7 @@ async function postHandler(request, _context) {
       null,
       null,
       requestedModel,
-      imageCredentialOptions
+      imageQuotaPreflightOptions(provider)
     );
     const keylessRejection = await keylessProviderRejection(
       provider,
@@ -419,11 +420,16 @@ async function postHandler(request, _context) {
       }
 
       const generateImage = async () => {
-        const imageResult = await runWithCallLogApiKeyContext(
+        // Bill exactly the executed image attempt, preserving the per-key and
+        // per-connection call-log context as well as fork image quota telemetry.
+        const imageResult = await runImageRequestWithAccounting(
           {
-            apiKeyId: policy.apiKeyInfo?.id ?? null,
-            apiKeyName: policy.apiKeyInfo?.name ?? null,
-            connectionId,
+            endpoint: "/v1/images/generations",
+            provider,
+            model: isCustomModel ? body.model : requestedModel,
+            apiKeyInfo: policy.apiKeyInfo,
+            credentials: attemptCredentials,
+            startTime,
           },
           () =>
             handleImageGeneration({
@@ -459,7 +465,7 @@ async function postHandler(request, _context) {
         if (
           imageResult.success &&
           provider === "codex" &&
-          freshQuotaBefore
+          freshQuotaBefore?.window5h
         ) {
           const currentTelemetry = (imageResult as {
             telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape };
@@ -510,23 +516,22 @@ async function postHandler(request, _context) {
       }
     }
     await clearRecoveredProviderState(credentials);
-    // Bill the images actually delivered: a provider that returns fewer than the
-    // requested `n` must not be charged for the missing ones (#16398 follow-up).
-    const n = (result as { data?: { data?: unknown[] } }).data?.data?.length || 1;
-    const costUsd = await calculateModalCost("image", provider, body.model, { n });
-    recordModalCallCost(policy.apiKeyInfo?.id, { provider, model: body.model, costUsd });
+    const bill = imageRequestBill(result);
+    const costUsd = bill?.costUsd ?? null;
     const headers = new Headers({ "Content-Type": "application/json" });
     attachOmniRouteMetaHeaders(headers, {
       provider,
       model: body.model,
       costUsd,
       latencyMs: Date.now() - startTime,
-      requestId: generateRequestId(),
+      requestId: bill?.requestId || generateRequestId(),
     });
     attachCodexImageQuotaHeaders(
       headers,
       (result as { telemetry?: { codexQuota?: CodexImageQuotaTelemetryShape } }).telemetry?.codexQuota
     );
+    if (costUsd === null) headers.delete("X-OmniRoute-Response-Cost");
+    headers.set("X-OmniRoute-Cost-Status", costUsd === null ? "unknown" : "known");
     return new Response(JSON.stringify((result as { data: unknown }).data), {
       status: 200,
       headers,
