@@ -73,6 +73,11 @@ jobs:
             tests/unit/codex-quota-owner-cache.test.ts \
             tests/unit/codex-quota-fetcher.test.ts \
             tests/unit/codex-credential-binding.test.ts \
+            tests/unit/plugins-hook-credential-redaction.test.ts \
+            tests/unit/private-host-benchmark-range.test.ts \
+            tests/unit/credits-signal-400-status-gate.test.ts \
+            tests/unit/quota-share-rotation-admission.test.ts \
+            tests/unit/search-provider-body-13245.test.ts \
             tests/unit/codex-refresh-token-identity.test.ts \
             tests/unit/hard-session-lease-bypass-inventory.test.ts \
             tests/unit/combo-auto-candidate-expansion.test.ts \
