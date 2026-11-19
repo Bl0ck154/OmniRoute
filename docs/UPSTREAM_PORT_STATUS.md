@@ -1,13 +1,13 @@
 # Upstream port status — Bl0ck154/OmniRoute
 
-**Verified checkpoint: 2026-11-19, 19:57 Europe/Berlin.** Live GitHub metadata, local merge-base/rev-list/cherry/diff, and per-PR review/CI state were checked. These records concern **source code only**; no running VPS service, deployment, or production SQLite database was changed.
+**Verified checkpoint: 2026-11-19 18:40 UTC.** Live GitHub PR/CI status and local Git merge-base, ancestry, merge-tree and patch-level triage were checked. GitHub source only: neither running VPS service nor production SQLite was deployed, restarted or migrated.
 
 ## Current fork synchronization
 
 - [Fork #146](https://github.com/Bl0ck154/OmniRoute/pull/146) merged upstream `release/v3.8.55` source on Nov 19, then upstream advanced again. Fork `production` was `74154f15634c`; upstream `release/v3.8.55` was `cc59ad70b2e9` on the current check. Merge base `bf3d1d941633`; `git rev-list --left-right --count fork...upstream` = **344 / 34**. `git cherry` reported 281 fork-only patch-ID candidates, **not** 281 unported fixes.
 - **[Fork #149](https://github.com/Bl0ck154/OmniRoute/pull/149) MERGED** on 2026-11-19 at 18:32 UTC, source merge commit [8a32b37](https://github.com/Bl0ck154/OmniRoute/commit/8a32b37babde52bcad05d570170b0709d0a657b7), preserving upstream Git ancestry through 7f22065aabb8. Exact-head [selected regressions #44586095864](https://github.com/Bl0ck154/OmniRoute/actions/runs/44586095864) passed, including five new security-parity tests; off-host nonpublishing [candidate #44584754559](https://github.com/Bl0ck154/OmniRoute/actions/runs/44584754559) passed Next.js, CLI, npm-pack, packaged install/smoke and manifest steps. Fork-specific OrderForge artifacts and legacy SQLite compatibility preserved. No live deployment, service restart or database migration.
-- Upstream advanced to 1e6e8dfc21e5 since the last source merge: two additional test/docs commits not yet in #149. Historical Git divergence counts do not measure unported fixes.
-- **Fork production source now contains upstream through 7f22065aabb8**, but the official branch has advanced by two later test/docs commits through 1e6e8dfc21e5. No reason to deploy or rebuild for these alone; a tiny follow-up sync may reconcile them when convenient.
+- **[Fork #150](https://github.com/Bl0ck154/OmniRoute/pull/150) MERGED** 2026-11-19 at 18:40 UTC as [14725099](https://github.com/Bl0ck154/OmniRoute/commit/14725099a8f5c10d9fe1b750c98576ac1f6af03d): two latest upstream test/docs commits in a 2-file +22/-7 change. Exact-head [selected regressions #44589228541](https://github.com/Bl0ck154/OmniRoute/actions/runs/44589228541) passed, no runtime changes or deployment.
+- **Fork production source is fully caught up with current upstream** as of this checkpoint: fork 14725099a8f5; upstream release/v3.8.55 at 1e6e8dfc21e5. Git ancestry verified (upstream tip is an ancestor of fork), rev-list fork...upstream = **355 / 0**. The 355 fork-side commits are custom/historical history, **not** 355 missing upstream patches. Future upstream pushes will change this status.
 
 ## Upstream patch-port queue
 
@@ -21,12 +21,12 @@
 ## Not to port / still to investigate
 
 - Do not duplicate existing upstream [#20333](https://github.com/cheaper-inference/OmniRoute/pull/20333) or closed redundant [#20332](https://github.com/cheaper-inference/OmniRoute/pull/20332). Do not restore retired Copilot Sonnet 4.5 or fork-only Antigravity hot-settings.
-- Beyond the 21 submitted upstream PRs, **zero additional distinct upstream-worthy fixes are yet confirmed**. That is a verified triage result, not proof that the fork has no more unported behavior. Two small candidate differences require review.
+- After full source sync, 41 runtime files differ between fork and upstream; a path-level comparison to the 21 open PRs leaves **14 paths not touched by those PRs**. Those 14 include fork-only OrderForge artifact capture, release tooling, SQLite migration compatibility, old model/timeout adapters and typed Gemini helpers. **File counts do not equal missing upstream patches**; zero additional independently reproducible upstream-worthy fixes confirmed. Recheck on concrete regression, not on path count.
 - Remaining fork/upstream runtime path differences are small: `open-sse/handlers/imageResult.ts` adds optional `telemetry` to fork image responses; `open-sse/translator/request/openai-to-gemini/helpers.ts` differs in `thinkingLevel` typing/comments. **Neither is a verified missing upstream bug or grounds for a new PR.** Reproduce concrete behavior before porting. Retain OrderForge artifact-sink and legacy SQLite compatibility in the fork.
 
 ## Next actions
 
-1. Fork source sync #149 is merged and validated. Do not deploy the new SQLite migration code without a separate live-service backup/migration/rollback gate. A small follow-up for the two subsequent upstream test/docs commits is optional.
+1. Fork source sync #149 and #150 are merged, their CI green. Maintain a separate explicit backup/migration/rollback authorization before any future live rollout. Do not treat these GitHub merges as a production deployment.
 2. Prioritize upstream #19867 maintainer review, then #20333 test fix, then rerun and clear #20178; avoid duplicate unrelated patches.
 3. Leave the 20 otherwise-green upstream PRs for human maintainer review. Re-check CI/reviews before any correction; do not self-queue or add merge labels. Open new PR only after a unique, reproducible missing upstream change is confirmed.
 
