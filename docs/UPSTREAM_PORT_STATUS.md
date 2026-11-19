@@ -5,9 +5,9 @@
 ## Current fork synchronization
 
 - [Fork #146](https://github.com/Bl0ck154/OmniRoute/pull/146) merged upstream `release/v3.8.55` source on Nov 19, then upstream advanced again. Fork `production` was `74154f15634c`; upstream `release/v3.8.55` was `cc59ad70b2e9` on the current check. Merge base `bf3d1d941633`; `git rev-list --left-right --count fork...upstream` = **344 / 34**. `git cherry` reported 281 fork-only patch-ID candidates, **not** 281 unported fixes.
-- **[Fork #149](https://github.com/Bl0ck154/OmniRoute/pull/149) OPEN** — source-only additive upstream merges through 7f22065aabb8, PR head 709654ffb0e3. Added five security-parity regression tests. Earlier candidate [build #44583155078](https://github.com/Bl0ck154/OmniRoute/actions/runs/44583155078) passed; newer candidate [build #44584754559](https://github.com/Bl0ck154/OmniRoute/actions/runs/44584754559) and exact-head [regressions #44586095864](https://github.com/Bl0ck154/OmniRoute/actions/runs/44586095864) were still running at this checkpoint. Security-critical plugin credential, SSRF, bounded search, Quota Share and structured 400 credit checks were verified byte-identical to upstream on the newer head. Do not merge before green exact-head validation or deploy.
+- **[Fork #149](https://github.com/Bl0ck154/OmniRoute/pull/149) MERGED** on 2026-11-19 at 18:32 UTC, source merge commit [8a32b37](https://github.com/Bl0ck154/OmniRoute/commit/8a32b37babde52bcad05d570170b0709d0a657b7), preserving upstream Git ancestry through 7f22065aabb8. Exact-head [selected regressions #44586095864](https://github.com/Bl0ck154/OmniRoute/actions/runs/44586095864) passed, including five new security-parity tests; off-host nonpublishing [candidate #44584754559](https://github.com/Bl0ck154/OmniRoute/actions/runs/44584754559) passed Next.js, CLI, npm-pack, packaged install/smoke and manifest steps. Fork-specific OrderForge artifacts and legacy SQLite compatibility preserved. No live deployment, service restart or database migration.
 - Upstream advanced to 1e6e8dfc21e5 since the last source merge: two additional test/docs commits not yet in #149. Historical Git divergence counts do not measure unported fixes.
-- **Fork is not fully current while #149 is open.** No package publication, database migration, or service restart is authorized by the source merge. Verify source SHA and branch again before continuing.
+- **Fork production source now contains upstream through 7f22065aabb8**, but the official branch has advanced by two later test/docs commits through 1e6e8dfc21e5. No reason to deploy or rebuild for these alone; a tiny follow-up sync may reconcile them when convenient.
 
 ## Upstream patch-port queue
 
@@ -26,7 +26,7 @@
 
 ## Next actions
 
-1. Verify #149 latest-head regression and candidate build, review SQLite impact, and merge source only if green; production deployment is separate. Then bring over subsequent upstream test/docs changes in a small sync.
+1. Fork source sync #149 is merged and validated. Do not deploy the new SQLite migration code without a separate live-service backup/migration/rollback gate. A small follow-up for the two subsequent upstream test/docs commits is optional.
 2. Prioritize upstream #19867 maintainer review, then #20333 test fix, then rerun and clear #20178; avoid duplicate unrelated patches.
 3. Leave the 20 otherwise-green upstream PRs for human maintainer review. Re-check CI/reviews before any correction; do not self-queue or add merge labels. Open new PR only after a unique, reproducible missing upstream change is confirmed.
 
