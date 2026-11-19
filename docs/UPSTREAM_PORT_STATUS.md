@@ -1,9 +1,15 @@
 # Upstream port status — Bl0ck154/OmniRoute
 
 
-Verified **2026-11-17** against GitHub and local partial-clone Git refs. Source tracking only; **no production deployment is authorized**. For patch history, see [FORK_PATCH_REGISTER.md](maintenance/FORK_PATCH_REGISTER.md) and [UPSTREAM_UPGRADE_RUNBOOK.md](maintenance/UPSTREAM_UPGRADE_RUNBOOK.md).
+**Current checkpoint: 2026-11-19.** Fork [#146](https://github.com/Bl0ck154/OmniRoute/pull/146) merged current upstream `release/v3.8.55` source into `production` as [`01168203c3`](https://github.com/Bl0ck154/OmniRoute/commit/01168203c3a45002886adb53b4c0ef42d992b364). This is a **source merge only**: the running VPS service and production SQLite database have **not** been upgraded or restarted. Maintain a separate deployment/backup/rollback gate.
 
-## Refs and fork synchronization
+The exact integration head `f4b030bfc915` passed [selected regressions #44395508722](https://github.com/Bl0ck154/OmniRoute/actions/runs/44395508722) (including core typecheck and historical synthetic SQLite upgrade) and [off-host candidate build #44395562886](https://github.com/Bl0ck154/OmniRoute/actions/runs/44395562886) (Next.js, `npm pack`, installation, packaged launcher/dashboard smoke, manifest/checksum). `publish_release=false`; artifact `omniroute-52-candidate` is **not deployed**. Codex OAuth identity checks and OrderForge artifact sink are preserved; old fork-only Antigravity hot-settings stay removed. PRs [#138](https://github.com/Bl0ck154/OmniRoute/pull/138) and [#147](https://github.com/Bl0ck154/OmniRoute/pull/147) were closed unmerged as superseded. [#142](https://github.com/Bl0ck154/OmniRoute/pull/142), [#144](https://github.com/Bl0ck154/OmniRoute/pull/144), [#145](https://github.com/Bl0ck154/OmniRoute/pull/145) and [#148](https://github.com/Bl0ck154/OmniRoute/pull/148) are already merged.
+
+**Upstream contribution checkpoint (Nov 19):** 21 PRs authored by `Bl0ck154` remain open in `cheaper-inference/OmniRoute`; 19 are CI-green/finished on the observed heads, one ([#20178](https://github.com/cheaper-inference/OmniRoute/pull/20178)) has a fresh CI run, and one ([#19667](https://github.com/cheaper-inference/OmniRoute/pull/19667)) has an outstanding Quality Ratchet job. [#20525](https://github.com/cheaper-inference/OmniRoute/pull/20525) passed 30 checks after the Nov 18 test fixes. All still need upstream maintainer `diegosouzapw`'s review and queue approval; never add upstream queue labels or bypass their controls.
+
+**Historical record below:** the Nov 16–17 refs, divergence counts, old open/draft states, heads and CI observations are retained as a dated audit snapshot, **not** current action instructions. For patch history see [FORK_PATCH_REGISTER.md](maintenance/FORK_PATCH_REGISTER.md) and [UPSTREAM_UPGRADE_RUNBOOK.md](maintenance/UPSTREAM_UPGRADE_RUNBOOK.md).
+
+## Historical refs and fork synchronization (Nov 16–17 snapshot)
 
 - Current upstream development target: `cheaper-inference/OmniRoute`, `release/v3.8.55` at `e23b43952533` (Nov 17). The `release/v3.8.54` branch is **frozen** in [release-freeze #20389](https://github.com/cheaper-inference/OmniRoute/issues/20389); do not queue new changes to it. Earlier patch inventory metrics below were measured against `release/v3.8.54` at `225bedf8b5e2` on Nov 16, **not** against the new base.
 - Fork `Bl0ck154/OmniRoute`, `production`: `6d462d6627` before this documentation update; Sonnet 4.5 cleanup [`de9ea543`](https://github.com/Bl0ck154/OmniRoute/commit/de9ea543f4ca77d96291e9a0c3af7afbf0433ccd), legacy Antigravity hot-settings removal [#144](https://github.com/Bl0ck154/OmniRoute/pull/144), and Codex quota cache owner-guard restoration [#145](https://github.com/Bl0ck154/OmniRoute/pull/145) are merged in source.
@@ -31,7 +37,7 @@ Important confirmed merges:
 
 The missing `getImageLongJobOptions` import repaired by fork [#141](https://github.com/Bl0ck154/OmniRoute/pull/141) is **already present in upstream** `src/app/api/v1/images/generations/route.ts`, along with the call and helper definition. No duplicate PR.
 
-## Open upstream contributions
+## Historical upstream contribution inventory (Nov 17 snapshot)
 
 **Current review/CI checkpoint (Nov 17):** [#19132](https://github.com/cheaper-inference/OmniRoute/pull/19132) head `38336a6ed0`, [#19592](https://github.com/cheaper-inference/OmniRoute/pull/19592) head `d3fed13791`, and [#18738](https://github.com/cheaper-inference/OmniRoute/pull/18738) head `db6313add2` had clean, all-green checks on the prior base, but were just retargeted and require new-head/new-base checks. [#20178](https://github.com/cheaper-inference/OmniRoute/pull/20178) and [#20079](https://github.com/cheaper-inference/OmniRoute/pull/20079) had 31/30 successful individual checks before base retarget; their subsequent aggregate `Gate / CI` and `Gate / Quality` results are red because input jobs were **cancelled**, not from a confirmed feature-code regression. Do not use cancelled aggregate runs as evidence of code failure or success. Maintainer `diegosouzapw` review is already requested. Do not apply queue labels without the required human pre-merge review.
 
@@ -57,9 +63,8 @@ The missing `getImageLongJobOptions` import repaired by fork [#141](https://gith
 - Keep Order Forge's `orderForgeImageArtifactSink.ts` and legacy SQLite 194/900 compatibility in the fork unless upstream expressly requires them. Do not restore old Antigravity model catalogs wholesale.
 - [#19050](https://github.com/cheaper-inference/OmniRoute/pull/19050) was superseded by merged #19165; [#19166](https://github.com/cheaper-inference/OmniRoute/pull/19166) by merged #18895; [#19593](https://github.com/cheaper-inference/OmniRoute/pull/19593) by open #19667. Fork #132 and #134 were closed unmerged. Do not reopen duplicates.
 
-## Next actions
+## Current next actions (Nov 19)
 
-1. Recheck #19592 `d3fed137913c` and #19132 `38336a6ed0` on the newly active `release/v3.8.55` CI and review threads. Address PR-specific failures only; don't lower security or quality gates to hide existing upstream baseline problems.
-2. Confirm the new #20178 revision and #20079 CI, then follow up with maintainers where reviews are needed. Review #19940's generator-versus-release-derived-count policy without adding managed count updates.
-3. Inspect the two remaining fork-only candidate files against current upstream and open PRs. Use `git merge-base`, `git log --cherry-pick`, `git cherry`, `git diff --stat`, `git patch-id --stable`; open small tested PRs only for confirmed gaps.
-4. Update this file after another verified port/merge. Leave fork #138 draft until an off-host candidate build, package smoke, and legacy SQLite migration rehearsal pass. **No automatic deployment.**
+1. **Deployment is a separate decision:** prepare a validated backup, migration/rollback plan and explicit live deployment approval; do not run builds on the production VPS or assume that merging `production` updates the service.
+2. Follow the remaining [upstream PRs](https://github.com/cheaper-inference/OmniRoute/pulls?q=is%3Apr+is%3Aopen+author%3ABl0ck154): check new exact-head failures for #20178 and #19667; leave 19 green PRs for the already-requested maintainer review rather than relabeling or queueing them without owner approval.
+3. Compare any remaining fork-only behavior to current upstream only when there is a concrete regression; preserve the OrderForge artifact sink and legacy SQLite compatibility. Do not resurrect Sonnet 4.5 or retired Antigravity hot-settings.
