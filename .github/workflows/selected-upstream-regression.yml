@@ -103,6 +103,8 @@ jobs:
             tests/unit/stream-readiness-replay-rejection-16364.test.ts \
             tests/unit/call-log-artifact-file-perms.test.ts \
             tests/unit/chat-helpers.test.ts \
+            tests/unit/selected-connection-header-probe-inheritance.test.ts \
+            tests/unit/chat-account-fallback-telemetry.test.ts \
             tests/unit/cli-tokens-scope-escalation.test.ts \
             tests/unit/cli-tools-refuse-to-clobber.test.ts \
             tests/unit/codex-reasoning-replay-retry.test.ts \

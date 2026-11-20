@@ -23,8 +23,16 @@ test("selected Codex plan is exposed without depending on an upstream quota head
   assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Plan"), "plus");
 });
 
-test("account rotation is exposed through bounded routing telemetry headers", async () => {
-  await seedConnection("openai", {
+test("selected plan is bounded and sanitized when no connection is selected", () => {
+  const response = withSelectedConnectionHeader(new Response("ok"), null, {
+    selectedConnectionPlan: "  PlUs / Pro|Trial  ",
+  });
+  assert.equal(
+    response.headers.get("X-OmniRoute-Selected-Connection-Plan"),
+    "plus_pro_trial"
+  );
+});
+
 test("telemetry headers are bounded and never echo untrusted errors", () => {
   const response = withSelectedConnectionHeader(new Response("ok"), "id", {
     accountFallbacks: 2,
