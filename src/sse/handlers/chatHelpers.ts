@@ -66,7 +66,6 @@ import {
   isAutoRequestResolvedCapabilitiesEnabled,
   isFeatureFlagEnabled,
 } from "../../shared/utils/featureFlags";
-import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 
 import { noteProxyOutcome } from "./proxyOutcomeMemory";
 import { logProxyJournal } from "./proxyJournal";
@@ -1283,78 +1282,4 @@ export function withConversationId(response: Response, conversationId: string | 
   }
 }
 
-export function withSelectedConnectionHeader(
-  response: Response,
-  connectionId: string | null | undefined,
-  telemetry?: {
-    accountFallbacks?: number;
-    accountFallbackReasons?: readonly string[];
-    selectedConnectionPlan?: string | null;
-    sameAccountRetries?: number;
-    routingWaitMs?: number;
-  }
-): Response {
-  if (!response) return response;
-
-  const accountFallbacks = Math.max(0, Math.floor(telemetry?.accountFallbacks ?? 0));
-  const selectedConnectionPlan = String(telemetry?.selectedConnectionPlan ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_.:-]+/g, "_")
-    .slice(0, 40);
-  const sameAccountRetries = Math.max(0, Math.floor(telemetry?.sameAccountRetries ?? 0));
-  const routingWaitMs = Math.max(0, Math.round(telemetry?.routingWaitMs ?? 0));
-  const fallbackReasons = (telemetry?.accountFallbackReasons ?? [])
-    .map((reason) =>
-      String(reason)
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9_.:-]+/g, "_")
-        .slice(0, 40)
-    )
-    .filter(Boolean)
-    .slice(0, 8);
-
-  const applyTelemetry = (headers: Headers): void => {
-    if (connectionId) headers.set("X-OmniRoute-Selected-Connection-Id", connectionId);
-    if (accountFallbacks > 0) {
-      headers.set(OMNIROUTE_RESPONSE_HEADERS.accountFallbacks, String(accountFallbacks));
-    }
-    if (fallbackReasons.length > 0) {
-      headers.set(OMNIROUTE_RESPONSE_HEADERS.accountFallbackReasons, fallbackReasons.join(","));
-    }
-    if (selectedConnectionPlan) {
-      headers.set(OMNIROUTE_RESPONSE_HEADERS.selectedConnectionPlan, selectedConnectionPlan);
-    }
-    if (sameAccountRetries > 0) {
-      headers.set(OMNIROUTE_RESPONSE_HEADERS.sameAccountRetries, String(sameAccountRetries));
-    }
-    if (routingWaitMs > 0) {
-      headers.set(OMNIROUTE_RESPONSE_HEADERS.routingWaitMs, String(routingWaitMs));
-    }
-  };
-
-  if (
-    !connectionId &&
-    accountFallbacks === 0 &&
-    fallbackReasons.length === 0 &&
-    !selectedConnectionPlan &&
-    sameAccountRetries === 0 &&
-    routingWaitMs === 0
-  ) {
-    return response;
-  }
-
-  try {
-    applyTelemetry(response.headers);
-    return response;
-  } catch {
-    const cloned = new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-    applyTelemetry(cloned.headers);
-    return inheritTrustedLocalRateLimitResponse(response, cloned);
-  }
-}
+export { withSelectedConnectionHeader } from "./chat/selectedConnectionHeader.ts";

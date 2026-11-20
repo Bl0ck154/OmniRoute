@@ -12,6 +12,7 @@ export type AccountRoutingTelemetry = {
   accountFallbackReasons?: readonly string[];
   sameAccountRetries?: number;
   routingWaitMs?: number;
+  selectedConnectionPlan?: string | null;
 };
 
 function nonnegativeCount(value: number | undefined): number {
@@ -47,7 +48,23 @@ export function withSelectedConnectionHeader(
   const retries = nonnegativeCount(telemetry?.sameAccountRetries);
   const waitMs = nonnegativeCount(telemetry?.routingWaitMs);
   const reasons = fallbackReasons(telemetry?.accountFallbackReasons);
-  if (!connectionId && fallbacks === 0 && retries === 0 && waitMs === 0 && reasons.length === 0) {
+  // Preserve the fork-specific selected-plan header with bounded values.
+  const selectedPlan =
+    typeof telemetry?.selectedConnectionPlan === "string"
+      ? telemetry.selectedConnectionPlan
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9_.:-]+/g, "_")
+          .slice(0, 40)
+      : "";
+  if (
+    !connectionId &&
+    fallbacks === 0 &&
+    retries === 0 &&
+    waitMs === 0 &&
+    reasons.length === 0 &&
+    !selectedPlan
+  ) {
     return response;
   }
 
@@ -57,6 +74,7 @@ export function withSelectedConnectionHeader(
     if (reasons.length) {
       headers.set(OMNIROUTE_RESPONSE_HEADERS.accountFallbackReasons, reasons.join(","));
     }
+    if (selectedPlan) headers.set(OMNIROUTE_RESPONSE_HEADERS.selectedConnectionPlan, selectedPlan);
     if (retries > 0) headers.set(OMNIROUTE_RESPONSE_HEADERS.sameAccountRetries, String(retries));
     if (waitMs > 0) headers.set(OMNIROUTE_RESPONSE_HEADERS.routingWaitMs, String(waitMs));
   };
