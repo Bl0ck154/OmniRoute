@@ -1,13 +1,15 @@
 /**
- * Gate tests for a usage write blocked by a locked database.
+ * Gate tests for the shared deferred write retry.
  *
- * A first attempt that meets a lock is deferred once, off the request path,
- * and retried a single time. A second lock drops the row with the existing
- * log line. Any other error keeps the current behaviour: logged at once,
- * never retried. A first-attempt success never schedules a second write.
+ * The lock predicate accepts every lock shape and rejects any other error.
+ * The generic scheduler runs a deferred task once after the delay, reports
+ * a second failure through the abandon callback, and never chains a third
+ * run. The usage entry point keeps retrying a locked write on a backoff for
+ * a bounded time and drops the row only after the last retry. Those tests
+ * drive a mock clock, so they do not wait on wall time.
  */
 
-import { test } from "node:test";
+import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -22,6 +24,14 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 const core = await import("../../../src/lib/db/core.ts");
 const usageHistory = await import("../../../src/lib/usage/usageHistory.ts");
 const { saveRequestUsage } = usageHistory;
+
+// On Node versions where MockTimers is still experimental, the first `mock.timers.enable` emits a
+// one-time warning on process.nextTick. Let it pass now, before a test swaps console.error to count
+// log lines. Wait one macrotask instead of waiting for the warning: newer Node versions emit none,
+// and a wait on the "warning" event never settles there.
+mock.timers.enable({ apis: ["setTimeout"] });
+mock.timers.reset();
+await new Promise<void>((resolve) => setImmediate(resolve));
 
 // Cleanup: close DB handle and temp directory so the test runner doesn't hang.
 test.after(() => {
@@ -95,6 +105,16 @@ async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<boolean>
   }
 }
 
+/** Ref'd polling handle that keeps the loop alive past an unref'd retry timer. */
+async function waitForGeneric(check: () => boolean, timeoutMs = 8000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (check()) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 // ── predicate ────────────────────────────────────────────────────────────────
 
 test("write lock predicate accepts lock shapes and rejects other errors", async () => {
@@ -111,6 +131,49 @@ test("write lock predicate accepts lock shapes and rejects other errors", async 
   assert.equal(isWriteLockError("database is locked"), true);
   assert.equal(isWriteLockError(new Error("UNIQUE constraint failed: usage_history.id")), false);
   assert.equal(isWriteLockError(new Error("no such table: usage_history")), false);
+});
+
+// ── generic scheduler: deferred task runs once, failure reported, never chained ──
+
+test("generic retry runs the deferred task once after the delay", async () => {
+  const { scheduleWriteRetry } = await import("../../../src/lib/usage/usageWriteRetry.ts");
+  let calls = 0;
+  let failures = 0;
+  // The retry rides an unref'd timer, so awaiting it alone would let the
+  // loop drain; the polling waitFor below keeps a ref'd handle alive instead.
+  const done = scheduleWriteRetry(
+    () => {
+      calls++;
+    },
+    () => {
+      failures++;
+    }
+  );
+  assert.equal(await waitForGeneric(() => calls === 1), true);
+  await done;
+  assert.equal(calls, 1);
+  assert.equal(failures, 0);
+});
+
+test("generic retry reports the second failure and never chains a third run", async () => {
+  const { scheduleWriteRetry } = await import("../../../src/lib/usage/usageWriteRetry.ts");
+  let calls = 0;
+  const seen: unknown[] = [];
+  const failing = () => {
+    calls++;
+    throw new Error("database is locked");
+  };
+  const done = scheduleWriteRetry(failing, (err) => {
+    seen.push(err);
+  });
+  assert.equal(await waitForGeneric(() => calls === 1), true);
+  await done;
+  assert.equal(calls, 1);
+  assert.equal(seen.length, 1);
+  assert.match(String((seen[0] as Error)?.message ?? seen[0]), /database is locked/);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(calls, 1);
+  assert.equal(seen.length, 1);
 });
 
 // ── gate 1: locked first, free second → one row ──────────────────────────────
@@ -147,30 +210,76 @@ test("usage write locked on the first attempt is written once the lock clears", 
   }
 });
 
-// ── gate 2: locked twice → dropped, logged, no third attempt ────────────────
+// ── gates 2 and 2b: a lock that outlasts the first retry ─────────────────────
 
-test("usage write locked on both attempts is dropped with one log line", async () => {
+const RETRY_STEP_MS = 1000;
+const RETRY_WINDOW_MIN_MS = 10_000;
+const RETRY_WINDOW_MAX_MS = 60_000;
+
+/** Advance the mock clock one step at a time until `done()`; return the elapsed virtual ms. */
+function advanceUntil(done: () => boolean, limitMs = RETRY_WINDOW_MAX_MS): number {
+  let elapsed = 0;
+  while (!done() && elapsed < limitMs) {
+    mock.timers.tick(RETRY_STEP_MS);
+    elapsed += RETRY_STEP_MS;
+  }
+  return elapsed;
+}
+
+test("usage write locked on every retry is dropped with one log line only after a bounded retry window", async () => {
   const before = countRows();
   const errors: unknown[][] = [];
   const log = console.error;
   console.error = (...args: unknown[]) => {
     errors.push(args);
   };
+  mock.timers.enable({ apis: ["setTimeout"] });
   const locker = holdWriteLock();
-  const entry = makeEntry();
   try {
-    await saveRequestUsage(entry as never);
-
-    // Keep the lock held past the deferred attempt, then wait past any
-    // further attempt: a third try would need another full delay window.
-    assert.equal(await waitFor(() => errors.length > 0), true);
-    const logged = errors.length;
-    assert.equal(logged, 1);
+    await saveRequestUsage(makeEntry() as never);
+    const elapsed = advanceUntil(() => errors.length > 0);
+    assert.equal(errors.length, 1);
     assert.match(String(errors[0][0]), /Failed to save usage stats:/);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    assert.equal(errors.length, logged);
+    // One 1 s retry is not enough: the row is kept for several retries, but not forever.
+    assert.ok(elapsed >= RETRY_WINDOW_MIN_MS, `gave up after ${elapsed} ms`);
+    assert.ok(elapsed <= RETRY_WINDOW_MAX_MS, `still retrying after ${elapsed} ms`);
+    // No retry is left to run.
+    advanceUntil(() => false, 10 * 60 * 1000);
+    assert.equal(errors.length, 1);
     assert.equal(countRows(), before);
   } finally {
+    mock.timers.reset();
+    try {
+      if (locker.open) releaseWriteLock(locker);
+    } catch {
+      // Already released above.
+    }
+    console.error = log;
+  }
+});
+
+test("usage write still locked at the first retry is written by a later retry once the lock clears", async () => {
+  const connectionId = "conn-retry-late-free";
+  const errors: unknown[][] = [];
+  const log = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const locker = holdWriteLock();
+  try {
+    await saveRequestUsage(makeEntry({ connectionId }) as never);
+    // The first retry (about 1 s) meets the same lock: still no row, and no log line.
+    mock.timers.tick(RETRY_STEP_MS);
+    assert.equal(countRowsFor(connectionId), 0);
+    assert.equal(errors.length, 0);
+
+    releaseWriteLock(locker);
+    advanceUntil(() => countRowsFor(connectionId) === 1);
+    assert.equal(countRowsFor(connectionId), 1);
+    assert.equal(errors.length, 0);
+  } finally {
+    mock.timers.reset();
     try {
       if (locker.open) releaseWriteLock(locker);
     } catch {
