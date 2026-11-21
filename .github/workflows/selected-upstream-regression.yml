@@ -139,8 +139,12 @@ jobs:
             tests/unit/antigravity-timing.test.ts \
             tests/unit/preferred-connection-failover.test.ts \
             tests/unit/codex-same-account-transport-retry-9708.test.ts
-      - name: UI provider availability (Vitest / jsdom)
-        run: ./node_modules/.bin/vitest run tests/unit/ui/resilience-connections.test.tsx --maxWorkers=2
+      - name: UI provider availability and MCP/A2A toggle (Vitest / jsdom)
+        run: >-
+          ./node_modules/.bin/vitest run
+          tests/unit/ui/resilience-connections.test.tsx
+          tests/unit/ui/mcp-a2a-service-toggle-19620.test.tsx
+          --maxWorkers=2
       - name: Typecheck core
         run: npm run typecheck:core
 
