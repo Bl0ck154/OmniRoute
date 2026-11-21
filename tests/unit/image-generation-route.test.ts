@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import dns from "node:dns";
+import { getSettledModelCatalogRouteResponse } from "../_setup/modelCatalogFixture.ts";
 
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-image-route-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
@@ -210,12 +211,17 @@ test("v1 image routes fail closed for the retired ChatGPT Web alias without netw
 
 // Model discovery uses the same API-key authentication gate as /v1/models.
 async function authenticatedImageCatalog(): Promise<Response> {
+  // Hold one API key stable across catalog warmup retries. A newly generated
+  // key on each read changes the catalog cache key and can force another build.
   const key = await apiKeysDb.createApiKey("Image catalog regression", "image-catalog-regression");
-  const response = await imageRoute.GET(
-    new Request("http://localhost/api/v1/images/generations", {
-      headers: { Authorization: `Bearer ${key.key}` },
-    })
+  const response = await getSettledModelCatalogRouteResponse(v1ModelsCatalog, () =>
+    imageRoute.GET(
+      new Request("http://localhost/api/v1/images/generations", {
+        headers: { Authorization: `Bearer ${key.key}` },
+      })
+    )
   );
+  // Validate only after the upstream fixture has settled a cold catalog build.
   assert.equal(response.status, 200, await response.clone().text());
   return response;
 }
@@ -1557,6 +1563,7 @@ for (const [provider, alias] of [
       { b64_json: "ZmFrZQ==" },
     ]);
     const catalog = await authenticatedImageCatalog();
+    assert.equal(catalog.status, 200);
     const payload = (await catalog.json()) as { data: ImageModelRow[] };
     assert.ok(payload.data.some((row) => row.id === `${provider}/grok-imagine-image-2.0`));
   });
