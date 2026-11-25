@@ -50,6 +50,12 @@ jobs:
             tests/unit/cursor-empty-turn-failover-v9.test.ts \
             tests/unit/credential-scope-diagnostics-15889.test.ts \
             tests/unit/sse-parser.test.ts \
+            tests/unit/stream-usage-estimate-per-chunk.test.ts \
+            tests/unit/stream-usage-guard.test.ts \
+            tests/unit/usage-estimation-linear-guard.test.ts \
+            tests/unit/usage-estimation-memo-20086.test.ts \
+            tests/unit/usage-tracking-request-basis-20086.test.ts \
+            tests/unit/early-stream-keepalive.test.ts \
             tests/unit/migration-223-proxy-logs-attempt-timing.test.ts \
             tests/unit/migration-194-213-223-fork-upgrade.test.ts \
             tests/unit/order-forge-image-artifact-sink.test.ts \
