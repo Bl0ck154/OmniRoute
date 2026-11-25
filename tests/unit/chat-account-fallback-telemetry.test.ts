@@ -15,22 +15,22 @@ test.after(async () => {
   await harness.cleanup();
 });
 
-test("selected Codex plan is exposed without depending on an upstream quota header", () => {
-  const response = withSelectedConnectionHeader(new Response("ok"), "connection-id", {
-    selectedConnectionPlan: "Plus",
-  });
-
-  assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Plan"), "plus");
-});
-
-test("selected plan is bounded and sanitized when no connection is selected", () => {
-  const response = withSelectedConnectionHeader(new Response("ok"), null, {
-    selectedConnectionPlan: "  PlUs / Pro|Trial  ",
-  });
-  assert.equal(
-    response.headers.get("X-OmniRoute-Selected-Connection-Plan"),
-    "plus_pro_trial"
-  );
+test("selected Codex plan is exposed without an upstream quota header only when opted in", () => {
+  const previous = process.env.OMNIROUTE_CODEX_PLAN_RESPONSE_HEADER;
+  try {
+    process.env.OMNIROUTE_CODEX_PLAN_RESPONSE_HEADER = "1";
+    const response = withSelectedConnectionHeader(new Response("ok"), "connection-id", {
+      selectedConnectionPlan: "Plus",
+    });
+    assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Plan"), "plus");
+    const unsafe = withSelectedConnectionHeader(new Response("ok"), null, {
+      selectedConnectionPlan: "  PlUs / Pro|Trial  ",
+    });
+    assert.equal(unsafe.headers.get("X-OmniRoute-Selected-Connection-Plan"), null);
+  } finally {
+    if (previous === undefined) delete process.env.OMNIROUTE_CODEX_PLAN_RESPONSE_HEADER;
+    else process.env.OMNIROUTE_CODEX_PLAN_RESPONSE_HEADER = previous;
+  }
 });
 
 test("telemetry headers are bounded and never echo untrusted errors", () => {
@@ -48,6 +48,38 @@ test("telemetry headers are bounded and never echo untrusted errors", () => {
   assert.equal(response.headers.get("X-OmniRoute-Same-Account-Retries"), "1");
   assert.equal(response.headers.get("X-OmniRoute-Routing-Wait-Ms"), "175");
   assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Plan"), null);
+});
+
+test("Codex account plan diagnostics are off by default and allowlisted when enabled", () => {
+  const key = "OMNIROUTE_CODEX_PLAN_RESPONSE_HEADER";
+  const before = process.env[key];
+  try {
+    delete process.env[key];
+    const hidden = withSelectedConnectionHeader(new Response("ok"), "c", {
+      selectedConnectionPlan: "Plus",
+    });
+    assert.equal(hidden.headers.get("X-OmniRoute-Selected-Connection-Plan"), null);
+
+    process.env[key] = "1";
+    const visible = withSelectedConnectionHeader(new Response("ok"), "c", {
+      selectedConnectionPlan: "Plus",
+    });
+    assert.equal(visible.headers.get("X-OmniRoute-Selected-Connection-Plan"), "plus");
+    const normalized = withSelectedConnectionHeader(new Response("ok"), "c", {
+      selectedConnectionPlan: "Pro Max",
+    });
+    assert.equal(normalized.headers.get("X-OmniRoute-Selected-Connection-Plan"), "promax");
+
+    for (const unsafe of ["custom-internal-secret", "Plus\r\nInjected: true", ""]) {
+      const response = withSelectedConnectionHeader(new Response("ok"), "c", {
+        selectedConnectionPlan: unsafe,
+      });
+      assert.equal(response.headers.get("X-OmniRoute-Selected-Connection-Plan"), null);
+    }
+  } finally {
+    if (before === undefined) delete process.env[key];
+    else process.env[key] = before;
+  }
 });
 
 test("immutable response clone retains trusted response policies alongside telemetry", async () => {

@@ -1,7 +1,9 @@
 /**
- * POST /v1/decisions — Google Gemini Decision 1 native Decisions API.
+ * POST /v1/decisions — native Google Gemini and OpenAI Decisions APIs.
  * This is intentionally not routed through generateContent or System One.
  */
+import { createDecisionsRouteHandlers } from "@/app/api/v1/_shared/decisionsRoute";
+import { resolveOpenAiDecisionModel, MAX_DECISIONS_REQUEST_BYTES as MAX_OPENAI_DECISIONS_BYTES } from "@omniroute/open-sse/services/decision/native/openaiDecisions.ts";
 import { CORS_HEADERS } from "@/shared/utils/cors";
 import { enforceClientApiRouteAuth } from "@/shared/utils/clientApiRouteAuth";
 import { enforceApiKeyPolicyWithScope, unusableCredentialsResponse } from "@/app/api/v1/_shared/keyScopedRoute";
@@ -24,6 +26,7 @@ import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 
 export const dynamic = "force-dynamic";
+const openAiHandlers = createDecisionsRouteHandlers();
 const PROVIDER = "gemini";
 const MAX_UPSTREAM_ATTEMPTS = 4;
 const TOTAL_DEADLINE_MS = 45_000;
@@ -90,10 +93,10 @@ function logAttempt(
   }).catch(() => {});
 }
 
-async function parseBoundedJson(request: Request): Promise<unknown> {
+async function parseBoundedJson(request: Request): Promise<{raw: unknown; size: number}> {
   const length = Number(request.headers.get("content-length") || "0");
   if (length > MAX_DECISIONS_REQUEST_BYTES) throw new Error("payload_too_large");
-  if (!request.body) return null;
+  if (!request.body) return { raw: null, size: 0 };
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -102,7 +105,10 @@ async function parseBoundedJson(request: Request): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_DECISIONS_REQUEST_BYTES) throw new Error("payload_too_large");
+      if (size > MAX_DECISIONS_REQUEST_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new Error("payload_too_large");
+      }
       chunks.push(value);
     }
   } finally {
@@ -114,10 +120,10 @@ async function parseBoundedJson(request: Request): Promise<unknown> {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder().decode(bytes));
+  return { raw: JSON.parse(new TextDecoder().decode(bytes)), size };
 }
 
-export async function OPTIONS(): Promise<Response> {
+export function OPTIONS(): Response {
   return new Response(null, {
     headers: { ...CORS_HEADERS, "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "*" },
@@ -126,7 +132,7 @@ export async function OPTIONS(): Promise<Response> {
 
 export async function GET(request: Request): Promise<Response> {
   return getSpecialtyModelsResponse(request, "/v1/decisions", (entry) =>
-    entry.id === GEMINI_DECISION_PUBLIC_MODEL || entry.id === GEMINI_DECISION_MODEL);
+    entry.id === GEMINI_DECISION_PUBLIC_MODEL || entry.id === GEMINI_DECISION_MODEL || resolveOpenAiDecisionModel(entry.id) !== null);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -137,14 +143,36 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   let raw: unknown;
+  let size: number;
   try {
-    raw = await parseBoundedJson(request);
+    ({raw, size} = await parseBoundedJson(request));
   } catch (error) {
     return errorResponse(
       error instanceof Error && error.message === "payload_too_large" ? 413 : 400,
       error instanceof Error && error.message === "payload_too_large"
         ? "Decisions request body exceeds size limit" : "Invalid JSON body"
     );
+  }
+  const requestedModel = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>).model : undefined;
+  if (resolveOpenAiDecisionModel(requestedModel)) {
+    // The combined endpoint retains the existing Gemini ingress cap for multimodal
+    // payloads, but OpenAI must independently enforce its smaller wire cap.
+    const declared = Number(request.headers.get("content-length") || "0");
+    if (size > MAX_OPENAI_DECISIONS_BYTES || declared > MAX_OPENAI_DECISIONS_BYTES) {
+      return errorResponse(413, `Decisions request body exceeds ${MAX_OPENAI_DECISIONS_BYTES} bytes`);
+    }
+    const serialized = JSON.stringify(raw);
+    if (Buffer.byteLength(serialized, "utf8") > MAX_OPENAI_DECISIONS_BYTES) {
+      return errorResponse(413, `Decisions request body exceeds ${MAX_OPENAI_DECISIONS_BYTES} bytes`);
+    }
+    const headers = new Headers(request.headers);
+    headers.delete("content-length");
+    // Rebuild only the bounded OpenAI payload: keep its injection guard, key policy,
+    // provider-specific connection scope and abort signal intact.
+    return openAiHandlers.POST(new Request(request.url, {
+      method: "POST", headers, body: serialized, signal: request.signal,
+    }));
   }
   const parsed = geminiDecisionsSchema.safeParse(raw);
   if (!parsed.success) {
