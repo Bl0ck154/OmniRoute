@@ -63,6 +63,7 @@ jobs:
             tests/unit/agentic-executor-fallback.test.ts \
             tests/unit/antigravity-38-flash-tiered-only-account-15659.test.ts \
             tests/unit/antigravity-model-aliases.test.ts \
+            tests/unit/services/antigravityArgonEligibility.test.ts \
             tests/unit/breaker-network-error-guard.test.ts \
             tests/unit/buffered-responses-failure.test.ts \
             tests/unit/codex-overload-scope.test.ts \
