@@ -1,6 +1,7 @@
 import { normalizeProviderSpecificData } from "@/lib/providers/requestDefaults";
 import { WEB_COOKIE_PROVIDERS } from "@/shared/constants/providers";
 import { withDerivedCookieExpiry } from "@/shared/utils/webCookieExpiry";
+import { sanitizeAntigravityExclusions } from "@/lib/usage/providerLimits/argonExclusions";
 import { ensureCodexFingerprintSeed } from "@omniroute/open-sse/config/codexIdentity.ts";
 
 type Metadata = Record<string, unknown>;
@@ -18,6 +19,7 @@ export function normalizeConnectionProviderSpecificData(
 ) {
   const normalized = normalizeProviderSpecificData(provider, providerSpecificData);
   const withExpiry = withDerivedCookieExpiryForProvider(provider, normalized, credentials);
+  if (provider === "antigravity" || provider === "agy") return sanitizeAntigravityExclusions(withExpiry);
   if (provider !== "codex") return withExpiry;
 
   if (isMetadata(providerSpecificData) && isMetadata(existingProviderSpecificData)) {

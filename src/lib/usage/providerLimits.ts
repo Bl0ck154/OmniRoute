@@ -67,7 +67,11 @@ import {
 } from "./providerLimits/quotaNormalize";
 import { getCachedLiveModelIds, refreshLiveModelIds } from "./providerLimits/liveModelIds";
 import { syncInChunksWithSpacing } from "./providerLimits/chunkedSpacingSync";
-import { ARGON_EXCLUSION, dropLegacyGemini4Exclusion } from "./providerLimits/argonExclusions";
+import {
+  ARGON_EXCLUSION,
+  dropLegacyGemini4Exclusion,
+  sanitizeAntigravityExclusions,
+} from "./providerLimits/argonExclusions";
 import {
   currentQuotaBatchEntries,
   refreshedCodexFence,
@@ -751,7 +755,6 @@ function markArgonIneligible(
   const kept = dropLegacyGemini4Exclusion(stored);
   const missing = !kept.includes(ARGON_EXCLUSION);
   if (missing || kept.length !== stored.length) {
-    // Prepended: right after an operator's gemini-4* it would read as the legacy pair.
     nextPsd.excludedModels = missing ? [ARGON_EXCLUSION, ...kept] : kept;
     changed = true;
   }
@@ -784,10 +787,11 @@ export function applyAntigravityArgonEligibilityToPsd(
   psd: Record<string, unknown>,
   hasArgon: unknown
 ): { nextPsd: Record<string, unknown>; changed: boolean } {
-  const nextPsd: Record<string, unknown> = { ...psd };
-  if (typeof hasArgon !== "boolean") return { nextPsd, changed: false };
-  const changed = hasArgon ? markArgonEligible(psd, nextPsd) : markArgonIneligible(psd, nextPsd);
-  return { nextPsd, changed };
+  const sanitized = sanitizeAntigravityExclusions(psd);
+  const nextPsd: Record<string, unknown> = { ...sanitized };
+  if (typeof hasArgon !== "boolean") return { nextPsd, changed: sanitized !== psd };
+  const changed = hasArgon ? markArgonEligible(sanitized, nextPsd) : markArgonIneligible(sanitized, nextPsd);
+  return { nextPsd, changed: changed || sanitized !== psd };
 }
 
 /** Copy tier, plan and a newly discovered projectId from loadCodeAssist into nextPsd. */
@@ -845,12 +849,10 @@ async function syncAntigravitySubscriptionIfNeeded(
   let changed = subscriptionResult.changed;
   const nextProjectId = subscriptionResult.nextProjectId;
 
-  if (typeof usage.hasArgon === "boolean") {
-    const argonResult = applyAntigravityArgonEligibilityToPsd(nextPsd, usage.hasArgon);
-    if (argonResult.changed) {
-      nextPsd = argonResult.nextPsd;
-      changed = true;
-    }
+  const argonResult = applyAntigravityArgonEligibilityToPsd(nextPsd, usage.hasArgon);
+  if (argonResult.changed) {
+    nextPsd = argonResult.nextPsd;
+    changed = true;
   }
 
   if (!changed) return connection;
