@@ -4,16 +4,26 @@
  */
 export const ARGON_EXCLUSION = "*argon*";
 
-/** Earlier releases also wrote this one, immediately before ARGON_EXCLUSION. */
+/** The fork owner explicitly retired the blanket Gemini 4 exclusion for Antigravity. */
 const LEGACY_GEMINI_4_EXCLUSION = "gemini-4*";
 
-/**
- * Drop the legacy gemini-4* from a stored exclusion list, recognised by its position: it sits
- * immediately before ARGON_EXCLUSION. A gemini-4* anywhere else is the operator's and stays.
- */
 export function dropLegacyGemini4Exclusion(patterns: string[]): string[] {
-  return patterns.filter(
-    (pattern, index) =>
-      pattern !== LEGACY_GEMINI_4_EXCLUSION || patterns[index + 1] !== ARGON_EXCLUSION
-  );
+  return patterns.filter((pattern) => pattern.trim().toLowerCase() !== LEGACY_GEMINI_4_EXCLUSION);
+}
+
+/** Also sanitize imported or refreshed connection metadata before it is persisted. */
+export function sanitizeAntigravityExclusions(data: Record<string, unknown>): Record<string, unknown> {
+  let next = data;
+  for (const key of ["excludedModels", "excluded_models"]) {
+    const value = data[key];
+    if (Array.isArray(value)) {
+      const filtered = value.filter((pattern) => typeof pattern !== "string" || pattern.trim().toLowerCase() !== LEGACY_GEMINI_4_EXCLUSION);
+      if (filtered.length !== value.length) next = { ...next, [key]: filtered };
+    } else if (typeof value === "string") {
+      const entries = value.split(",");
+      const filtered = dropLegacyGemini4Exclusion(entries);
+      if (filtered.length !== entries.length) next = { ...next, [key]: filtered.join(",") };
+    }
+  }
+  return next;
 }

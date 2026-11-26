@@ -102,14 +102,14 @@ test("applyAntigravityArgonEligibilityToPsd: when hasArgon is true is idempotent
   assert.deepEqual(result.nextPsd.excludedModels, ["claude-3-haiku*"]);
 });
 
-test("applyAntigravityArgonEligibilityToPsd: non-boolean hasArgon does not modify psd", () => {
+test("applyAntigravityArgonEligibilityToPsd: non-boolean hasArgon still removes retired blanket exclusion", () => {
   const psd = { hasArgon: false, excludedModels: ["gemini-4*"] };
 
   for (const invalid of [undefined, null, "true", 1, {}, []]) {
     const result = applyAntigravityArgonEligibilityToPsd(psd, invalid);
-    assert.equal(result.changed, false);
+    assert.equal(result.changed, true);
     assert.equal(result.nextPsd.hasArgon, false);
-    assert.deepEqual(result.nextPsd.excludedModels, ["gemini-4*"]);
+    assert.deepEqual(result.nextPsd.excludedModels, []);
   }
 });
 
@@ -171,22 +171,30 @@ test("a refresh drops the stored legacy gemini-4* from an Argon-ineligible accou
   assert.equal(again.changed, false, "the repair runs once");
 });
 
-test("an operator's own gemini-4* exclusion survives repeated refreshes", () => {
-  let psd: Record<string, unknown> = { excludedModels: ["gemini-4*"] };
-  for (let refresh = 0; refresh < 3; refresh += 1) {
-    psd = applyAntigravityArgonEligibilityToPsd(psd, false).nextPsd;
+test("blanket exclusion is never retained across repeated refreshes, regardless of order", () => {
+  for (const excludedModels of [["gemini-4*"], ["*argon*", "gemini-4*"], ["gemini-4*", "*argon*"], ["*argon*", "gpt-4*", "gemini-4*"]]) {
+    let psd: Record<string, unknown> = { excludedModels };
+    for (let refresh = 0; refresh < 3; refresh += 1) {
+      psd = applyAntigravityArgonEligibilityToPsd(psd, false).nextPsd;
+    }
+    assert.equal(isModelExcludedByConnection("gemini-4-hydrogen-sonar", psd), false);
+    assert.equal(isModelExcludedByConnection("gemini-4-argon-high", psd), true);
+    assert.equal(applyAntigravityArgonEligibilityToPsd(psd, false).changed, false);
+    assert.deepEqual(applyAntigravityArgonEligibilityToPsd(psd, true).nextPsd.excludedModels, excludedModels.includes("gpt-4*") ? ["gpt-4*"] : []);
   }
-
-  assert.deepEqual(psd.excludedModels, ["*argon*", "gemini-4*"]);
-  assert.equal(isModelExcludedByConnection("gemini-4-hydrogen-high", psd), true);
 });
 
-test("an operator's gemini-4* away from the legacy pair survives a change of eligibility", () => {
-  const psd = { hasArgon: false, excludedModels: ["*argon*", "gpt-4*", "gemini-4*"] };
-
-  assert.equal(applyAntigravityArgonEligibilityToPsd(psd, false).changed, false);
-  assert.deepEqual(applyAntigravityArgonEligibilityToPsd(psd, true).nextPsd.excludedModels, [
-    "gpt-4*",
-    "gemini-4*",
-  ]);
+test("connection import and update normalization strips blanket Gemini 4 only for Antigravity", async () => {
+  const { normalizeConnectionProviderSpecificData } = await import("../../../src/lib/db/providers/providerSpecificData.ts");
+  const data = { excludedModels: ["gemini-4*", "*argon*", "claude*"], excluded_models: "gemini-4*,other*" };
+  for (const provider of ["antigravity", "agy"]) {
+    const result = normalizeConnectionProviderSpecificData(provider, data, {});
+    assert.deepEqual(result.excludedModels, ["*argon*", "claude*"]);
+    assert.equal(result.excluded_models, undefined);
+    const legacy = normalizeConnectionProviderSpecificData(provider, { excluded_models: "gemini-4*,other*" }, {});
+    assert.deepEqual(legacy.excludedModels, ["other*"]);
+    assert.equal(legacy.excluded_models, undefined);
+  }
+  assert.deepEqual(normalizeConnectionProviderSpecificData("gemini", data, {}).excludedModels, data.excludedModels);
+  assert.deepEqual(data.excludedModels, ["gemini-4*", "*argon*", "claude*"]);
 });
