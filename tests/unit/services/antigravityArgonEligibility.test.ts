@@ -190,7 +190,10 @@ test("connection import and update normalization strips blanket Gemini 4 only fo
   for (const provider of ["antigravity", "agy"]) {
     const result = normalizeConnectionProviderSpecificData(provider, data, {});
     assert.deepEqual(result.excludedModels, ["*argon*", "claude*"]);
-    assert.equal(result.excluded_models, "other*");
+    assert.equal(result.excluded_models, undefined);
+    const legacy = normalizeConnectionProviderSpecificData(provider, { excluded_models: "gemini-4*,other*" }, {});
+    assert.deepEqual(legacy.excludedModels, ["other*"]);
+    assert.equal(legacy.excluded_models, undefined);
   }
   assert.deepEqual(normalizeConnectionProviderSpecificData("gemini", data, {}).excludedModels, data.excludedModels);
   assert.deepEqual(data.excludedModels, ["gemini-4*", "*argon*", "claude*"]);
