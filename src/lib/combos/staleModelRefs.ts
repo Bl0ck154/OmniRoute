@@ -68,35 +68,46 @@ export async function findStaleComboModelRefs(providerId: string): Promise<Stale
   return stale;
 }
 
+/** Provider an explicit combo step pins, or null for any other step kind. */
+function explicitStepProvider(step: unknown): string | null {
+  if (!isExplicitModelStep(step)) return null;
+  const model = getComboModelString(step);
+  if (!model) return null;
+  return getComboModelProvider(step) || parseModel(model).provider || null;
+}
 
-/**
- * Builder-wide stale badges. Discover provider ids only from explicit combo
- * steps; no broad network/live-model discovery is performed by this UI read.
- * Reuse the same per-provider authoritative-catalog gate as model sync.
- */
-export async function findAllStaleComboModelRefs(): Promise<StaleComboModelRef[]> {
-  const providerIds = new Set<string>();
+async function collectExplicitStepProviders(): Promise<Set<string>> {
+  const providers = new Set<string>();
   for (const combo of await getCombos()) {
-    if (!Array.isArray(combo.models)) continue;
-    for (const step of combo.models as unknown[]) {
-      if (!isExplicitModelStep(step)) continue;
-      const model = getComboModelString(step);
-      if (!model) continue;
-      const provider = getComboModelProvider(step) || parseModel(model).provider;
-      if (provider) providerIds.add(provider);
+    const steps = Array.isArray(combo.models) ? (combo.models as unknown[]) : [];
+    for (const step of steps) {
+      const provider = explicitStepProvider(step);
+      if (provider) providers.add(provider);
     }
   }
+  return providers;
+}
 
+/**
+ * Stale refs across every provider an explicit combo step pins, for the combo
+ * editor badge. Each provider keeps the same fail-open rule as above.
+ */
+export async function findAllStaleComboModelRefs(
+  // Optional lookup supports deterministic isolation tests without breaking the
+  // real catalog/DB reader used by the combo editor.
+  lookupProvider: (providerId: string) => Promise<StaleComboModelRef[]> = findStaleComboModelRefs
+): Promise<StaleComboModelRef[]> {
+  // A step can match two provider ids (alias vs canonical), so dedupe by key.
   const byKey = new Map<string, StaleComboModelRef>();
-  for (const providerId of providerIds) {
-    // One provider's discovery/DB failure should not hide warnings for others.
+  for (const providerId of await collectExplicitStepProviders()) {
     try {
-      for (const ref of await findStaleComboModelRefs(providerId)) {
-        // The same combo step can resolve through a provider alias and its canonical ID.
+      for (const ref of await lookupProvider(providerId)) {
         const key = JSON.stringify([ref.comboId, ref.stepId, ref.model]);
         if (!byKey.has(key)) byKey.set(key, ref);
       }
     } catch {
+      // An unavailable provider catalog must not hide badges for other providers.
+      // This is a read-only hint; no combo is modified by skipping one provider.
       continue;
     }
   }

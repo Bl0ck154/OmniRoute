@@ -54,9 +54,9 @@ export function createUpstreamStartTimeoutError(
     `Upstream request did not return response headers after ${timeoutMs}ms (${provider}/${model})`
   );
   err.name = "TimeoutError";
-  // The outer per-request header timer is another producer of the SAME
-  // Antigravity pre-response condition as the executor's own readiness
-  // timer. Carry a private marker through the leg, never a raw URL/token.
+  // The outer response-start watchdog and Antigravity executor readiness
+  // watchdog describe the same confirmed pre-response failure. Preserve its
+  // private marker so the non-streaming leg can route away from this account.
   if (provider === "antigravity" || provider === "agy") {
     (err as Error & { code?: string }).code = ANTIGRAVITY_PRE_RESPONSE_TIMEOUT_CODE;
   }

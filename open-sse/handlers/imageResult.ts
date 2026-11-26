@@ -14,6 +14,7 @@ export function saveImageSuccessResult({
   created = null,
   images,
   telemetry = null,
+  outputFormat = undefined,
   path = "/v1/images/generations",
 }) {
   saveCallLog({
@@ -32,6 +33,7 @@ export function saveImageSuccessResult({
     data: {
       created: created || Math.floor(Date.now() / 1000),
       data: images,
+      ...(outputFormat ? { output_format: outputFormat } : {}),
     },
     ...(telemetry ? { telemetry } : {}),
   };

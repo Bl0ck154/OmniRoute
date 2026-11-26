@@ -536,6 +536,8 @@ function isInputTokenCountPlausibleForBasis(
     return false;
   }
 
+  // The bound is bytes * 2 + 8192, so anything up to the fixed allowance is plausible for every
+  // body: skip stringifying a multi-megabyte request just to confirm a small count.
   if (inputTokens <= INPUT_USAGE_FIXED_ALLOWANCE) return true;
   const bodyBytes = basis.bodyBytes();
   if (bodyBytes === null) return true;
@@ -543,7 +545,10 @@ function isInputTokenCountPlausibleForBasis(
   return inputTokens <= maximum;
 }
 
-/** Unserializable bodies and remote references fail open. */
+/**
+ * Return true when a provider-reported input count is plausible for this request.
+ * `null`/unserializable bodies and server-side context references fail open.
+ */
 export function isInputTokenCountPlausible(inputTokens: unknown, body: unknown): boolean {
   return isInputTokenCountPlausibleForBasis(inputTokens, createRequestUsageBasis(body));
 }
@@ -1148,11 +1153,11 @@ export function logUsage(
     ? normalizedConnectionId.slice(0, 8) + "..."
     : "unknown";
 
-  let msg = `[${getTimeString()}] 📊 ${COLORS.green}[USAGE] ${p} | in=${evidence.input.source === "estimated" ? "~" : ""}${inTokens} | out=${evidence.output.source === "estimated" ? "~" : ""}${outTokens} | account=${accountPrefix}${COLORS.reset}`;
+  let msg = `[${getTimeString()}] 📊 ${COLORS.green}[USAGE] ${p} | in=${evidence.input.source === "estimated" ? "~" : ""}${inTokens} | out=${evidence.output.source === "estimated" ? "~" : ""}${outTokens} | account=${accountPrefix}`;
 
   // Add estimated flag if present
   if (usage.estimated) {
-    msg += ` ${COLORS.yellow}(estimated)${COLORS.reset}`;
+    msg += ` ${COLORS.yellow}(estimated)${COLORS.green}`;
   }
 
   // Add cache info if present (unified from different formats)
@@ -1170,7 +1175,7 @@ export function logUsage(
   const reasoning = usage.reasoning_tokens;
   if (reasoning) msg += ` | reasoning=${reasoning}`;
 
-  console.log(msg);
+  console.log(msg + COLORS.reset);
 
   // Streaming requests persist usage once in chatCore's completion callback.
   // This diagnostic request-log append is separate from durable token accounting.
